@@ -34,6 +34,21 @@ variable "ssh_authorized_keys" {
   description = "SSH public keys for the orbit account."
 }
 
+variable "static_ipv4" {
+  description = "Static IPv4 settings applied through cloud-init network-config. Leave null to use DHCP reservations."
+  type = object({
+    prefix_length = number
+    gateway       = string
+    nameservers   = list(string)
+  })
+  default = null
+
+  validation {
+    condition     = var.static_ipv4 == null || (var.static_ipv4.prefix_length >= 1 && var.static_ipv4.prefix_length <= 32)
+    error_message = "static_ipv4.prefix_length must be between 1 and 32."
+  }
+}
+
 variable "vms" {
   description = "VM resource, disk, MAC and reserved IP definitions."
   type = map(object({
