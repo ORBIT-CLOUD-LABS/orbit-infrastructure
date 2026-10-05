@@ -40,7 +40,7 @@ for n in $NODES; do
 #cloud-config
 hostname: $NAME
 users:
-  - name: ubuntu
+  - name: orbit
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     ssh_authorized_keys:

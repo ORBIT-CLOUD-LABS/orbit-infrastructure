@@ -12,21 +12,21 @@
     --node-name={{ inventory_hostname }}
   when: not admin_conf.stat.exists
 
-- name: ubuntu 사용자 kubeconfig 디렉터리
+- name: 접속 사용자 kubeconfig 디렉터리
   ansible.builtin.file:
-    path: /home/ubuntu/.kube
+    path: "/home/{{ ansible_user }}/.kube"
     state: directory
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
     mode: "0700"
 
-- name: ubuntu 사용자 kubeconfig 복사
+- name: 접속 사용자 kubeconfig 복사
   ansible.builtin.copy:
     src: /etc/kubernetes/admin.conf
-    dest: /home/ubuntu/.kube/config
+    dest: "/home/{{ ansible_user }}/.kube/config"
     remote_src: true
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
     mode: "0600"
 
 - name: CNI(Flannel) 설치
