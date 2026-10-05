@@ -49,10 +49,16 @@
     update_cache: true
     cache_valid_time: 3600
 
+- name: 이전 설정 파일 제거 (이름 변경 전 99-orbit.cnf)
+  ansible.builtin.file:
+    path: /etc/mysql/mysql.conf.d/99-orbit.cnf
+    state: absent
+  notify: restart mysql
+
 - name: MySQL 설정 (외부 접속, 자원)
   ansible.builtin.template:
     src: 99-orbit.cnf.j2
-    dest: /etc/mysql/mysql.conf.d/99-orbit.cnf
+    dest: /etc/mysql/mysql.conf.d/zz-orbit.cnf
     mode: "0644"
   notify: restart mysql
 
