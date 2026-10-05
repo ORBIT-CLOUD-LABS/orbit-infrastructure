@@ -1,0 +1,13 @@
+---
+# 예비(reserve) 노드: 클러스터에는 들어가지만 평소에는 Pod가 배치되지 않음
+# workers 그룹에 없는 이름은 무시된다. 목록에서 빼고 다시 실행하면 taint가 제거된다.
+k8s_reserved_nodes: [astra-worker-3]
+k8s_reserved_taint_key: orbit.io/reserved
+k8s_reserved_taint: "orbit.io/reserved=true:NoSchedule"
+
+# 노드별 추가 라벨 (예: { astra-worker-1: { orbit.io/pool: app } })
+k8s_node_labels: {}
+
+# 스모크 테스트: 임시 Pod로 스케줄링·DNS 확인 후 삭제
+k8s_smoke_test: true
+k8s_smoke_image: busybox:1.36
