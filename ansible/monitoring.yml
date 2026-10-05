@@ -1,0 +1,28 @@
+---
+# Monitoring Host Role 적용
+# 실행: ansible-playbook monitoring.yml --ask-vault-pass
+
+# 1. 모든 관리 노드: node-exporter (수집 대상)
+- name: Node exporter
+  hosts: all
+  become: true
+  roles:
+    - role: node_exporter
+      tags: [monitoring, node_exporter]
+
+# 2. Monitoring VM: Prometheus · Alertmanager · Loki · Grafana
+- name: Monitoring host
+  hosts: monitoring
+  become: true
+  pre_tasks:
+    - name: 비밀값 로드 (secrets/vault.yml이 있을 때)
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/secrets/vault.yml"
+      when: (playbook_dir ~ '/secrets/vault.yml') is file
+      tags: [always]
+  vars:
+    grafana_admin_password: "{{ vault_grafana_admin_password | default('') }}"
+    alertmanager_slack_webhook: "{{ vault_slack_webhook | default('') }}"
+  roles:
+    - role: monitoring_host
+      tags: [monitoring]

@@ -55,3 +55,6 @@
 
 - name: Database
   ansible.builtin.import_playbook: database.yml
+
+- name: Monitoring
+  ansible.builtin.import_playbook: monitoring.yml

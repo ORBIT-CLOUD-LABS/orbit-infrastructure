@@ -1,0 +1,5 @@
+---
+- name: recreate monitoring
+  ansible.builtin.command: docker compose up -d --force-recreate
+  args:
+    chdir: "{{ monitoring_config_dir }}"
