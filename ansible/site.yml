@@ -1,0 +1,59 @@
+---
+# 0. VM이 부팅되고 cloud-init이 끝날 때까지 대기
+- name: Wait for VMs
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: SSH 접속 가능할 때까지 대기
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+
+    - name: cloud-init 완료 대기
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
+# 1. 모든 노드 공통 (swap, 커널 모듈, containerd, kubeadm)
+- name: Common
+  hosts: k8s
+  become: true
+  roles:
+    - common
+
+# 2. control plane: kubeadm init + CNI
+- name: Control plane
+  hosts: control_plane
+  become: true
+  roles:
+    - control_plane
+
+# 3. worker: kubeadm join
+- name: Workers
+  hosts: workers
+  become: true
+  roles:
+    - worker
+
+
+# 4. 검증: 모든 노드 Ready
+- name: Verify cluster
+  hosts: control_plane
+  become: true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  tasks:
+    - name: 모든 노드 Ready 대기
+      ansible.builtin.command: kubectl wait --for=condition=Ready nodes --all --timeout=300s
+      changed_when: false
+
+    - name: kubectl get nodes
+      ansible.builtin.command: kubectl get nodes -o wide
+      register: nodes_out
+      changed_when: false
+
+    - name: 결과 출력
+      ansible.builtin.debug:
+        var: nodes_out.stdout_lines
