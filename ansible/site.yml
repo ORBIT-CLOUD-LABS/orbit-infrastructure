@@ -52,3 +52,6 @@
 
 - name: Kubernetes 후처리
   ansible.builtin.import_playbook: k8s-post.yml
+
+- name: Database
+  ansible.builtin.import_playbook: database.yml

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# {{ db_name }} DB 백업: {{ db_backup_dir }}/{{ db_name }}-YYYYmmdd-HHMMSS.sql.gz
+# {{ db_backup_retention_days }}일 지난 백업은 삭제
+set -euo pipefail
+DIR="{{ db_backup_dir }}"
+FILE="$DIR/{{ db_name }}-$(date +%Y%m%d-%H%M%S).sql.gz"
+
+mysqldump --single-transaction --routines --triggers --databases {{ db_name }} | gzip > "$FILE.tmp"
+mv "$FILE.tmp" "$FILE"
+find "$DIR" -name '{{ db_name }}-*.sql.gz' -mtime +{{ db_backup_retention_days }} -delete
+
+echo "$(date '+%F %T') backup ok: $FILE ($(du -h "$FILE" | cut -f1))"

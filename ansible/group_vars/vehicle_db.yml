@@ -1,0 +1,10 @@
+# astra-vehicle-db (astra, Lab 네트워크 192.168.100.0/24)
+db_name: vehicle
+db_app_user: vehicle_app
+db_app_password: "{{ vault_vehicle_db_password | default('') }}"
+
+# Terraform이 붙인 데이터 volume. VM에서 lsblk로 확인 후 맞출 것
+db_data_device: /dev/vdb
+
+# k8s Pod는 노드 IP로 나가므로(Flannel masquerade) Lab 대역만 허용
+db_allowed_hosts: ["192.168.100.%"]
