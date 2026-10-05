@@ -13,7 +13,7 @@ resource "terraform_data" "base_image" {
 }
 
 resource "libvirt_volume" "base_image" {
-  name = "ubuntu-24.04-server-cloudimg-amd64-20260926.qcow2"
+  name = var.base_volume_name
   pool = var.pool_name
 
   target = {

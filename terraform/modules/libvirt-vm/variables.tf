@@ -23,6 +23,12 @@ variable "base_image_sha256" {
   }
 }
 
+variable "base_volume_name" {
+  type        = string
+  description = "libvirt volume name for the shared base image. Use a distinct name per stack to avoid sharing the backing file."
+  default     = "ubuntu-24.04-server-cloudimg-amd64-20260926.qcow2"
+}
+
 variable "ssh_authorized_keys" {
   type        = set(string)
   description = "SSH public keys for the orbit account."
