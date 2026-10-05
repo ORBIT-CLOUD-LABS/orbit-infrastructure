@@ -1,29 +1,20 @@
 ---
-# 0. VM이 부팅되고 cloud-init이 끝날 때까지 대기
-- name: Wait for VMs
-  hosts: all
-  gather_facts: false
-  become: true
-  tasks:
-    - name: SSH 접속 가능할 때까지 대기
-      ansible.builtin.wait_for_connection:
-        timeout: 300
+# ORBIT Lab 전체 구성 플레이북
+# 실행: ansible-playbook site.yml           (inventory/lab/hosts.ini)
+#      ansible-playbook -i inventory/test.ini site.yml   (테스트 VM)
 
-    - name: cloud-init 완료 대기
-      ansible.builtin.command: cloud-init status --wait
-      changed_when: false
+# 0. 설치 전 점검 (접속, OS, 자원, 중복, 포트, 인터넷)
+- name: Preflight
+  ansible.builtin.import_playbook: preflight.yml
 
-    - name: Gather facts
-      ansible.builtin.setup:
-
-# 1. 모든 노드 공통 (swap, 커널 모듈, containerd, kubeadm)
+# 1. k8s 노드 공통: swap, 커널 모듈, containerd, kubelet/kubeadm/kubectl
 - name: Common
   hosts: k8s
   become: true
   roles:
     - common
 
-# 2. control plane: kubeadm init + CNI
+# 2. control plane: kubeadm init + CNI(Flannel) + join 명령 생성
 - name: Control plane
   hosts: control_plane
   become: true
@@ -37,6 +28,7 @@
   roles:
     - worker
 
+# (다음 롤은 각 이슈/PR에서 여기에 추가: jenkins, monitoring, nfs, db, addons)
 
 # 4. 검증: 모든 노드 Ready
 - name: Verify cluster

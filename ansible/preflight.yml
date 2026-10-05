@@ -1,0 +1,123 @@
+---
+# Preflight: 설치를 시작하기 전에 관리 노드가 조건을 만족하는지 점검한다.
+# 단독 실행: ansible-playbook preflight.yml
+# site.yml 맨 앞에서도 자동으로 실행된다.
+
+# 0. 접속 가능 여부 (모든 관리 노드)
+- name: Preflight | 접속
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: SSH 접속 가능할 때까지 대기
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+
+    - name: cloud-init 완료 대기
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: 시스템 정보(팩트) 수집
+      ansible.builtin.setup:
+
+# 1. 모든 관리 노드 공통 점검
+- name: Preflight | 공통
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: OS가 Ubuntu 22.04 이상인지
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_version is version('22.04', '>=')
+        fail_msg: "{{ inventory_hostname }}: Ubuntu 22.04 이상 필요 (현재 {{ ansible_distribution }} {{ ansible_distribution_version }})"
+        quiet: true
+
+    - name: 루트 디스크 여유 공간 {{ preflight_min_disk_gb }}GB 이상
+      ansible.builtin.assert:
+        that:
+          - (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first) > preflight_min_disk_gb * 1024 * 1024 * 1024
+        fail_msg: "{{ inventory_hostname }}: / 여유 공간이 {{ preflight_min_disk_gb }}GB 미만"
+        quiet: true
+
+    - name: 패키지 저장소(인터넷) 접근 가능
+      ansible.builtin.uri:
+        url: "https://pkgs.k8s.io/core:/stable:/{{ k8s_version }}/deb/Release.key"
+        method: GET
+        timeout: 10
+      register: repo_check
+      retries: 2
+      delay: 3
+      until: repo_check.status == 200
+
+    - name: 시간 동기화 상태 확인
+      ansible.builtin.command: timedatectl show -p NTPSynchronized --value
+      register: ntp
+      changed_when: false
+      failed_when: false
+
+    - name: 시간 동기화 안 됨 경고 (인증서 오류 원인이 될 수 있음)
+      ansible.builtin.debug:
+        msg: "⚠️ {{ inventory_hostname }}: NTP 동기화 안 됨"
+      when: ntp.stdout | default('') != 'yes'
+
+# 2. Kubernetes 노드 점검 (kubeadm 요구사항)
+- name: Preflight | Kubernetes 노드
+  hosts: k8s
+  gather_facts: false
+  become: true
+  tasks:
+    - name: CPU 2개 이상, 메모리 1700MB 이상 (kubeadm 최소 요구)
+      ansible.builtin.assert:
+        that:
+          - ansible_processor_vcpus >= 2
+          - ansible_memtotal_mb >= 1700
+        fail_msg: "{{ inventory_hostname }}: vCPU {{ ansible_processor_vcpus }} / RAM {{ ansible_memtotal_mb }}MB — 최소 2 vCPU, 1700MB 필요"
+        quiet: true
+
+    - name: product_uuid 수집
+      ansible.builtin.command: cat /sys/class/dmi/id/product_uuid
+      register: product_uuid
+      changed_when: false
+
+    - name: hostname / MAC / product_uuid 중복 없음 (VM 복제 시 흔한 문제)
+      ansible.builtin.assert:
+        that:
+          - (k8s_hosts | map('extract', hostvars, 'ansible_hostname') | unique | length) == (k8s_hosts | length)
+          - (k8s_hosts | map('extract', hostvars, ['ansible_default_ipv4', 'macaddress']) | unique | length) == (k8s_hosts | length)
+          - (k8s_hosts | map('extract', hostvars, ['product_uuid', 'stdout']) | unique | length) == (k8s_hosts | length)
+        fail_msg: "노드 간 hostname, MAC, product_uuid 중 중복이 있음 — VM을 복제했다면 각각 새로 생성 필요"
+        quiet: true
+      vars:
+        k8s_hosts: "{{ groups['k8s'] }}"
+      run_once: true
+
+    - name: 다른 k8s 노드와 통신 가능 (SSH 포트로 확인)
+      ansible.builtin.wait_for:
+        host: "{{ hostvars[item].ansible_host }}"
+        port: 22
+        timeout: 5
+      loop: "{{ groups['k8s'] | difference([inventory_hostname]) }}"
+
+    - name: 이미 클러스터에 속해 있는지
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: already_joined
+
+    - name: 설치 전이라면 k8s 포트가 비어 있는지
+      ansible.builtin.wait_for:
+        port: "{{ item }}"
+        state: stopped
+        timeout: 1
+      loop: "{{ (preflight_cp_ports if inventory_hostname in groups['control_plane'] else []) + preflight_node_ports }}"
+      when: not already_joined.stat.exists
+
+- name: Preflight | 결과
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: 통과
+      ansible.builtin.debug:
+        msg: "✅ {{ inventory_hostname }} ({{ ansible_host }}) preflight 통과"
