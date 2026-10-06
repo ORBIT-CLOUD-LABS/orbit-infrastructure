@@ -1,4 +1,7 @@
 .DS_Store
+
+# Terraform apply 시 생성되는 Ansible 인벤토리
+ansible/inventory/lab/hosts.ini
 terraform/**/.terraform/
 terraform/**/.generated/
 terraform/**/*.tfstate

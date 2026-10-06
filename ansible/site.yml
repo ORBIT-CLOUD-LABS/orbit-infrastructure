@@ -1,0 +1,51 @@
+---
+# ORBIT Lab 전체 구성 플레이북
+# 실행: ansible-playbook site.yml           (inventory/lab/hosts.ini)
+#      ansible-playbook -i inventory/test.ini site.yml   (테스트 VM)
+
+# 0. 설치 전 점검 (접속, OS, 자원, 중복, 포트, 인터넷)
+- name: Preflight
+  ansible.builtin.import_playbook: preflight.yml
+
+# 1. k8s 노드 공통: swap, 커널 모듈, containerd, kubelet/kubeadm/kubectl
+- name: Common
+  hosts: k8s
+  become: true
+  roles:
+    - common
+
+# 2. control plane: kubeadm init + CNI(Flannel) + join 명령 생성
+- name: Control plane
+  hosts: control_plane
+  become: true
+  roles:
+    - control_plane
+
+# 3. worker: kubeadm join
+- name: Workers
+  hosts: workers
+  become: true
+  roles:
+    - worker
+
+# (다음 롤은 각 이슈/PR에서 여기에 추가: jenkins, monitoring, nfs, db, addons)
+
+# 4. 검증: 모든 노드 Ready
+- name: Verify cluster
+  hosts: control_plane
+  become: true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  tasks:
+    - name: 모든 노드 Ready 대기
+      ansible.builtin.command: kubectl wait --for=condition=Ready nodes --all --timeout=300s
+      changed_when: false
+
+    - name: kubectl get nodes
+      ansible.builtin.command: kubectl get nodes -o wide
+      register: nodes_out
+      changed_when: false
+
+    - name: 결과 출력
+      ansible.builtin.debug:
+        var: nodes_out.stdout_lines
