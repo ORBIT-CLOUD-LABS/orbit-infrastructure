@@ -95,7 +95,7 @@ state를 다른 backend나 주소에서 옮겨올 때는 `terraform state pull`�
 `stacks/jenkins`는 Jenkins VM을 업무 VM과 분리해 관리합니다.
 
 - 전용 base volume(`jenkins-ubuntu-24.04-...qcow2`)을 사용해 업무 VM과 backing file을 공유하지 않습니다.
-- cloud-init network-config로 static IP(`192.168.100.104/24`)를 설정해 업무 스택의 DHCP 예약에 의존하지 않습니다.
+- cloud-init network-config로 static IP(`192.168.100.100/24`)를 설정해 업무 스택의 DHCP 예약에 의존하지 않습니다.
 - VM 사양과 network 설정은 `variables.tf`의 기본값으로 둡니다. `terraform.tfvars`에는 SSH 공개키만 입력합니다.
 - 자동화의 출발점이므로 Jenkins가 아니라 사람이 Jenkins를 올릴 호스트에서 직접 apply합니다.
 

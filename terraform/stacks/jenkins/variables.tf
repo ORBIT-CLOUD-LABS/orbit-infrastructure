@@ -45,7 +45,7 @@ variable "jenkins" {
     memory_mib    = 6144
     os_disk_gib   = 35
     mac           = "52:54:00:64:00:04"
-    ip            = "192.168.100.104"
+    ip            = "192.168.100.100"
     prefix_length = 24
     gateway       = "192.168.100.1"
     nameservers   = ["192.168.100.1"]
