@@ -1,1 +1,7 @@
 .DS_Store
+terraform/**/.terraform/
+terraform/**/.generated/
+terraform/**/*.tfstate
+terraform/**/*.tfstate.*
+terraform/environments/*/terraform.tfvars
+ansible/**/*.ini
