@@ -17,6 +17,7 @@ Lab 인프라(astra + Sol·Terra·Luna)를 적용·되돌리기·복구·백업�
 - VM에 손으로 설치·수정하지 않는다. 급하게 했다면 그 주 안에 롤로 옮긴다 (계획서 규칙 3).
 - 모든 변경은 Issue → Branch → PR → 리뷰 후 main 반영. 운영 적용은 **main 기준**으로 한다.
 - 비밀값은 `secrets/vault.yml`(ansible-vault 암호화)에만 둔다. vault 비밀번호는 Slack DM으로만 공유.
+- Vault 비밀번호 관리 담당자: **@sungahbak** — 비밀번호 변경/교체, 담당자 공유 범위 관리를 책임진다.
 - 작업 전후로 Slack `#orbit-infra`에 "적용 시작 / 완료(결과)" 한 줄을 남긴다.
 
 ### 플레이북 구성
