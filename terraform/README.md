@@ -27,3 +27,22 @@ terraform plan
 `cloud-localds`가 없으면 `sudo apt install cloud-image-utils`를 수행한 뒤 다시 확인합니다. `terraform.tfvars.example`을 `terraform.tfvars`로 복사하고 실제 SSH 공개키를 입력해야 합니다.
 
 `terraform apply`는 생성 대상과 VM 자원량을 확인한 후 수동으로 실행합니다.
+
+## State 백엔드 (astra-vehicle-db PostgreSQL)
+
+`backend.tf`는 `backend "pg"`를 사용하며, 접속 정보(비밀번호 포함)는 파일에 두지 않고
+`-backend-config`로 전달합니다. `astra-vehicle-db`에 PostgreSQL을 설치하고 `terraform_states`
+DB/계정을 만드는 절차는 `ansible/README.md`를 참고합니다.
+
+```bash
+cd terraform/environments/astra
+cp backend-config/astra.conf.example backend-config/astra.conf
+# backend-config/astra.conf의 CHANGE_ME를 ansible vault에 저장한 실제 비밀번호로 교체
+
+# 기존 local state에서 pg 백엔드로 최초 전환 (기존 state 백업 권장)
+cp /var/lib/orbit/terraform-state/astra/terraform.tfstate{,.bak}
+terraform init -backend-config=backend-config/astra.conf -migrate-state
+```
+
+이후부터는 `terraform init -backend-config=backend-config/astra.conf`로 초기화합니다.
+`backend-config/astra.conf`는 비밀번호를 포함하므로 git에 커밋하지 않습니다(`.gitignore` 처리됨).

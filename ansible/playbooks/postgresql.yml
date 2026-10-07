@@ -1,0 +1,7 @@
+---
+- name: Configure PostgreSQL for Terraform remote state
+  hosts: vehicle_db
+  become: true
+
+  roles:
+    - postgresql

@@ -4,4 +4,5 @@ terraform/**/.generated/
 terraform/**/*.tfstate
 terraform/**/*.tfstate.*
 terraform/environments/*/terraform.tfvars
+terraform/environments/*/backend-config/*.conf
 ansible/**/*.ini
