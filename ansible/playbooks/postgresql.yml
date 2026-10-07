@@ -1,13 +1,13 @@
 ---
 - name: Configure PostgreSQL for Terraform remote state
-  hosts: vehicle_db
+  hosts: astra_host
   become: true
 
   # group_vars 자동탐색이 inventory 디렉터리/playbook 디렉터리 기준으로만 동작해
-  # ansible/group_vars/vehicle_db가 picked up되지 않는 환경이 있어 명시적으로 로드한다.
+  # ansible/group_vars/astra_host가 picked up되지 않는 환경이 있어 명시적으로 로드한다.
   vars_files:
-    - ../group_vars/vehicle_db/vars.yml
-    - ../group_vars/vehicle_db/vault.yml
+    - ../group_vars/astra_host/vars.yml
+    - ../group_vars/astra_host/vault.yml
 
   roles:
     - postgresql

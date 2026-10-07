@@ -5,4 +5,4 @@ terraform/**/*.tfstate
 terraform/**/*.tfstate.*
 terraform/environments/*/terraform.tfvars
 terraform/environments/*/backend-config/*.conf
-ansible/**/*.ini
+ansible/inventory/lab/hosts.ini

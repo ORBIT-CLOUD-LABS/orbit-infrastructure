@@ -28,11 +28,14 @@ terraform plan
 
 `terraform apply`는 생성 대상과 VM 자원량을 확인한 후 수동으로 실행합니다.
 
-## State 백엔드 (astra-vehicle-db PostgreSQL)
+## State 백엔드 (ORBIT-ASTRA 호스트 PostgreSQL)
 
 `backend.tf`는 `backend "pg"`를 사용하며, 접속 정보(비밀번호 포함)는 파일에 두지 않고
-`-backend-config`로 전달합니다. `astra-vehicle-db`에 PostgreSQL을 설치하고 `terraform_states`
-DB/계정을 만드는 절차는 `ansible/README.md`를 참고합니다.
+`-backend-config`로 전달합니다. PostgreSQL은 `astra-vehicle-db` VM이 아니라 **ORBIT-ASTRA 호스트
+자신**에 설치합니다(VM에 두면 그 VM도 astra 환경 state로 관리돼서 state 저장소가 state 관리
+대상에 의존하는 순환 구조가 생기기 때문). 접속 주소는 호스트의 `orbit-astra-net` 브리지 IP인
+`192.168.100.1`입니다. 설치/`terraform_states` DB·계정을 만드는 절차는 `ansible/README.md`를
+참고합니다.
 
 ```bash
 cd terraform/environments/astra
