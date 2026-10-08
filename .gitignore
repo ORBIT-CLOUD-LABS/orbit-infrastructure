@@ -11,7 +11,7 @@ crash.*.log
 !*.tfvars.example
 
 # Terraform pg backend 접속 정보 (비밀번호 포함)
-terraform/environments/*/backend-config/*.conf
+terraform/**/backend-config/*.conf
 
 # cloud-init 생성물
 **/.generated/
