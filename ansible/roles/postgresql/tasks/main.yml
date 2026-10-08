@@ -5,6 +5,8 @@
       - postgresql
       - postgresql-contrib
       - python3-psycopg2
+      # become_user(postgres) 전환 시 Ansible이 임시 파일 권한을 setfacl로 부여한다.
+      - acl
     state: present
     update_cache: true
 
