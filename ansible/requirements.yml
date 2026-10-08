@@ -6,3 +6,6 @@ collections:
     version: ">=3.0.0"
   - name: ansible.posix
     version: ">=1.5.0"
+  - name: community.postgresql
+    # postgresql_alter_system 모듈이 3.13.0에 추가되었다.
+    version: ">=3.13.0"

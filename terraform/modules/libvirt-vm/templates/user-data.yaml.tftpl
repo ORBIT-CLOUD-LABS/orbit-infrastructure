@@ -1,0 +1,15 @@
+#cloud-config
+hostname: ${hostname}
+manage_etc_hosts: true
+disable_root: true
+ssh_pwauth: false
+users:
+  - default
+  - name: orbit
+    groups: [adm, sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+%{ for key in ssh_authorized_keys ~}
+      - ${key}
+%{ endfor ~}

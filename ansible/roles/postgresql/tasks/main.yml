@@ -1,0 +1,59 @@
+---
+- name: Install PostgreSQL packages
+  ansible.builtin.apt:
+    name:
+      - postgresql
+      - postgresql-contrib
+      - python3-psycopg2
+      # become_user(postgres) 전환 시 Ansible이 임시 파일 권한을 setfacl로 부여한다.
+      - acl
+    state: present
+    update_cache: true
+
+- name: Ensure PostgreSQL is enabled and running
+  ansible.builtin.systemd:
+    name: postgresql
+    enabled: true
+    state: started
+
+- name: Allow remote connections (listen_addresses)
+  community.postgresql.postgresql_alter_system:
+    login_unix_socket: /var/run/postgresql
+    param: listen_addresses
+    value: "*"
+  become_user: postgres
+  register: listen_addresses_result
+
+- name: Restart PostgreSQL if listen_addresses changed
+  ansible.builtin.systemd:
+    name: postgresql
+    state: restarted
+  # listen_addresses는 reload로 반영되지 않아 값이 바뀌었을 때 재시작한다.
+  when: listen_addresses_result is changed
+
+- name: Create terraform role
+  community.postgresql.postgresql_user:
+    login_unix_socket: /var/run/postgresql
+    name: "{{ terraform_pg_role }}"
+    password: "{{ terraform_pg_password }}"
+    role_attr_flags: LOGIN
+    encrypted: true
+  become_user: postgres
+
+- name: Create terraform_states database
+  community.postgresql.postgresql_db:
+    login_unix_socket: /var/run/postgresql
+    name: "{{ terraform_pg_database }}"
+    owner: "{{ terraform_pg_role }}"
+  become_user: postgres
+
+- name: Allow terraform role to connect from the ASTRA network
+  community.postgresql.postgresql_pg_hba:
+    dest: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+    contype: host
+    databases: "{{ terraform_pg_database }}"
+    users: "{{ terraform_pg_role }}"
+    source: "{{ terraform_pg_allowed_cidr }}"
+    method: md5
+    create: false
+  notify: Reload PostgreSQL

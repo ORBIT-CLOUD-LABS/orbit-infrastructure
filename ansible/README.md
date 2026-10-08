@@ -170,7 +170,7 @@ cd .. && ./scripts/test-vms.sh delete
 | 11 | Kubernetes 후처리 | `k8s-post.yml` → `k8s_post` | `control_plane[0]` |
 | 12 | 운영 Runbook | [`RUNBOOK.md`](RUNBOOK.md) | — |
 
-- 인벤토리는 `ansible.cfg`의 `inventory=`에 콤마로 나열된 파일들을 읽는다 (폴더 단위 지정이 아니다 — 폴더로 지정하면 `.ini` 파일이 무시되는 문제가 있어서 파일을 직접 나열하도록 바꿨다): Terraform이 만든 `hosts.ini`(astra) + 손으로 관리하는 `sites.ini`(Sol·Terra·Luna, Tailscale IP) + 손으로 관리하는 `jenkins.ini`(astra-jenkins, #7 이후 `stacks/jenkins`가 따로 관리해서 `hosts.ini`에는 없음). 새 인벤토리 파일을 추가할 때는 `ansible.cfg`의 `inventory=` 목록에도 반드시 추가해야 한다 (안 그러면 조용히 무시된다)
+- 인벤토리는 `ansible.cfg`의 `inventory=`에 콤마로 나열된 파일들을 읽는다 (폴더 단위 지정이 아니다 — 폴더로 지정하면 `.ini` 파일이 무시되는 문제가 있어서 파일을 직접 나열하도록 바꿨다): Terraform이 만든 `hosts.ini`(astra VM) + 손으로 관리하는 `astra_host.ini`(ORBIT-ASTRA 호스트 자신, 13번 Terraform state 백엔드용) + 손으로 관리하는 `sites.ini`(Sol·Terra·Luna, Tailscale IP) + 손으로 관리하는 `jenkins.ini`(astra-jenkins, #7 이후 `stacks/jenkins`가 따로 관리해서 `hosts.ini`에는 없음). 새 인벤토리 파일을 추가할 때는 `ansible.cfg`의 `inventory=` 목록에도 반드시 추가해야 한다 (안 그러면 조용히 무시된다)
 - 비밀값: `secrets/vault.yml.example` → `secrets/vault.yml` 작성 → `ansible-vault encrypt` → 실행 시 `--ask-vault-pass`
 - 데이터 디스크: `db_data_device`, `monitoring_data_device`에 장치 이름(예: `/dev/vdb`). 이미 파일시스템이 있으면 포맷하지 않는다
 - 예비 노드: `k8s_reserved_nodes`(기본 `astra-worker-3`)에 `orbit.io/reserved=true:NoSchedule` taint
@@ -189,3 +189,43 @@ cd .. && NODES="test-db:13 test-mon:14" ./scripts/test-vms.sh delete
 | 날짜 | 대상 | 결과 | 소요 시간 |
 |---|---|---|---|
 | 10/5 | 테스트 VM 3대 (test-cp, test-w1, test-w2) | 3대 Ready, v1.33.13 | |
+
+## 13. Terraform state 백엔드 (PostgreSQL)
+
+VM 구성(위 1~12번)과는 다른 레이어다. `astra-vehicle-db` VM이 아니라 **ORBIT-ASTRA 호스트 자신**
+(`astra_host` 그룹, `inventory/lab/astra_host.ini`에 `localhost ansible_connection=local`로 정의)에
+PostgreSQL을 설치하고, Terraform의 `backend "pg"`가 사용할 `terraform_states` DB와 전용 계정
+(`terraform`)을 생성한다. VM에 두면 그 VM이 astra 환경과 같은 state로 관리되는 자원이라 "state
+저장소가 state 관리 대상에 의존하는" 순환 구조가 생기기 때문에, state와 무관한 호스트 자체에 둔다.
+
+### 비밀번호 (ansible-vault)
+
+`terraform` 계정 비밀번호는 `group_vars/astra_host/vault.yml`에 ansible-vault로 암호화되어
+커밋되어 있다. vault 비밀번호는 git 밖(패스워드 매니저 등)으로 공유하며, 플레이북 실행 시
+`--ask-vault-pass` 또는 `--vault-password-file`로 제공한다.
+
+### 실행
+
+ORBIT-ASTRA 호스트에서 실행한다. 패키지 설치에 sudo가 필요하므로 `--ask-become-pass`를 함께 준다.
+
+```bash
+cd ansible
+ansible-galaxy collection install -r requirements.yml
+ansible-playbook playbooks/postgresql.yml --ask-become-pass --ask-vault-pass
+```
+
+### 접속 제어
+
+`listen_addresses`는 `*`로 두고, 접속 허용은 `pg_hba.conf`에서 `terraform` 계정의
+`orbit-astra-net`(`192.168.100.0/24`) 접속만 허용하는 것으로 제한한다. 호스트의 다른
+인터페이스(LAN, tailscale)에서도 5432 포트는 열려 있으므로 `pg_hba.conf`에 넓은 범위의 규칙을
+추가하지 않는다.
+
+### 확인
+
+```bash
+ansible astra_host -m postgresql_ping -a "db=terraform_states login_user=terraform login_password=<password>"
+```
+
+`terraform` 계정 비밀번호를 바꾸려면 `group_vars/astra_host/vault.yml`을
+`ansible-vault edit`로 수정한 뒤 플레이북을 다시 실행한다.

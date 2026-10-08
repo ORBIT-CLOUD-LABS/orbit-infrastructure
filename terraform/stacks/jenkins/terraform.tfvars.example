@@ -1,0 +1,6 @@
+# Jenkins를 올릴 물리 호스트 안에서 수동으로 apply합니다. 기본값은 qemu:///system입니다.
+# libvirt_uri = "qemu:///system"
+
+ssh_authorized_keys = [
+  "ssh-ed25519 AAAA... replace-with-your-public-key orbit-admin",
+]
