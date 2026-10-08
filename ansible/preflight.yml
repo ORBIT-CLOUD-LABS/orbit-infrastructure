@@ -3,9 +3,10 @@
 # 단독 실행: ansible-playbook preflight.yml
 # site.yml 맨 앞에서도 자동으로 실행된다.
 
-# 0. 접속 가능 여부 (모든 관리 노드)
+# 0. 접속 가능 여부 (모든 관리 노드 — astra_host는 Terraform/Ansible을 실행하는
+#    제어 호스트 자신(localhost, SSH 아님)이라 VM 전용 점검 대상에서 제외)
 - name: Preflight | 접속
-  hosts: all
+  hosts: all:!astra_host
   gather_facts: false
   become: true
   tasks:
@@ -21,9 +22,9 @@
     - name: 시스템 정보(팩트) 수집
       ansible.builtin.setup:
 
-# 1. 모든 관리 노드 공통 점검
+# 1. 모든 관리 노드 공통 점검 (astra_host 제외 — 위와 동일한 이유)
 - name: Preflight | 공통
-  hosts: all
+  hosts: all:!astra_host
   gather_facts: false
   become: true
   tasks:
@@ -149,7 +150,7 @@
       when: rtt is not skipped
 
 - name: Preflight | 결과
-  hosts: all
+  hosts: all:!astra_host
   gather_facts: false
   tasks:
     - name: 통과
