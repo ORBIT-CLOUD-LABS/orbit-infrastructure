@@ -1,0 +1,110 @@
+---
+# control plane 1대에서 kubectl로 실행 (run_once)
+- name: 모든 노드 Ready 대기
+  ansible.builtin.command: kubectl wait --for=condition=Ready nodes --all --timeout=300s
+  changed_when: false
+
+# ── 1. node label ─────────────────────────────────────────────
+- name: worker 역할 라벨
+  ansible.builtin.command: kubectl label node {{ item }} node-role.kubernetes.io/worker= --overwrite
+  loop: "{{ groups['workers'] | default([]) }}"
+  register: role_label
+  changed_when: "'not labeled' not in role_label.stdout"
+
+- name: 노드별 추가 라벨
+  ansible.builtin.command: >
+    kubectl label node {{ item.key }} --overwrite
+    {{ item.value.items() | map('join', '=') | join(' ') }}
+  loop: "{{ k8s_node_labels | dict2items }}"
+  register: extra_label
+  changed_when: "'not labeled' not in extra_label.stdout"
+
+# ── 2. Worker 3 reserve taint ─────────────────────────────────
+- name: 현재 taint 조회
+  ansible.builtin.command: kubectl get node {{ item }} -o jsonpath={.spec.taints[*].key}
+  loop: "{{ groups['workers'] | default([]) }}"
+  register: taints
+  changed_when: false
+
+- name: 예비 노드 라벨
+  ansible.builtin.command: kubectl label node {{ item }} {{ k8s_reserved_taint_key }}=true --overwrite
+  loop: "{{ k8s_reserved_nodes | intersect(groups['workers'] | default([])) }}"
+  register: reserve_label
+  changed_when: "'not labeled' not in reserve_label.stdout"
+
+- name: 예비 노드 taint 추가 (없을 때만)
+  ansible.builtin.command: kubectl taint node {{ item.item }} {{ k8s_reserved_taint }}
+  loop: "{{ taints.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - item.item in k8s_reserved_nodes
+    - k8s_reserved_taint_key not in item.stdout.split()
+
+- name: 예비 해제된 노드 taint·라벨 제거 (목록에서 뺀 경우)
+  ansible.builtin.shell: |
+    kubectl taint node {{ item.item }} {{ k8s_reserved_taint_key }}-
+    kubectl label node {{ item.item }} {{ k8s_reserved_taint_key }}-
+  loop: "{{ taints.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - item.item not in k8s_reserved_nodes
+    - k8s_reserved_taint_key in item.stdout.split()
+
+# ── 3. 클러스터 검증 ──────────────────────────────────────────
+- name: CoreDNS 준비 완료
+  ansible.builtin.command: kubectl -n kube-system rollout status deploy/coredns --timeout=180s
+  changed_when: false
+
+- name: 시스템 Pod가 모두 Running
+  ansible.builtin.command: >
+    kubectl get pods -A --no-headers
+    --field-selector=status.phase!=Running,status.phase!=Succeeded
+  register: bad_pods
+  changed_when: false
+  retries: 20
+  delay: 6
+  until: bad_pods.stdout | trim | length == 0
+
+- name: 스모크 테스트 (스케줄링 + 클러스터 DNS)
+  when: k8s_smoke_test | bool
+  block:
+    - name: 이전 테스트 Pod 정리
+      ansible.builtin.command: kubectl delete pod orbit-smoke --ignore-not-found --wait=true
+      changed_when: false
+
+    - name: 테스트 Pod 실행
+      ansible.builtin.command: >
+        kubectl run orbit-smoke --image={{ k8s_smoke_image }} --restart=Never
+        --command -- nslookup kubernetes.default.svc.cluster.local
+      changed_when: false
+
+    - name: 테스트 Pod 완료 대기
+      ansible.builtin.command: >
+        kubectl wait pod/orbit-smoke --for=jsonpath={.status.phase}=Succeeded --timeout=180s
+      changed_when: false
+
+    - name: 배치된 노드
+      ansible.builtin.command: kubectl get pod orbit-smoke -o jsonpath={.spec.nodeName}
+      register: smoke_node
+      changed_when: false
+
+    - name: 예비 노드에 배치되지 않아야 함
+      ansible.builtin.assert:
+        that: smoke_node.stdout not in k8s_reserved_nodes
+        fail_msg: "테스트 Pod가 예비 노드({{ smoke_node.stdout }})에 배치됨 — taint 확인 필요"
+        quiet: true
+  always:
+    - name: 테스트 Pod 삭제
+      ansible.builtin.command: kubectl delete pod orbit-smoke --ignore-not-found --wait=false
+      changed_when: false
+
+- name: 노드 상태
+  ansible.builtin.command: kubectl get nodes -o wide -L {{ k8s_reserved_taint_key }}
+  register: nodes_out
+  changed_when: false
+
+- name: 결과
+  ansible.builtin.debug:
+    msg: "{{ nodes_out.stdout_lines + ['스모크 테스트 Pod 배치 노드: ' ~ (smoke_node.stdout | default('생략'))] }}"

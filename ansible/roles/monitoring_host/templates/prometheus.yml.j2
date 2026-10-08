@@ -1,0 +1,29 @@
+# {{ ansible_managed }}
+# 수집 대상은 Ansible 인벤토리에서 생성된다. 손으로 고치지 말고 인벤토리/변수를 수정할 것.
+global:
+  scrape_interval: {{ prometheus_scrape_interval }}
+  evaluation_interval: {{ prometheus_scrape_interval }}
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: node
+    static_configs:
+{% for g in monitoring_node_exporter_groups if g in groups and groups[g] | length > 0 %}
+      - labels:
+          group: {{ g }}
+        targets:
+{% for h in groups[g] %}
+          - "{{ hostvars[h].ansible_host | default(h) }}:9100"
+{% endfor %}
+{% endfor %}

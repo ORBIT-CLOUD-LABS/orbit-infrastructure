@@ -1,0 +1,14 @@
+---
+# 모든 관리 노드에 node-exporter(:9100) 설치 → Monitoring VM의 Prometheus가 수집
+- name: node-exporter 설치
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: node-exporter 실행
+  ansible.builtin.systemd:
+    name: prometheus-node-exporter
+    state: started
+    enabled: true

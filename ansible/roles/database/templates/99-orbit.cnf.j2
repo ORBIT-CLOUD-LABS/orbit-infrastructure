@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+[mysqld]
+bind-address            = {{ db_bind_address }}
+port                    = {{ db_port }}
+max_connections         = {{ db_max_connections }}
+innodb_buffer_pool_size = {{ db_innodb_buffer_pool_size }}
+character-set-server    = utf8mb4
+collation-server        = utf8mb4_unicode_ci
+default-time-zone       = '+09:00'
