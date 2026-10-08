@@ -4,3 +4,9 @@
   ansible.builtin.systemd:
     name: ssh
     state: reloaded
+
+# journald는 설정 reload를 지원하지 않아 재시작한다.
+- name: Restart journald
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted

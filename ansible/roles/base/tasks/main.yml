@@ -7,3 +7,6 @@
 
 - name: Harden sshd
   ansible.builtin.import_tasks: sshd.yml
+
+- name: Limit journald disk usage
+  ansible.builtin.import_tasks: journald.yml
