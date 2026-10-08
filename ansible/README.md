@@ -11,26 +11,28 @@ ASTRA VM 구성(OS 레벨 설정)을 관리합니다. 인벤토리(`inventory/la
 같은 state로 관리되는 자원이라 "state 저장소가 state 관리 대상에 의존하는" 순환 구조가 생기기
 때문에, state와 무관한 호스트 자체에 둡니다.
 
-### 최초 1회: 비밀번호 암호화
+### 비밀번호 (ansible-vault)
 
-`group_vars/astra_host/vault.yml`에 평문 비밀번호가 들어 있습니다. 커밋 전에 반드시
-ansible-vault로 암호화합니다.
-
-```bash
-cd ansible
-ansible-vault encrypt group_vars/astra_host/vault.yml
-```
-
-vault 비밀번호는 별도로(패스워드 매니저 등) 보관합니다. 이후 플레이북 실행 시 매번
+`terraform` 계정 비밀번호는 `group_vars/astra_host/vault.yml`에 ansible-vault로 암호화되어
+커밋되어 있습니다. vault 비밀번호는 git 밖(패스워드 매니저 등)으로 공유하며, 플레이북 실행 시
 `--ask-vault-pass` 또는 `--vault-password-file`로 제공합니다.
 
 ### 실행
 
+ORBIT-ASTRA 호스트에서 실행합니다. 패키지 설치에 sudo가 필요하므로 `--ask-become-pass`를 함께 줍니다.
+
 ```bash
 cd ansible
 ansible-galaxy collection install -r requirements.yml
-ansible-playbook playbooks/postgresql.yml --ask-vault-pass
+ansible-playbook playbooks/postgresql.yml --ask-become-pass --ask-vault-pass
 ```
+
+### 접속 제어
+
+`listen_addresses`는 `*`로 두고, 접속 허용은 `pg_hba.conf`에서 `terraform` 계정의
+`orbit-astra-net`(`192.168.100.0/24`) 접속만 허용하는 것으로 제한합니다. 호스트의 다른
+인터페이스(LAN, tailscale)에서도 5432 포트는 열려 있으므로 `pg_hba.conf`에 넓은 범위의 규칙을
+추가하지 않습니다.
 
 ### 확인
 

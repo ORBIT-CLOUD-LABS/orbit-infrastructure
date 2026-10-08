@@ -12,13 +12,13 @@ Terraform은 물리 호스트별 libvirt network, storage pool, VM, volume, clou
 
 ASTRA는 Ubuntu 24.04.5 cloud image의 고정 release와 SHA-256을 사용합니다. 각 VM은 qcow2 overlay와 cloud-init ISO로 생성합니다. NFS, Vehicle DB, Monitoring VM에는 별도 raw data volume을 연결합니다.
 
-실행은 ORBIT-ASTRA에서 수행합니다.
+실행은 ORBIT-ASTRA에서 수행합니다. state는 호스트 PostgreSQL에 저장하므로 먼저 아래
+[State 백엔드](#state-백엔드-orbit-astra-호스트-postgresql)의 `backend-config/astra.conf`를 준비합니다.
 
 ```bash
-sudo install -d -o orbit -g orbit /var/lib/orbit/terraform-state/astra
 command -v cloud-localds
 cd terraform/environments/astra
-terraform init
+terraform init -backend-config=backend-config/astra.conf
 terraform fmt -check -recursive
 terraform validate
 terraform plan
@@ -41,11 +41,11 @@ terraform plan
 cd terraform/environments/astra
 cp backend-config/astra.conf.example backend-config/astra.conf
 # backend-config/astra.conf의 CHANGE_ME를 ansible vault에 저장한 실제 비밀번호로 교체
-
-# 기존 local state에서 pg 백엔드로 최초 전환 (기존 state 백업 권장)
-cp /var/lib/orbit/terraform-state/astra/terraform.tfstate{,.bak}
-terraform init -backend-config=backend-config/astra.conf -migrate-state
+terraform init -backend-config=backend-config/astra.conf
 ```
 
-이후부터는 `terraform init -backend-config=backend-config/astra.conf`로 초기화합니다.
 `backend-config/astra.conf`는 비밀번호를 포함하므로 git에 커밋하지 않습니다(`.gitignore` 처리됨).
+
+state를 다른 backend나 주소에서 옮겨올 때는 `terraform state pull`로 백업한 뒤
+`terraform init -backend-config=backend-config/astra.conf -migrate-state`를 실행하고,
+`terraform plan`이 `No changes`인지 확인합니다.
