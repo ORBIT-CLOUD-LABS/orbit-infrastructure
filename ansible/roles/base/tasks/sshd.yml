@@ -1,0 +1,12 @@
+---
+# sshd는 같은 항목이 여러 번 나오면 먼저 읽은 값을 쓴다.
+# cloud-init(50-), 이미지(60-) 설정보다 먼저 읽히도록 10-으로 둔다.
+- name: Configure sshd options
+  ansible.builtin.template:
+    src: sshd_config.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-orbit-base.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload sshd

@@ -4,3 +4,6 @@
 
 - name: Configure timezone and time synchronization
   ansible.builtin.import_tasks: time.yml
+
+- name: Harden sshd
+  ansible.builtin.import_tasks: sshd.yml

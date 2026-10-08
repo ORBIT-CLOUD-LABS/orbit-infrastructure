@@ -1,0 +1,6 @@
+---
+# Ubuntu 24.04는 서비스 이름이 ssh이다. reload는 기존 접속을 끊지 않는다.
+- name: Reload sshd
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded
