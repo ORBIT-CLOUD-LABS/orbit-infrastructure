@@ -28,7 +28,8 @@
   ansible.builtin.systemd:
     name: postgresql
     state: restarted
-  when: listen_addresses_result.restart_required | default(false)
+  # postmaster 설정은 값이 그대로여도 restart_required가 항상 true라서 changed로 판단한다.
+  when: listen_addresses_result is changed
 
 - name: Create terraform role
   community.postgresql.postgresql_user:
