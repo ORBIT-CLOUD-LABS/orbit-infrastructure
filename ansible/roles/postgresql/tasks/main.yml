@@ -17,9 +17,9 @@
     state: started
 
 - name: Allow remote connections (listen_addresses)
-  community.postgresql.postgresql_set:
+  community.postgresql.postgresql_alter_system:
     login_unix_socket: /var/run/postgresql
-    name: listen_addresses
+    param: listen_addresses
     value: "*"
   become_user: postgres
   register: listen_addresses_result
@@ -28,7 +28,7 @@
   ansible.builtin.systemd:
     name: postgresql
     state: restarted
-  # postmaster 설정은 값이 그대로여도 restart_required가 항상 true라서 changed로 판단한다.
+  # listen_addresses는 reload로 반영되지 않아 값이 바뀌었을 때 재시작한다.
   when: listen_addresses_result is changed
 
 - name: Create terraform role
