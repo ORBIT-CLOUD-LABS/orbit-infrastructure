@@ -10,3 +10,6 @@
 
 - name: Limit journald disk usage
   ansible.builtin.import_tasks: journald.yml
+
+- name: Configure automatic updates
+  ansible.builtin.import_tasks: unattended_upgrades.yml

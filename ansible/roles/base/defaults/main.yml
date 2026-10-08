@@ -28,3 +28,15 @@ base_sshd_options:
 # SystemMaxUse 기본값은 디스크의 10%(현재 VM 기준 1.9G~3.3G)인데 비율로는 지정할 수 없어 근사값을 쓴다.
 base_journald_options:
   SystemMaxUse: 2G
+
+# 자동 업데이트(unattended-upgrades). 값은 Ubuntu 24.04 기본 동작과 같다.
+# 패키지 목록 갱신과 자동 업그레이드를 매일 실행한다.
+base_unattended_upgrades_enabled: true
+# 보안 업데이트만 적용한다. 릴리스 기본 저장소(${distro_codename})는 출시 후 바뀌지 않는다.
+base_unattended_upgrades_origins:
+  - "${distro_id}:${distro_codename}"
+  - "${distro_id}:${distro_codename}-security"
+  - "${distro_id}ESMApps:${distro_codename}-apps-security"
+  - "${distro_id}ESM:${distro_codename}-infra-security"
+# K8s 노드가 drain 없이 재부팅되지 않도록 자동 재부팅은 하지 않는다.
+base_unattended_upgrades_automatic_reboot: false
