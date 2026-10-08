@@ -8,8 +8,8 @@ Terraform은 물리 호스트별 libvirt network, storage pool, VM, volume, clou
 
 | 경로 | 관리 대상 | state |
 | --- | --- | --- |
-| `environments/astra` | ASTRA의 network, storage pool, 업무 VM | `/var/lib/orbit/terraform-state/astra/terraform.tfstate` |
-| `stacks/jenkins` | Jenkins VM 1대 | `/var/lib/orbit/terraform-state/jenkins/terraform.tfstate` |
+| `environments/astra` | ASTRA의 network, storage pool, 업무 VM | pg schema `terraform_remote_state_astra` |
+| `stacks/jenkins` | Jenkins VM 1대 | pg schema `terraform_remote_state_jenkins` |
 | `modules/libvirt-network` | libvirt NAT network와 DHCP 예약 | - |
 | `modules/libvirt-vm` | VM, OS/data volume, cloud-init ISO | - |
 | `modules/ansible-inventory` | Ansible inventory 파일 생성 | - |
@@ -33,14 +33,8 @@ terraform을 실행하는 머신에 다음이 필요합니다.
 - terraform `>= 1.16.0, < 2.0.0`
 - `cloud-localds` (`sudo apt install cloud-image-utils`)
 - 대상 호스트의 libvirt 접근 권한 (`libvirt` 그룹)
-- state 디렉토리
-
-```bash
-sudo install -d -o orbit -g orbit /var/lib/orbit/terraform-state/astra
-sudo install -d -o orbit -g orbit /var/lib/orbit/terraform-state/jenkins
-```
-
-state backend가 local이므로, 현재는 state 디렉토리가 있는 ASTRA에서 실행합니다.
+- state DB(`192.168.100.1:5432`) 접근. `pg_hba.conf`가 `orbit-astra-net`(`192.168.100.0/24`)만 허용하므로 ASTRA 호스트나 그 network의 VM에서 실행합니다.
+- `backend-config/astra.conf` ([State 백엔드](#state-백엔드-orbit-astra-호스트-postgresql) 참고)
 
 ## 실행 방법
 
@@ -48,7 +42,8 @@ state backend가 local이므로, 현재는 state 디렉토리가 있는 ASTRA에
 git clone https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure.git
 cd orbit-infrastructure/terraform/environments/astra   # 또는 stacks/jenkins
 cp terraform.tfvars.example terraform.tfvars            # 실제 SSH 공개키 입력
-terraform init
+cp backend-config/astra.conf.example backend-config/astra.conf   # CHANGE_ME를 실제 비밀번호로 교체
+terraform init -backend-config=backend-config/astra.conf
 terraform fmt -check -recursive
 terraform validate
 terraform plan
@@ -66,7 +61,7 @@ terraform plan
 terraform plan -var 'libvirt_uri=qemu+ssh://<user>@<host>/system?keyfile=<private-key>'
 ```
 
-원격 실행 머신에서도 state에 접근할 수 있어야 하므로, state backend를 원격으로 옮기기 전까지는 사용하지 않습니다.
+state는 호스트 PostgreSQL에 있으므로 원격 실행 머신도 같은 state를 사용합니다. 단, `pg_hba.conf`가 `orbit-astra-net`(`192.168.100.0/24`)만 허용하므로 그 network 안의 머신(예: Jenkins VM)에서만 실행할 수 있습니다.
 
 ## State 백엔드 (ORBIT-ASTRA 호스트 PostgreSQL)
 
@@ -77,8 +72,12 @@ terraform plan -var 'libvirt_uri=qemu+ssh://<user>@<host>/system?keyfile=<privat
 `192.168.100.1`입니다. 설치/`terraform_states` DB·계정을 만드는 절차는 `ansible/README.md`를
 참고합니다.
 
+두 스택은 같은 DB를 쓰고 schema로 state를 분리합니다(`terraform_remote_state_astra`,
+`terraform_remote_state_jenkins`). state lock도 schema별로 걸립니다. 접속 정보 파일은 두 스택
+모두 `backend-config/astra.conf`로 같습니다.
+
 ```bash
-cd terraform/environments/astra
+cd terraform/environments/astra   # 또는 stacks/jenkins
 cp backend-config/astra.conf.example backend-config/astra.conf
 # backend-config/astra.conf의 CHANGE_ME를 ansible vault에 저장한 실제 비밀번호로 교체
 terraform init -backend-config=backend-config/astra.conf
@@ -105,7 +104,7 @@ storage pool과 network는 업무 스택이 관리하는 자원을 이름으로 
 
 ## Jenkins 스택 전환 절차
 
-기존 `astra-jenkins`는 업무 스택이 관리하던 VM입니다. Jenkins가 설치되지 않은 빈 VM이므로 삭제 후 `stacks/jenkins`로 다시 생성합니다. 두 VM은 이름, MAC, IP, volume 이름이 같으므로 반드시 아래 순서로 적용합니다.
+기존 `astra-jenkins`는 업무 스택이 관리하던 VM입니다. Jenkins가 설치되지 않은 빈 VM이므로 삭제 후 `stacks/jenkins`로 다시 생성합니다. 두 VM은 이름, MAC, IP, volume 이름이 같으므로 반드시 아래 순서로 적용합니다. 두 스택 모두 `terraform init -backend-config=backend-config/astra.conf`로 초기화한 상태에서 진행합니다.
 
 1. `environments/astra`에서 plan을 실행하고, `astra-jenkins` 관련 자원 6개 삭제와 inventory 파일 재생성만 있는지 확인한 후 apply합니다.
 2. `stacks/jenkins`에서 plan을 실행하고, 생성 9개만 있는지 확인한 후 apply합니다.
