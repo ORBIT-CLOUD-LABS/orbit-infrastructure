@@ -3,8 +3,8 @@
   hosts: astra_host
   become: true
 
-  # group_vars 자동탐색이 inventory 디렉터리/playbook 디렉터리 기준으로만 동작해
-  # ansible/group_vars/astra_host가 picked up되지 않는 환경이 있어 명시적으로 로드한다.
+  # group_vars는 inventory 파일(inventory/lab/)이나 playbook(playbooks/) 옆에 있어야
+  # 자동으로 읽힌다. ansible/group_vars는 둘 다 아니라서 명시적으로 로드한다.
   vars_files:
     - ../group_vars/astra_host/vars.yml
     - ../group_vars/astra_host/vault.yml
