@@ -14,7 +14,7 @@
   roles:
     - common
 
-# 2. control plane: kubeadm init + CNI(Flannel) + join 명령 생성
+# 2. control plane: kubeadm init + CNI(Calico) + join 명령 생성
 - name: Control plane
   hosts: control_plane
   become: true

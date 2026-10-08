@@ -5,9 +5,8 @@ ansible_python_interpreter: /usr/bin/python3
 # Kubernetes 마이너 버전 (pkgs.k8s.io 저장소 경로에 들어감)
 k8s_version: "v1.33"
 
-# 노드 네트워크와 겹치지 않는 Pod 대역 (Flannel 기본값)
-pod_cidr: "10.244.0.0/16"
-flannel_manifest: "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml"
+# CNI는 Flannel에서 Calico로 전환 (이슈 코멘트 반영). Pod 대역·버전은
+# roles/control_plane/defaults/main.yml의 pod_network_cidr / calico_version 참고.
 
 # Preflight 기준값
 preflight_min_disk_gb: 15
