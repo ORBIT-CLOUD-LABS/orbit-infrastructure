@@ -1,0 +1,16 @@
+---
+# 모든 VM에 공통으로 설치하는 패키지
+base_packages:
+  - ca-certificates
+  - curl
+  - vim
+  - htop
+  - jq
+  # 24.04에서 dnsutils는 전환용 패키지라 실제 패키지명을 쓴다.
+  - bind9-dnsutils
+
+# 그룹/호스트별로 추가할 패키지 (group_vars에서 지정)
+base_extra_packages: []
+
+# apt 캐시를 이 시간(초) 안에 갱신했으면 다시 갱신하지 않는다. 재실행 시 changed 0을 유지하기 위함.
+base_apt_cache_valid_time: 3600
