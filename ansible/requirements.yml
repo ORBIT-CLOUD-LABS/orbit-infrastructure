@@ -1,0 +1,5 @@
+---
+collections:
+  - name: community.postgresql
+    # postgresql_alter_system 모듈이 3.13.0에 추가되었다.
+    version: ">=3.13.0"

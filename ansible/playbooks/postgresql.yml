@@ -1,0 +1,13 @@
+---
+- name: Configure PostgreSQL for Terraform remote state
+  hosts: astra_host
+  become: true
+
+  # group_vars는 inventory 파일(inventory/lab/)이나 playbook(playbooks/) 옆에 있어야
+  # 자동으로 읽힌다. ansible/group_vars는 둘 다 아니라서 명시적으로 로드한다.
+  vars_files:
+    - ../group_vars/astra_host/vars.yml
+    - ../group_vars/astra_host/vault.yml
+
+  roles:
+    - postgresql
