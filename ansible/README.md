@@ -57,14 +57,15 @@ terraform apply  →  inventory/lab/hosts.ini 생성  →  ansible-playbook site
 
 | VM | IP | Ansible 그룹 |
 |---|---|---|
-| `astra-control-plane` | 192.168.100.100 | `control_plane` |
-| `astra-worker-1` ~ `3` | 192.168.100.101 ~ 103 | `workers` |
-| `astra-jenkins` | 192.168.100.104 | `jenkins` |
+| `astra-control-plane` | 192.168.100.101 | `control_plane` |
+| `astra-worker-1` ~ `3` | 192.168.100.102 ~ 104 | `workers` |
 | `astra-nfs` | 192.168.100.105 | `nfs` |
 | `astra-vehicle-db` | 192.168.100.106 | `vehicle_db` |
 | `astra-monitoring` | 192.168.100.107 | `monitoring` |
 
 `k8s` = `control_plane` + `workers` (공통 설치 대상). 롤의 `hosts:`는 위 그룹 이름을 그대로 쓴다.
+
+**`astra-jenkins`(192.168.100.100)는 이 표에 없다.** #7(Jenkins 스택 분리) 이후 `stacks/jenkins`가 따로 관리하기 때문에 `hosts.ini`(Terraform이 `environments/astra`에서 생성)에 포함되지 않는다. node-exporter 등 다른 롤이 `jenkins` 그룹을 쓸 수 있도록 `inventory/lab/jenkins.ini`에 정적으로 등록한다 (아래 11번 참고).
 
 **Terraform 담당과의 약속**
 - 그룹 이름을 바꾸면 `site.yml`도 같이 수정 (같은 PR 또는 사전 공유)
@@ -169,7 +170,7 @@ cd .. && ./scripts/test-vms.sh delete
 | 11 | Kubernetes 후처리 | `k8s-post.yml` → `k8s_post` | `control_plane[0]` |
 | 12 | 운영 Runbook | [`RUNBOOK.md`](RUNBOOK.md) | — |
 
-- 인벤토리는 폴더 단위로 읽는다 (`ansible.cfg: inventory = inventory/lab`): Terraform이 만든 `hosts.ini`(astra) + 손으로 관리하는 `sites.ini`(Sol·Terra·Luna, Tailscale IP)
+- 인벤토리는 `ansible.cfg`의 `inventory=`에 콤마로 나열된 파일들을 읽는다 (폴더 단위 지정이 아니다 — 폴더로 지정하면 `.ini` 파일이 무시되는 문제가 있어서 파일을 직접 나열하도록 바꿨다): Terraform이 만든 `hosts.ini`(astra) + 손으로 관리하는 `sites.ini`(Sol·Terra·Luna, Tailscale IP) + 손으로 관리하는 `jenkins.ini`(astra-jenkins, #7 이후 `stacks/jenkins`가 따로 관리해서 `hosts.ini`에는 없음). 새 인벤토리 파일을 추가할 때는 `ansible.cfg`의 `inventory=` 목록에도 반드시 추가해야 한다 (안 그러면 조용히 무시된다)
 - 비밀값: `secrets/vault.yml.example` → `secrets/vault.yml` 작성 → `ansible-vault encrypt` → 실행 시 `--ask-vault-pass`
 - 데이터 디스크: `db_data_device`, `monitoring_data_device`에 장치 이름(예: `/dev/vdb`). 이미 파일시스템이 있으면 포맷하지 않는다
 - 예비 노드: `k8s_reserved_nodes`(기본 `astra-worker-3`)에 `orbit.io/reserved=true:NoSchedule` taint
