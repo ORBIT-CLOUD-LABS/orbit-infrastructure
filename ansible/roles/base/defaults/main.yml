@@ -14,3 +14,6 @@ base_extra_packages: []
 
 # apt 캐시를 이 시간(초) 안에 갱신했으면 다시 갱신하지 않는다. 재실행 시 changed 0을 유지하기 위함.
 base_apt_cache_valid_time: 3600
+
+# 컨테이너 로그, 모니터링(Prometheus)과 기준을 맞추기 위해 UTC를 쓴다.
+base_timezone: Etc/UTC

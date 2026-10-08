@@ -1,3 +1,6 @@
 ---
 - name: Install common packages
   ansible.builtin.import_tasks: packages.yml
+
+- name: Configure timezone and time synchronization
+  ansible.builtin.import_tasks: time.yml
