@@ -1,8 +1,20 @@
 .DS_Store
-terraform/**/.terraform/
-terraform/**/.generated/
-terraform/**/*.tfstate
-terraform/**/*.tfstate.*
-terraform/environments/*/terraform.tfvars
-terraform/environments/*/backend-config/*.conf
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+
+# Terraform pg backend 접속 정보 (비밀번호 포함)
+terraform/**/backend-config/*.conf
+
+# cloud-init 생성물
+**/.generated/
+
+# Terraform이 apply 시 생성하는 Ansible inventory
 ansible/inventory/lab/hosts.ini

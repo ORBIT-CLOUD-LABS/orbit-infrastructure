@@ -13,7 +13,7 @@ resource "terraform_data" "base_image" {
 }
 
 resource "libvirt_volume" "base_image" {
-  name = "ubuntu-24.04-server-cloudimg-amd64-20260926.qcow2"
+  name = var.base_volume_name
   pool = var.pool_name
 
   target = {
@@ -97,16 +97,46 @@ resource "local_file" "meta_data" {
   })
 }
 
+resource "local_file" "network_config" {
+  for_each = var.static_ipv4 == null ? {} : var.vms
+
+  filename        = "${local.generated_dir}/${each.key}/network-config"
+  file_permission = "0600"
+  content = yamlencode({
+    version = 2
+    ethernets = {
+      primary = {
+        match = {
+          macaddress = each.value.mac
+        }
+        addresses = ["${each.value.ip}/${var.static_ipv4.prefix_length}"]
+        routes = [
+          {
+            to  = "default"
+            via = var.static_ipv4.gateway
+          },
+        ]
+        nameservers = {
+          addresses = var.static_ipv4.nameservers
+        }
+      }
+    }
+  })
+}
+
 resource "terraform_data" "cloud_init" {
   for_each = var.vms
 
-  triggers_replace = [
-    local_file.user_data[each.key].content_sha256,
-    local_file.meta_data[each.key].content_sha256,
-  ]
+  triggers_replace = concat(
+    [
+      local_file.user_data[each.key].content_sha256,
+      local_file.meta_data[each.key].content_sha256,
+    ],
+    var.static_ipv4 == null ? [] : [local_file.network_config[each.key].content_sha256],
+  )
 
   provisioner "local-exec" {
-    command = "bash '${path.module}/scripts/create-cloud-init-iso.sh' '${local.generated_dir}/${each.key}/cloud-init.iso' '${local_file.user_data[each.key].filename}' '${local_file.meta_data[each.key].filename}'"
+    command = "bash '${path.module}/scripts/create-cloud-init-iso.sh' '${local.generated_dir}/${each.key}/cloud-init.iso' '${local_file.user_data[each.key].filename}' '${local_file.meta_data[each.key].filename}'${var.static_ipv4 == null ? "" : " '${local_file.network_config[each.key].filename}'"}"
   }
 }
 
@@ -227,10 +257,11 @@ resource "libvirt_domain" "this" {
             network = var.network_name
           }
         }
-        wait_for_ip = {
+        # static IP VM은 DHCP lease가 없으므로 lease 대기를 하지 않는다.
+        wait_for_ip = var.static_ipv4 == null ? {
           source  = "lease"
           timeout = 300
-        }
+        } : null
       },
     ]
   }
