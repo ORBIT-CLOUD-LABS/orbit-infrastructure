@@ -1,0 +1,9 @@
+---
+# 모든 VM 공통 OS 기본 설정
+# astra_host는 VM이 아니라 하이퍼바이저 자신이라 제외한다.
+- name: Configure OS baseline for all VMs
+  hosts: all:!astra_host
+  become: true
+
+  roles:
+    - base

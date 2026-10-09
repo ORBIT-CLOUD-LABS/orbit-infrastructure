@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+[Journal]
+{% for key, value in base_journald_options.items() %}
+{{ key }}={{ value }}
+{% endfor %}

@@ -1,0 +1,13 @@
+// {{ ansible_managed }}
+APT::Periodic::Update-Package-Lists "{{ '1' if base_unattended_upgrades_enabled else '0' }}";
+APT::Periodic::Unattended-Upgrade "{{ '1' if base_unattended_upgrades_enabled else '0' }}";
+
+// 목록 항목은 덮어쓰지 않고 이어 붙기 때문에 기존 값을 지우고 다시 정의한다.
+#clear Unattended-Upgrade::Allowed-Origins;
+Unattended-Upgrade::Allowed-Origins {
+{% for origin in base_unattended_upgrades_origins %}
+	"{{ origin }}";
+{% endfor %}
+};
+
+Unattended-Upgrade::Automatic-Reboot "{{ base_unattended_upgrades_automatic_reboot | lower }}";
