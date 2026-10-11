@@ -3,10 +3,12 @@
 # 단독 실행: ansible-playbook playbooks/preflight.yml (ansible/ 폴더에서)
 # site.yml 맨 앞에서도 자동으로 실행된다.
 # astra_host는 VM이 아니라 하이퍼바이저 자신이라 점검 대상에서 제외한다.
+# 한 노드라도 점검에 실패하면 나머지 노드도 설치하지 않도록 전체를 멈춘다 (any_errors_fatal).
 
 # 0. 접속 가능 여부 (모든 관리 노드)
 - name: Preflight | 접속
   hosts: all:!astra_host
+  any_errors_fatal: true
   gather_facts: false
   become: true
   tasks:
@@ -25,6 +27,7 @@
 # 1. 모든 관리 노드 공통 점검
 - name: Preflight | 공통
   hosts: all:!astra_host
+  any_errors_fatal: true
   gather_facts: false
   become: true
   tasks:
@@ -67,6 +70,7 @@
 # 2. Kubernetes 노드 점검 (kubeadm 요구사항)
 - name: Preflight | Kubernetes 노드
   hosts: k8s
+  any_errors_fatal: true
   gather_facts: false
   become: true
   tasks:
