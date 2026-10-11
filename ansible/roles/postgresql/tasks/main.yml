@@ -57,3 +57,6 @@
     method: md5
     create: false
   notify: Reload PostgreSQL
+
+- name: Configure Terraform state backup
+  ansible.builtin.import_tasks: backup.yml
