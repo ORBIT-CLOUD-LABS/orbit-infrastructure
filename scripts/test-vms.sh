@@ -16,6 +16,26 @@ is_ours() {
 vm_exists() {
   $V dominfo "$1" >/dev/null 2>&1
 }
+
+# 기본망 DHCP 예약 (VM이 인벤토리와 같은 IP를 받도록)
+# 같은 예약이 이미 있으면 건너뛰고, MAC·이름·IP 중 하나라도 다른 예약과 겹치면 중단한다.
+reserve_dhcp() {
+  local name=$1 mac=$2 ip=$3 entry xml conflict
+  entry="<host mac='$mac' name='$name' ip='$ip'/>"
+  xml=$($V net-dumpxml default --inactive)
+  if grep -qF "$entry" <<<"$xml"; then
+    return 0
+  fi
+  conflict=$(grep -E "<host .*(mac='$mac'|name='$name'|ip='${ip//./\\.}')" <<<"$xml" || true)
+  if [ -n "$conflict" ]; then
+    echo "[ERROR] $name: DHCP 예약이 기존 예약과 겹쳐 중단합니다."
+    echo "  요청: $entry"
+    echo "  기존: $(echo "$conflict" | sed 's/^ *//')"
+    exit 1
+  fi
+  $V net-update default add ip-dhcp-host "$entry" --live --config >/dev/null
+}
+
 # Lab VM(Terraform)과 같은 Ubuntu 24.04
 IMG=/var/lib/libvirt/images/noble-server-cloudimg-amd64.img
 NODES="${NODES:-test-cp:10 test-w1:11 test-w2:12}"   # 예: NODES="test-db:13 test-mon:14" ./scripts/test-vms.sh
@@ -54,9 +74,7 @@ for n in $NODES; do
   MAC=52:54:00:aa:00:$NUM
   IP=192.168.122.$NUM
 
-  # 항상 같은 IP 받도록 DHCP 예약
-  $V net-update default add ip-dhcp-host \
-    "<host mac='$MAC' name='$NAME' ip='$IP'/>" --live --config 2>/dev/null || true
+  reserve_dhcp "$NAME" "$MAC" "$IP"
 
   if vm_exists "$NAME"; then
     if is_ours "$NAME"; then
