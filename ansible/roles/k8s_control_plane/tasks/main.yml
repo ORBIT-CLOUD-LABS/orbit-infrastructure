@@ -85,34 +85,34 @@
     group: "{{ ansible_user }}"
     mode: "0600"
 
-- name: Calico 설치 여부 확인
-  ansible.builtin.command: kubectl get installation default
+# --- Calico (Tigera Operator) ---
+# 일부만 설치된 상태도 복구되도록 "설치됐는지"로 건너뛰지 않고 매번 선언한 상태로 맞춘다.
+# apply는 매번 changed로 나오므로 diff로 바뀔 내용이 있을 때만 apply한다.
+# kubectl diff는 0 = 차이 없음, 1 = 차이 있음, 그 외 = 오류다. 첫 설치 때는 namespace가 아직 없어서
+# diff가 오류를 내므로 0이 아니면 모두 apply하고, 진짜 오류는 apply에서 드러나게 한다.
+# CRD가 커서 일반 apply는 annotation 크기 제한에 걸리므로 Operator 매니페스트는 --server-side로 적용한다.
+- name: Calico Operator 매니페스트 변경 확인
+  ansible.builtin.command: kubectl diff --server-side -f {{ item }}
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
-  register: calico_installed
+  loop:
+    - https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/operator-crds.yaml
+    - https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml
+  register: calico_operator_diff
   failed_when: false
   changed_when: false
 
-# 설치가 중간에 실패해도 다시 실행할 수 있도록 create 대신 apply를 쓴다.
-# CRD가 커서 일반 apply는 annotation 크기 제한에 걸리므로 --server-side가 필요하다.
-- name: Calico Operator CRD 설치
-  ansible.builtin.command: >
-    kubectl apply --server-side -f
-    https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/operator-crds.yaml
+- name: Calico Operator CRD·Tigera Operator 적용
+  ansible.builtin.command: kubectl apply --server-side -f {{ item.item }}
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
-  when: calico_installed.rc != 0
-
-- name: Tigera Operator 설치
-  ansible.builtin.command: >
-    kubectl apply --server-side -f
-    https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml
-  environment:
-    KUBECONFIG: /etc/kubernetes/admin.conf
-  when: calico_installed.rc != 0
+  loop: "{{ calico_operator_diff.results }}"
+  loop_control:
+    label: "{{ item.item | basename }}"
+  when: item.rc != 0
 
 - name: Installation CRD 등록 대기
-  ansible.builtin.command: kubectl wait --for=condition=established crd/installations.operator.tigera.io --timeout=120s
+  ansible.builtin.command: kubectl wait --for=condition=established crd/installations.operator.tigera.io crd/apiservers.operator.tigera.io --timeout=120s
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   changed_when: false
@@ -141,11 +141,21 @@
         name: default
       spec: {}
 
-- name: Calico Installation 적용
+# Installation은 Operator가 기본값을 채워 넣는 리소스라, server-side apply를 쓰면 그 필드와 소유권 충돌이
+# 날 수 있다. 일반(client-side) apply는 우리가 적은 필드만 비교하므로 이쪽은 일반 apply를 쓴다.
+- name: Calico Installation·APIServer 변경 확인
+  ansible.builtin.command: kubectl diff -f /tmp/calico-installation.yaml
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: calico_installation_diff
+  failed_when: false
+  changed_when: false
+
+- name: Calico Installation·APIServer 적용
   ansible.builtin.command: kubectl apply -f /tmp/calico-installation.yaml
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
-  when: calico_installed.rc != 0
+  when: calico_installation_diff.rc != 0
 
 - name: Calico 준비 완료 대기
   ansible.builtin.command: kubectl wait --for=condition=Available tigerastatus/calico --timeout=30s
@@ -157,6 +167,7 @@
   delay: 15
   changed_when: false
 
+# --- worker join ---
 - name: join 명령 생성
   ansible.builtin.command: kubeadm token create --print-join-command
   register: join_cmd
