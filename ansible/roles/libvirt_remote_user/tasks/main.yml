@@ -1,0 +1,10 @@
+---
+# 비밀번호는 지정하지 않는다(useradd 기본값으로 잠김). 접속은 SSH 키로만 한다.
+# qemu+ssh는 원격에서 virt-ssh-helper를 실행하므로 로그인 셸이 필요하다.
+- name: Create libvirt remote access user
+  ansible.builtin.user:
+    name: "{{ libvirt_remote_user_name }}"
+    shell: /bin/bash
+    create_home: true
+    groups: libvirt
+    append: true
