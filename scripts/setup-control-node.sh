@@ -47,7 +47,13 @@ if [ -f "$INV" ]; then
   ok "inventory/lab/hosts.ini 있음"
   ansible-inventory --graph 2>/dev/null | sed 's/^/     /'
   echo "== 6. 관리 노드 접속 (ping)"
-  ansible all -m ping -o 2>/dev/null | sed 's/^/     /' || true
+  # 파이프로 바로 넘기면 ansible 실패가 묻히므로 결과를 먼저 받아 판정한다.
+  if PING_OUT=$(ansible all -m ping -o 2>/dev/null); then
+    ok "모든 관리 노드 접속 성공"
+  else
+    fail "접속 실패한 관리 노드가 있음 (아래 UNREACHABLE/FAILED 확인)"
+  fi
+  echo "$PING_OUT" | sed 's/^/     /'
 else
   warn "inventory/lab/hosts.ini 없음 → Terraform apply로 생성되는지 Terraform 담당에게 확인"
 fi
