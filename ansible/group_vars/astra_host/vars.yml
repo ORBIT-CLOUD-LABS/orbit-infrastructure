@@ -1,0 +1,10 @@
+---
+postgres_version: 16
+
+# Terraform state 저장용 DB/계정
+terraform_pg_database: terraform_states
+terraform_pg_role: terraform
+terraform_pg_password: "{{ vault_terraform_pg_password }}"
+
+# backend "pg" 접속을 허용할 네트워크 (orbit-astra-net)
+terraform_pg_allowed_cidr: 192.168.100.0/24

@@ -1,0 +1,17 @@
+---
+- name: Create journald drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure journald options
+  ansible.builtin.template:
+    src: journald.conf.j2
+    dest: /etc/systemd/journald.conf.d/10-orbit-base.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart journald

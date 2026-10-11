@@ -7,6 +7,8 @@ module "network" {
   dhcp_range_start = "192.168.100.200"
   dhcp_range_end   = "192.168.100.249"
 
+  # astra-jenkins VM은 stacks/jenkins가 static IP로 관리한다. 예약을 지우면 provider가
+  # 네트워크를 재생성해 모든 VM 연결이 끊기므로, 네트워크를 바꿀 때까지 예약을 남겨 둔다.
   dhcp_hosts = {
     astra-jenkins       = { mac = "52:54:00:64:00:04", ip = "192.168.100.100" }
     astra-control-plane = { mac = "52:54:00:64:00:00", ip = "192.168.100.101" }
@@ -48,7 +50,6 @@ module "vms" {
   ssh_authorized_keys = var.ssh_authorized_keys
 
   vms = {
-    astra-jenkins       = { vcpu = 2, memory_mib = 6144, os_disk_gib = 35, data_disk_gib = null, mac = "52:54:00:64:00:04", ip = "192.168.100.100" }
     astra-control-plane = { vcpu = 2, memory_mib = 4096, os_disk_gib = 25, data_disk_gib = null, mac = "52:54:00:64:00:00", ip = "192.168.100.101" }
     astra-worker-1      = { vcpu = 2, memory_mib = 8192, os_disk_gib = 35, data_disk_gib = null, mac = "52:54:00:64:00:01", ip = "192.168.100.102" }
     astra-worker-2      = { vcpu = 2, memory_mib = 8192, os_disk_gib = 35, data_disk_gib = null, mac = "52:54:00:64:00:02", ip = "192.168.100.103" }

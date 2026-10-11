@@ -1,0 +1,42 @@
+---
+# 모든 VM에 공통으로 설치하는 패키지
+base_packages:
+  - ca-certificates
+  - curl
+  - vim
+  - htop
+  - jq
+  # 24.04에서 dnsutils는 전환용 패키지라 실제 패키지명을 쓴다.
+  - bind9-dnsutils
+
+# 그룹/호스트별로 추가할 패키지 (group_vars에서 지정)
+base_extra_packages: []
+
+# apt 캐시를 이 시간(초) 안에 갱신했으면 다시 갱신하지 않는다. 재실행 시 changed 0을 유지하기 위함.
+base_apt_cache_valid_time: 3600
+
+# 컨테이너 로그, 모니터링(Prometheus)과 기준을 맞추기 위해 UTC를 쓴다.
+base_timezone: Etc/UTC
+
+# sshd_config.d에 추가할 설정. 비밀번호 로그인 차단은 cloud-init(50-cloud-init.conf)이 이미 처리한다.
+base_sshd_options:
+  PermitRootLogin: "no"
+  X11Forwarding: "no"
+  # ClientAliveInterval은 노트북 절전 시 세션이 끊겨서 설정하지 않는다.
+
+# journald.conf.d에 추가할 설정.
+# SystemMaxUse 기본값은 디스크의 10%(현재 VM 기준 1.9G~3.3G)인데 비율로는 지정할 수 없어 근사값을 쓴다.
+base_journald_options:
+  SystemMaxUse: 2G
+
+# 자동 업데이트(unattended-upgrades). 값은 Ubuntu 24.04 기본 동작과 같다.
+# 패키지 목록 갱신과 자동 업그레이드를 매일 실행한다.
+base_unattended_upgrades_enabled: true
+# 보안 업데이트만 적용한다. 릴리스 기본 저장소(${distro_codename})는 출시 후 바뀌지 않는다.
+base_unattended_upgrades_origins:
+  - "${distro_id}:${distro_codename}"
+  - "${distro_id}:${distro_codename}-security"
+  - "${distro_id}ESMApps:${distro_codename}-apps-security"
+  - "${distro_id}ESM:${distro_codename}-infra-security"
+# K8s 노드가 drain 없이 재부팅되지 않도록 자동 재부팅은 하지 않는다.
+base_unattended_upgrades_automatic_reboot: false

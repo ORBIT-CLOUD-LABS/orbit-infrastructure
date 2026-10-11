@@ -8,7 +8,6 @@ module "ansible_inventory" {
   groups = {
     control_plane = ["astra-control-plane"]
     workers       = ["astra-worker-1", "astra-worker-2", "astra-worker-3"]
-    jenkins       = ["astra-jenkins"]
     nfs           = ["astra-nfs"]
     vehicle_db    = ["astra-vehicle-db"]
     monitoring    = ["astra-monitoring"]

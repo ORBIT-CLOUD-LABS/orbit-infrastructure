@@ -1,0 +1,15 @@
+---
+- name: Install common packages
+  ansible.builtin.import_tasks: packages.yml
+
+- name: Configure timezone and time synchronization
+  ansible.builtin.import_tasks: time.yml
+
+- name: Harden sshd
+  ansible.builtin.import_tasks: sshd.yml
+
+- name: Limit journald disk usage
+  ansible.builtin.import_tasks: journald.yml
+
+- name: Configure automatic updates
+  ansible.builtin.import_tasks: unattended_upgrades.yml

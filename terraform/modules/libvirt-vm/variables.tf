@@ -23,9 +23,30 @@ variable "base_image_sha256" {
   }
 }
 
+variable "base_volume_name" {
+  type        = string
+  description = "libvirt volume name for the shared base image. Use a distinct name per stack to avoid sharing the backing file."
+  default     = "ubuntu-24.04-server-cloudimg-amd64-20260926.qcow2"
+}
+
 variable "ssh_authorized_keys" {
   type        = set(string)
   description = "SSH public keys for the orbit account."
+}
+
+variable "static_ipv4" {
+  description = "Static IPv4 settings applied through cloud-init network-config. Leave null to use DHCP reservations."
+  type = object({
+    prefix_length = number
+    gateway       = string
+    nameservers   = list(string)
+  })
+  default = null
+
+  validation {
+    condition     = var.static_ipv4 == null || (var.static_ipv4.prefix_length >= 1 && var.static_ipv4.prefix_length <= 32)
+    error_message = "static_ipv4.prefix_length must be between 1 and 32."
+  }
 }
 
 variable "vms" {

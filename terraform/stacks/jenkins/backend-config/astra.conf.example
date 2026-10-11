@@ -1,0 +1,1 @@
+conn_str = "postgres://terraform:CHANGE_ME@192.168.100.1:5432/terraform_states?sslmode=disable"
