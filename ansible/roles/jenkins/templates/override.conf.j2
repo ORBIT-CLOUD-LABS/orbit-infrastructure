@@ -1,0 +1,4 @@
+[Service]
+EnvironmentFile=/etc/jenkins/jenkins-admin.env
+Environment="CASC_JENKINS_CONFIG={{ jenkins_casc_dir }}/jenkins.yaml"
+Environment="JAVA_OPTS=-Djava.awt.headless=true -Djenkins.install.runSetupWizard=false"
