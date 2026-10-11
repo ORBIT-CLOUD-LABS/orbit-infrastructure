@@ -1,6 +1,6 @@
 ---
 # Preflight: 설치를 시작하기 전에 관리 노드가 조건을 만족하는지 점검한다.
-# 단독 실행: ansible-playbook preflight.yml
+# 단독 실행: ansible-playbook playbooks/preflight.yml (ansible/ 폴더에서)
 # site.yml 맨 앞에서도 자동으로 실행된다.
 # astra_host는 VM이 아니라 하이퍼바이저 자신이라 점검 대상에서 제외한다.
 

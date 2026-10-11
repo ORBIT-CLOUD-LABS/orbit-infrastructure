@@ -1,36 +1,40 @@
 ---
-# ORBIT Lab 전체 구성 플레이북
-# 실행: ansible-playbook site.yml           (inventory/lab/hosts.ini)
-#      ansible-playbook -i inventory/test.ini site.yml   (테스트 VM)
+# ORBIT Lab 전체 구성 플레이북 (ansible/ 폴더에서 실행)
+# 실행: ansible-playbook playbooks/site.yml                       (inventory/lab/hosts.ini)
+#      ansible-playbook -i inventory/test.ini playbooks/site.yml   (테스트 VM)
 
 # 0. 설치 전 점검 (접속, OS, 자원, 중복, 포트, 인터넷)
 - name: Preflight
   ansible.builtin.import_playbook: preflight.yml
 
-# 1. k8s 노드 공통: swap, 커널 모듈, containerd, kubelet/kubeadm/kubectl
-- name: Common
+# 1. 모든 VM 공통 OS 기본 설정 (패키지, 시간, sshd, journald, 자동 업데이트)
+- name: Base
+  ansible.builtin.import_playbook: base.yml
+
+# 2. k8s 노드 공통: swap, 커널 모듈, containerd, kubelet/kubeadm/kubectl
+- name: Kubernetes node
   hosts: k8s
   become: true
   roles:
-    - common
+    - k8s_node
 
-# 2. control plane: kubeadm init + CNI(Calico) + join 명령 생성
+# 3. control plane: kubeadm init + CNI(Calico) + join 명령 생성
 - name: Control plane
   hosts: control_plane
   become: true
   roles:
-    - control_plane
+    - k8s_control_plane
 
-# 3. worker: kubeadm join
+# 4. worker: kubeadm join
 - name: Workers
   hosts: workers
   become: true
   roles:
-    - worker
+    - k8s_worker
 
 # (다음 롤은 각 이슈/PR에서 여기에 추가: jenkins, monitoring, nfs, db, addons)
 
-# 4. 검증: 모든 노드 Ready
+# 5. 검증: 모든 노드 Ready
 - name: Verify cluster
   hosts: control_plane
   become: true
