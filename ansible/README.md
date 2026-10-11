@@ -93,3 +93,87 @@ ansible astra_host -m postgresql_ping -a "db=terraform_states login_user=terrafo
 
 `terraform` 계정 비밀번호를 바꾸려면 `group_vars/astra_host/vault.yml`을
 `ansible-vault edit`로 수정한 뒤 플레이북을 다시 실행합니다.
+
+### Terraform state 백업
+
+`terraform_states` DB를 PostgreSQL custom format으로 백업한 뒤 GPG로 암호화합니다.
+systemd timer가 매일 18:00 UTC에 실행하며, 암호화 파일은 ASTRA와 TERRA에 14일간 보관합니다.
+TERRA 전송에 실패하면 ASTRA 사본은 유지하고 service는 실패로 기록합니다.
+
+| 항목 | ASTRA | TERRA |
+|---|---|---|
+| 저장 경로 | `/var/backups/orbit/terraform-state` | `/home/orbit-backup/terraform-state` |
+| 소유 계정 | `root` | `orbit-backup` |
+| 디렉터리 권한 | `0700` | `0700` |
+| 파일 권한 | `0600` | `0600` |
+
+백업 비밀번호는 `vault_terraform_state_backup_passphrase`로 관리하며 DB와 vault 비밀번호를
+재사용하지 않습니다. 비밀번호를 교체하면 기존 백업에는 이전 비밀번호가 필요합니다.
+
+### 백업 확인
+
+ORBIT-ASTRA 호스트에서 timer와 최근 실행 결과를 확인합니다.
+
+```bash
+sudo systemctl status orbit-terraform-state-backup.timer
+sudo systemctl list-timers orbit-terraform-state-backup.timer
+sudo systemctl status orbit-terraform-state-backup.service
+sudo journalctl -u orbit-terraform-state-backup.service --no-pager
+```
+
+수동으로 한 번 실행하려면 service를 시작합니다.
+
+```bash
+sudo systemctl start orbit-terraform-state-backup.service
+```
+
+ASTRA와 TERRA에 같은 이름의 `.dump.gpg` 파일이 있고 권한이 `0600`인지 확인합니다.
+
+```bash
+sudo find /var/backups/orbit/terraform-state \
+  -maxdepth 1 -type f -printf '%M %u:%g %f\n'
+
+sudo ssh \
+  -i /etc/orbit/terraform-state-backup-ssh \
+  -o IdentitiesOnly=yes \
+  -o UserKnownHostsFile=/etc/orbit/terraform-state-backup-known_hosts \
+  -o StrictHostKeyChecking=yes \
+  orbit-backup@orbit-terra \
+  "find /home/orbit-backup/terraform-state -maxdepth 1 -type f -printf '%M %u:%g %f\\n'"
+```
+
+### 복구 확인
+
+운영 DB에는 복원하지 않습니다. `<backup-file>`을 실제 파일명으로 바꾼 뒤 별도 시험 DB에
+복원합니다.
+
+```bash
+sudo install -d -o root -g postgres -m 0750 /run/orbit-terraform-state-restore
+sudo gpg --batch --yes --pinentry-mode loopback \
+  --passphrase-file /etc/orbit/terraform-state-backup.passphrase \
+  --output /run/orbit-terraform-state-restore/terraform_states.dump \
+  --decrypt /var/backups/orbit/terraform-state/<backup-file>
+sudo chown root:postgres /run/orbit-terraform-state-restore/terraform_states.dump
+sudo chmod 0640 /run/orbit-terraform-state-restore/terraform_states.dump
+```
+
+시험 DB 이름이 사용 중인지 확인합니다. 결과가 없을 때만 복원합니다.
+
+```bash
+sudo -u postgres psql -d postgres -Atc \
+  "SELECT datname FROM pg_database WHERE datname = 'terraform_states_restore_test';"
+sudo -u postgres createdb terraform_states_restore_test
+sudo -u postgres pg_restore --exit-on-error \
+  --dbname=terraform_states_restore_test \
+  /run/orbit-terraform-state-restore/terraform_states.dump
+sudo -u postgres psql -d terraform_states_restore_test -c '\dn'
+```
+
+`terraform_remote_state_astra`와 `terraform_remote_state_jenkins` schema를 확인한 뒤 시험
+DB와 평문 dump를 삭제합니다.
+
+```bash
+sudo -u postgres dropdb terraform_states_restore_test
+sudo rm -f /run/orbit-terraform-state-restore/terraform_states.dump
+sudo rmdir /run/orbit-terraform-state-restore
+```
