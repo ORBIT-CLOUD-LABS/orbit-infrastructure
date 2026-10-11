@@ -107,10 +107,10 @@
         mode: "0644"
       register: jenkins_plugin_manifest_result
 
-    - name: Check requested Jenkins plugins
+    - name: Check locked Jenkins plugins
       ansible.builtin.stat:
         path: "{{ jenkins_home }}/plugins/{{ item.name }}.jpi"
-      loop: "{{ jenkins_plugins }}"
+      loop: "{{ jenkins_plugin_lock }}"
       register: jenkins_plugin_files
 
     - name: Install required Jenkins plugins and dependencies
