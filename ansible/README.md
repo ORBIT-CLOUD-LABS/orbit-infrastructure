@@ -89,8 +89,12 @@ Lab VM을 건드리지 않고 롤을 검증하려면 libvirt 기본망(`192.168.
 ./scripts/test-vms.sh            # test-cp, test-w1, test-w2 생성
 cd ansible
 ansible-playbook -i inventory/test.ini playbooks/site.yml
-cd .. && ./scripts/test-vms.sh delete
+cd .. && ./scripts/test-vms.sh delete   # VM·디스크·DHCP 예약·known_hosts 항목까지 정리
 ```
+
+- sudo 없이 `libvirt` 그룹 권한만으로 동작합니다. 디스크는 `images` 풀의 볼륨으로 만듭니다.
+- Lab VM과 같은 Ubuntu 24.04 베이스 이미지가 `images` 풀에 `noble-server-cloudimg-amd64.img` 볼륨으로
+  있어야 합니다. 없으면 스크립트가 올리는 방법을 안내합니다. 여러 번 쓰는 준비물이라 `delete`로 지우지 않습니다.
 
 ### 변수
 
