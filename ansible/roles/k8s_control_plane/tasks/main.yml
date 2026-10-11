@@ -30,37 +30,39 @@
     mode: "0600"
 
 - name: Calico 설치 여부 확인
-  command: kubectl get installation default
+  ansible.builtin.command: kubectl get installation default
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   register: calico_installed
   failed_when: false
   changed_when: false
 
+# 설치가 중간에 실패해도 다시 실행할 수 있도록 create 대신 apply를 쓴다.
+# CRD가 커서 일반 apply는 annotation 크기 제한에 걸리므로 --server-side가 필요하다.
 - name: Calico Operator CRD 설치
-  command: >
-    kubectl create -f
+  ansible.builtin.command: >
+    kubectl apply --server-side -f
     https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/operator-crds.yaml
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   when: calico_installed.rc != 0
 
 - name: Tigera Operator 설치
-  command: >
-    kubectl create -f
+  ansible.builtin.command: >
+    kubectl apply --server-side -f
     https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   when: calico_installed.rc != 0
 
 - name: Installation CRD 등록 대기
-  command: kubectl wait --for=condition=established crd/installations.operator.tigera.io --timeout=120s
+  ansible.builtin.command: kubectl wait --for=condition=established crd/installations.operator.tigera.io --timeout=120s
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   changed_when: false
 
 - name: Calico Installation 매니페스트 작성 (Pod CIDR 지정)
-  copy:
+  ansible.builtin.copy:
     dest: /tmp/calico-installation.yaml
     content: |
       apiVersion: operator.tigera.io/v1
@@ -84,13 +86,13 @@
       spec: {}
 
 - name: Calico Installation 적용
-  command: kubectl apply -f /tmp/calico-installation.yaml
+  ansible.builtin.command: kubectl apply -f /tmp/calico-installation.yaml
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   when: calico_installed.rc != 0
 
 - name: Calico 준비 완료 대기
-  command: kubectl wait --for=condition=Available tigerastatus/calico --timeout=30s
+  ansible.builtin.command: kubectl wait --for=condition=Available tigerastatus/calico --timeout=30s
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   register: calico_ready
@@ -98,6 +100,7 @@
   retries: 20
   delay: 15
   changed_when: false
+
 - name: join 명령 생성
   ansible.builtin.command: kubeadm token create --print-join-command
   register: join_cmd
