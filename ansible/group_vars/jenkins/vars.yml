@@ -1,0 +1,22 @@
+---
+jenkins_version: "2.580.1"
+jenkins_java_package: openjdk-21-jre
+jenkins_home: /var/lib/jenkins
+jenkins_casc_dir: /var/lib/jenkins/casc
+jenkins_admin_user: orbit-jenkins
+jenkins_admin_password: "{{ vault_jenkins_admin_password }}"
+jenkins_num_executors: 1
+
+jenkins_plugins:
+  - name: configuration-as-code
+    version: "2134.ve13a_2fc90835"
+  - name: workflow-aggregator
+    version: "608.v67378e9d3db_1"
+  - name: git
+    version: "5.10.1"
+  - name: credentials-binding
+    version: "728.v902a_273b_8947"
+  - name: ssh-credentials
+    version: "372.va_250881b_08cd"
+
+terraform_package_version: "1.16.5-1"

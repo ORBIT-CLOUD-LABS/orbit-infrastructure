@@ -5,3 +5,6 @@ collections:
     version: ">=3.13.0"
   # base 롤의 timezone 모듈
   - name: community.general
+    # 버전을 고정한 Jenkins 플러그인의 의존성 설치는 11.2.0부터 지원한다.
+    # 11.x는 Ubuntu 24.04의 ansible-core 2.16도 지원한다.
+    version: ">=11.2.0,<12.0.0"
