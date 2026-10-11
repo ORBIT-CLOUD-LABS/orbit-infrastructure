@@ -16,10 +16,25 @@
       ansible.builtin.wait_for_connection:
         timeout: 300
 
+    # cloud-init status 종료 코드: 0 = 정상, 2 = 완료했지만 경고(복구 가능), 1 = 치명적 실패
+    # 계정·hostname·IP 같은 초기 설정이 빠진 VM에 설치하지 않도록 1이면 중단한다.
+    # cloud-init이 멈춰 있으면 --wait가 끝나지 않으므로 태스크 시간 제한을 둔다.
     - name: cloud-init 완료 대기
-      ansible.builtin.command: cloud-init status --wait
+      ansible.builtin.command: cloud-init status --wait --long
+      register: cloud_init
+      timeout: 600
       changed_when: false
       failed_when: false
+
+    - name: cloud-init 치명적 실패면 중단
+      ansible.builtin.fail:
+        msg: "{{ inventory_hostname }}: cloud-init 실패 (종료 코드 1) — VM에서 'sudo cloud-init status --long'으로 확인\n{{ cloud_init.stdout }}"
+      when: cloud_init.rc == 1
+
+    - name: cloud-init 경고 표시
+      ansible.builtin.debug:
+        msg: "⚠️ {{ inventory_hostname }}: cloud-init이 경고와 함께 완료됨 (종료 코드 2)\n{{ cloud_init.stdout }}"
+      when: cloud_init.rc == 2
 
     - name: 시스템 정보(팩트) 수집
       ansible.builtin.setup:
