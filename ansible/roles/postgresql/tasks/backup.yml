@@ -1,0 +1,66 @@
+---
+- name: Install backup packages
+  ansible.builtin.apt:
+    name: [gnupg, openssh-client]
+    state: present
+    update_cache: true
+
+- name: Create backup directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - /etc/orbit
+    - "{{ terraform_state_backup_local_dir }}"
+
+- name: Install backup passphrase
+  ansible.builtin.copy:
+    content: "{{ terraform_state_backup_passphrase }}\n"
+    dest: "{{ terraform_state_backup_passphrase_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Check backup SSH files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ terraform_state_backup_ssh_private_key }}"
+    - "{{ terraform_state_backup_known_hosts }}"
+  register: backup_ssh_files
+
+- name: Stop if backup SSH files are missing
+  ansible.builtin.assert:
+    that: item.stat.exists
+    fail_msg: "Missing required backup SSH file: {{ item.item }}"
+  loop: "{{ backup_ssh_files.results }}"
+
+- name: Install backup script
+  ansible.builtin.template:
+    src: terraform-state-backup.sh.j2
+    dest: /usr/local/sbin/orbit-terraform-state-backup
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install backup systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - orbit-terraform-state-backup.service
+    - orbit-terraform-state-backup.timer
+
+- name: Enable backup timer
+  ansible.builtin.systemd:
+    name: orbit-terraform-state-backup.timer
+    enabled: true
+    state: started
+    daemon_reload: true
