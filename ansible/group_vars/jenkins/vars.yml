@@ -6,6 +6,10 @@ jenkins_casc_dir: /var/lib/jenkins/casc
 jenkins_admin_user: orbit-jenkins
 jenkins_admin_password: "{{ vault_jenkins_admin_password }}"
 jenkins_num_executors: 1
+jenkins_plugin_manager_version: "2.15.0"
+jenkins_plugin_manager_checksum: "sha256:a86853ec2e2933f37a4b471ba65099b61e03c87a80c2ef8fe2315eb135672d43"
+jenkins_plugin_manager_jar: /usr/local/lib/jenkins-plugin-manager.jar
+jenkins_plugin_manifest: /etc/jenkins/plugins.txt
 
 jenkins_plugins:
   - name: configuration-as-code
