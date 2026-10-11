@@ -16,7 +16,7 @@ vm_exists() {
   $V dominfo "$1" >/dev/null 2>&1
 }
 IMG=/var/lib/libvirt/images/jammy-server-cloudimg-amd64.img
-NODES="${test-cp:10 test-w1:11 test-w2:12}"   # 예: NODES="test-db:13 test-mon:14" ./scripts/test-vms.sh
+NODES="${NODES:-test-cp:10 test-w1:11 test-w2:12}"   # 예: NODES="test-db:13 test-mon:14" ./scripts/test-vms.sh
 
 if [ "${1:-}" = "delete" ]; then
   for n in $NODES; do
