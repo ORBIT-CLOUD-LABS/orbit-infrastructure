@@ -29,8 +29,10 @@
 # 완료 표식이 없어도 이미 끝까지 init된 클러스터일 수 있다 (표식 도입 전에 만들었거나 표식 쓰기만 실패한 경우).
 # kube-proxy는 init 마지막 단계(addon)에서 만들어지므로, 조회되면 init이 끝난 것으로 본다.
 # 재부팅 직후엔 API 서버가 늦게 뜰 수 있어 재시도한다.
+# kubectl은 기본 요청 시간 제한이 없어 응답 없는 API 서버에서 멈추면 재시도로 넘어가지 못하므로
+# 재시도하는 조회에는 --request-timeout을 붙인다.
 - name: 완료 표식 없는 클러스터가 init을 마쳤는지 확인
-  ansible.builtin.command: kubectl get daemonset kube-proxy -n kube-system
+  ansible.builtin.command: kubectl get daemonset kube-proxy -n kube-system --request-timeout=10s
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   register: kube_proxy
@@ -95,7 +97,7 @@
     mode: "0644"
 
 - name: API 서버 응답 대기
-  ansible.builtin.command: kubectl get --raw=/readyz
+  ansible.builtin.command: kubectl get --raw=/readyz --request-timeout=10s
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   register: apiserver_ready
