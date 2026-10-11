@@ -8,8 +8,9 @@ V="virsh -c qemu:///system"
 MARKER="created-by=orbit-test-vms"
 
 # 이 스크립트가 만든 VM인지 확인
+# 옵션 없이 desc를 읽으면 실행 중인 VM은 live 설정을 읽으므로, 저장된(config) 설정을 읽는다.
 is_ours() {
-  [ "$($V desc "$1" 2>/dev/null)" = "$MARKER" ]
+  [ "$($V desc "$1" --config 2>/dev/null)" = "$MARKER" ]
 }
 
 vm_exists() {
@@ -83,7 +84,7 @@ EOF
     --graphics none --noautoconsole >/dev/null
   echo "✅ $NAME → $IP"
 
-  $V desc "$NAME" --config --new-desc "$MARKER"
+  $V desc "$NAME" --live --config --new-desc "$MARKER" >/dev/null
 
 done
 echo "부팅까지 1~2분 기다린 뒤: cd ansible && ansible -i inventory/test.ini k8s -m ping"
