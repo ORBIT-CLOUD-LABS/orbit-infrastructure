@@ -1,3 +1,6 @@
 ---
 pod_network_cidr: "10.244.0.0/16"
 calico_version: "v3.31.4"
+
+# kubeadm init이 끝까지 성공했다는 표식 (tasks/main.yml 상단 설명 참고)
+k8s_init_marker: /etc/kubernetes/orbit-init-done

@@ -1,8 +1,48 @@
 ---
-- name: 이미 init 됐는지 확인
+# --- kubeadm init ---
+# admin.conf는 init 도중(kubeconfig 단계)에 생기므로 그것만으로는 완료 여부를 알 수 없다.
+# init이 끝까지 성공하면 표식 파일을 남기고, 아래 기준으로 상태를 판단한다.
+#   done    : admin.conf 있음 + (표식 있음 또는 kube-proxy 있음)
+#   partial : admin.conf나 kube-apiserver 매니페스트가 있는데 done이 아님 → reset 후 다시 init
+#   fresh   : 둘 다 없음 → init
+- name: init 흔적 확인
   ansible.builtin.stat:
-    path: /etc/kubernetes/admin.conf
-  register: admin_conf
+    path: "{{ item }}"
+  loop:
+    - /etc/kubernetes/admin.conf
+    - /etc/kubernetes/manifests/kube-apiserver.yaml
+    - "{{ k8s_init_marker }}"
+  register: init_files
+
+- name: init 흔적 정리
+  ansible.builtin.set_fact:
+    has_admin_conf: "{{ init_files.results[0].stat.exists }}"
+    has_apiserver_manifest: "{{ init_files.results[1].stat.exists }}"
+    has_init_marker: "{{ init_files.results[2].stat.exists }}"
+
+# 표식을 도입하기 전에 init을 마친 클러스터는 표식이 없다. kube-proxy는 init 마지막 단계(addon)에서
+# 만들어지므로, 있으면 init이 끝까지 된 것으로 본다. 재부팅 직후엔 API 서버가 늦게 뜰 수 있어 재시도한다.
+- name: 표식 없는 기존 클러스터가 init을 마쳤는지 확인
+  ansible.builtin.command: kubectl get daemonset kube-proxy -n kube-system
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: kube_proxy
+  until: kube_proxy.rc == 0
+  retries: 12
+  delay: 10
+  failed_when: false
+  changed_when: false
+  when: has_admin_conf and not has_init_marker
+
+- name: init 상태 판단
+  ansible.builtin.set_fact:
+    k8s_init_state: >-
+      {{ 'done' if has_admin_conf and (has_init_marker or kube_proxy.rc | default(1) == 0)
+         else ('partial' if has_admin_conf or has_apiserver_manifest else 'fresh') }}
+
+- name: 중간에 실패한 init 정리
+  ansible.builtin.command: kubeadm reset -f
+  when: k8s_init_state == 'partial'
 
 - name: kubeadm init
   ansible.builtin.command: >
@@ -10,7 +50,23 @@
     --apiserver-advertise-address={{ ansible_host }}
     --pod-network-cidr={{ pod_network_cidr }}
     --node-name={{ inventory_hostname }}
-  when: not admin_conf.stat.exists
+  when: k8s_init_state != 'done'
+
+- name: init 완료 표식 남기기
+  ansible.builtin.copy:
+    dest: "{{ k8s_init_marker }}"
+    content: "kubeadm init completed\n"
+    mode: "0644"
+
+- name: API 서버 응답 대기
+  ansible.builtin.command: kubectl get --raw=/readyz
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: apiserver_ready
+  until: apiserver_ready.rc == 0
+  retries: 30
+  delay: 10
+  changed_when: false
 
 - name: 접속 사용자 kubeconfig 디렉터리
   ansible.builtin.file:
