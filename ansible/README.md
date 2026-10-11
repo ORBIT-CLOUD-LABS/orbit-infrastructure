@@ -54,6 +54,57 @@ cloud-init이 관리하는 설정(hostname, `orbit` 계정, SSH 키, 비밀번�
 | `base_unattended_upgrades_origins` | Ubuntu 기본값 (보안 업데이트) | 자동 업그레이드를 적용할 저장소 |
 | `base_unattended_upgrades_automatic_reboot` | `false` | 업데이트 후 자동 재부팅 |
 
+## Kubernetes 클러스터 (kubeadm)
+
+`playbooks/site.yml`이 아래 순서로 클러스터를 구성합니다.
+
+1. `playbooks/preflight.yml`: 접속, OS, 디스크, 인터넷, CPU·메모리, hostname/MAC/product_uuid 중복, 포트 점검
+2. `playbooks/base.yml`: 위의 VM 공통 OS 설정
+3. `k8s_node` 롤 (`k8s` 그룹): swap 끄기, 커널 모듈·sysctl, containerd, kubelet/kubeadm/kubectl 설치
+4. `k8s_control_plane` 롤 (`control_plane` 그룹): `kubeadm init`, Calico(Tigera Operator) 설치, join 명령 생성
+5. `k8s_worker` 롤 (`workers` 그룹): `kubeadm join`
+6. 모든 노드 `Ready` 확인
+
+### 실행
+
+```bash
+cd ansible
+ansible-galaxy collection install -r requirements.yml
+
+# 설치 전 점검만
+ansible-playbook playbooks/preflight.yml
+
+# 전체 구성
+ansible-playbook playbooks/site.yml
+```
+
+join 명령은 같은 실행 안에서 control plane 플레이가 만들어 worker에 넘깁니다. 그래서
+`--limit workers`처럼 worker만 따로 실행하면 안 됩니다.
+
+### 테스트 VM
+
+Lab VM을 건드리지 않고 롤을 검증하려면 libvirt 기본망(`192.168.122.0/24`)에 테스트 VM 3대를 만들어 씁니다.
+
+```bash
+./scripts/test-vms.sh            # test-cp, test-w1, test-w2 생성
+cd ansible
+ansible-playbook -i inventory/test.ini playbooks/site.yml
+cd .. && ./scripts/test-vms.sh delete
+```
+
+### 변수
+
+| 변수 | 위치 | 기본값 | 설명 |
+|---|---|---|---|
+| `k8s_version` | `playbooks/group_vars/all.yml` | `v1.33` | pkgs.k8s.io 저장소의 마이너 버전 |
+| `preflight_min_disk_gb` | `playbooks/group_vars/all.yml` | `15` | 루트 디스크 최소 여유 공간(GB) |
+| `pod_network_cidr` | `roles/k8s_control_plane/defaults/main.yml` | `10.244.0.0/16` | Pod 대역 (Lab 망 `192.168.100.0/24`와 겹치면 안 됨) |
+| `calico_version` | `roles/k8s_control_plane/defaults/main.yml` | `v3.31.4` | Calico 매니페스트 버전 |
+
+`playbooks/group_vars/`는 `playbooks/` 아래 플레이북에 자동으로 적용됩니다. `astra_host` 변수는 아직
+`group_vars/astra_host/`에 있고 `postgresql.yml`이 `vars_files`로 직접 읽습니다. 나중에
+`playbooks/group_vars/`로 합칠 예정입니다.
+
 ## PostgreSQL (Terraform state 백엔드)
 
 `astra-vehicle-db` VM이 아니라 **ORBIT-ASTRA 호스트 자신**(`astra_host` 그룹, `inventory/lab/astra_host.ini`에
