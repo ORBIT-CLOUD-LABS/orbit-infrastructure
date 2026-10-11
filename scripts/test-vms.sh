@@ -16,7 +16,8 @@ is_ours() {
 vm_exists() {
   $V dominfo "$1" >/dev/null 2>&1
 }
-IMG=/var/lib/libvirt/images/jammy-server-cloudimg-amd64.img
+# Lab VM(Terraform)과 같은 Ubuntu 24.04
+IMG=/var/lib/libvirt/images/noble-server-cloudimg-amd64.img
 NODES="${NODES:-test-cp:10 test-w1:11 test-w2:12}"   # 예: NODES="test-db:13 test-mon:14" ./scripts/test-vms.sh
 
 if [ "${1:-}" = "delete" ]; then
@@ -36,6 +37,12 @@ if [ "${1:-}" = "delete" ]; then
     echo "🗑  $NAME 삭제"
   done
   exit 0
+fi
+
+if ! sudo test -f "$IMG"; then
+  echo "[ERROR] 베이스 이미지 없음: $IMG"
+  echo "  sudo curl -fL -o $IMG https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+  exit 1
 fi
 
 KEY=$(cat ~/.ssh/id_ed25519.pub)
@@ -78,7 +85,7 @@ EOF
 
   virt-install --connect qemu:///system --name "$NAME" \
     --memory 4096 --vcpus 2 \
-    --disk "/var/lib/libvirt/images/$NAME.qcow2" --import --osinfo ubuntu22.04 \
+    --disk "/var/lib/libvirt/images/$NAME.qcow2" --import --osinfo ubuntu24.04 \
     --network network=default,mac=$MAC \
     --cloud-init user-data="/tmp/$NAME-user-data" \
     --graphics none --noautoconsole >/dev/null
