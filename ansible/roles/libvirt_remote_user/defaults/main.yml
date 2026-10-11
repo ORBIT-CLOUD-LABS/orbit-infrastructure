@@ -2,3 +2,9 @@
 # Jenkins가 qemu+ssh로 ASTRA libvirt에 접속할 때 쓰는 계정.
 # libvirt 그룹은 사실상 하이퍼바이저 root 권한이라 이 용도로만 쓰고 사람이 로그인하지 않는다.
 libvirt_remote_user_name: jenkins-libvirt
+
+# Jenkins credential에 등록한 개인키의 공개키
+libvirt_remote_user_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINwQ9mO0uQ8Rx67Z6dF/bekORgyG/mNpdOBc9hgyg300 jenkins@astra-jenkins"
+
+# 키가 유출되어도 Jenkins VM이 아닌 곳에서는 쓸 수 없도록 접속 IP를 제한한다.
+libvirt_remote_user_allowed_from: 192.168.100.100

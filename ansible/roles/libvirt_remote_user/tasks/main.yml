@@ -8,3 +8,12 @@
     create_home: true
     groups: libvirt
     append: true
+
+# no-port-forwarding 등은 붙이지 않는다. libvirt provider가 SSH 위에서 libvirt 소켓으로
+# 연결하는 방식에 따라 막힐 수 있어서 접속 IP 제한만 둔다.
+- name: Authorize Jenkins SSH key
+  ansible.posix.authorized_key:
+    user: "{{ libvirt_remote_user_name }}"
+    key: "{{ libvirt_remote_user_public_key }}"
+    key_options: 'from="{{ libvirt_remote_user_allowed_from }}"'
+    exclusive: true
