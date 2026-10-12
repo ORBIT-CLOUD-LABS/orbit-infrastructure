@@ -1,0 +1,14 @@
+# playbooks/ 아래 모든 플레이북에 자동으로 적용된다 (astra_host 포함).
+# 접속 계정(ansible_user)은 여기 두지 않고 인벤토리에 둔다.
+# (lab은 Terraform이 hosts.ini에 넣고, 테스트 VM은 inventory/test.ini에 있음)
+
+# Kubernetes 마이너 버전 (pkgs.k8s.io 저장소 경로에 들어감)
+k8s_version: "v1.33"
+
+# Pod 대역·Calico 버전은 roles/k8s_control_plane/defaults/main.yml의
+# pod_network_cidr / calico_version 참고.
+
+# Preflight 기준값
+preflight_min_disk_gb: 15
+preflight_cp_ports: [6443, 2379, 2380, 10257, 10259]   # control plane 전용
+preflight_node_ports: [10250]                          # 모든 k8s 노드

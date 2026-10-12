@@ -1,0 +1,11 @@
+---
+- name: 이미 join 됐는지 확인
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf
+
+- name: kubeadm join
+  ansible.builtin.command: >
+    {{ hostvars[groups['control_plane'][0]].join_command }}
+    --node-name={{ inventory_hostname }}
+  when: not kubelet_conf.stat.exists
