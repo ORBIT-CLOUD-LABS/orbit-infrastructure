@@ -1,0 +1,153 @@
+# frozen_string_literal: true
+
+BOX_NAME = "cloud-image/ubuntu-24.04"
+BOX_VERSION = "20260926.0.0"
+NETWORK_NAME = "orbit-sol-net"
+NETWORK_NETMASK = "255.255.255.0"
+NETWORK_GATEWAY = "192.168.101.1"
+DHCP_START = "192.168.101.200"
+DHCP_STOP = "192.168.101.249"
+
+storage_dir = ENV.fetch("ORBIT_SOL_STORAGE_DIR", "/var/lib/libvirt/images")
+public_key_file = ENV.fetch(
+  "ORBIT_SSH_PUBLIC_KEY_FILE",
+  File.expand_path("~/.ssh/id_ed25519.pub")
+)
+public_key = ENV["ORBIT_SSH_PUBLIC_KEY"]
+
+if public_key.nil? || public_key.strip.empty?
+  unless File.file?(public_key_file)
+    raise "SSH public key not found: #{public_key_file}. Set ORBIT_SSH_PUBLIC_KEY or ORBIT_SSH_PUBLIC_KEY_FILE."
+  end
+
+  public_key = File.read(public_key_file).strip
+end
+
+unless public_key.match?(/\Assh-(ed25519|rsa|ecdsa-[^ ]+)\s+\S+/)
+  raise "ORBIT SSH public key is not in OpenSSH public key format."
+end
+
+PROVISION_BASE = <<~'SHELL'
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  if ! id orbit >/dev/null 2>&1; then
+    useradd --create-home --shell /bin/bash orbit
+  fi
+
+  install -d -m 0700 -o orbit -g orbit /home/orbit/.ssh
+  printf '%s\n' "$ORBIT_SSH_PUBLIC_KEY" > /home/orbit/.ssh/authorized_keys
+  chown orbit:orbit /home/orbit/.ssh/authorized_keys
+  chmod 0600 /home/orbit/.ssh/authorized_keys
+  printf '%s\n' 'orbit ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-orbit
+  chmod 0440 /etc/sudoers.d/90-orbit
+  passwd --lock orbit >/dev/null 2>&1 || true
+
+  if [[ -n "${DATA_DEVICE:-}" ]]; then
+    for _ in $(seq 1 30); do
+      [[ -b "$DATA_DEVICE" ]] && break
+      sleep 1
+    done
+
+    [[ -b "$DATA_DEVICE" ]] || {
+      echo "Data disk not found: $DATA_DEVICE" >&2
+      exit 1
+    }
+
+    if ! blkid -s TYPE -o value "$DATA_DEVICE" >/dev/null 2>&1; then
+      mkfs.ext4 -F -L "$DATA_LABEL" "$DATA_DEVICE"
+    fi
+
+    data_uuid="$(blkid -s UUID -o value "$DATA_DEVICE")"
+    install -d -m 0755 "$DATA_MOUNT"
+    if ! grep -q "^UUID=${data_uuid}[[:space:]]" /etc/fstab; then
+      printf 'UUID=%s %s auto defaults,nofail 0 2\n' "$data_uuid" "$DATA_MOUNT" >> /etc/fstab
+    fi
+    mountpoint -q "$DATA_MOUNT" || mount "$DATA_MOUNT"
+    chown orbit:orbit "$DATA_MOUNT"
+  fi
+SHELL
+
+machines = {
+  "orbit-sol-cdn" => {
+    ip: "192.168.101.100",
+    mac: "52:54:00:01:01:64",
+    cpus: 4,
+    memory: 6144,
+    data_disk: {
+      size: "50G",
+      mount: "/var/cache/orbit-cdn",
+      label: "orbit-cdn-cache",
+      persistent: false
+    }
+  },
+  "orbit-sol-storage" => {
+    ip: "192.168.101.101",
+    mac: "52:54:00:01:01:65",
+    cpus: 2,
+    memory: 4096,
+    data_disk: {
+      size: "80G",
+      mount: "/srv/orbit-storage",
+      label: "orbit-storage",
+      persistent: true,
+      path: File.join(storage_dir, "orbit-sol-storage-data.qcow2")
+    }
+  }
+}.freeze
+
+Vagrant.configure("2") do |config|
+  config.vm.box = BOX_NAME
+  config.vm.box_version = BOX_VERSION
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+  config.ssh.insert_key = true
+
+  machines.each do |name, spec|
+    config.vm.define name do |machine|
+      machine.vm.hostname = name
+      machine.vm.network :private_network,
+                         ip: spec[:ip],
+                         libvirt__netmask: NETWORK_NETMASK,
+                         libvirt__network_name: NETWORK_NAME,
+                         libvirt__host_ip: NETWORK_GATEWAY,
+                         libvirt__forward_mode: "nat",
+                         libvirt__dhcp_enabled: true,
+                         libvirt__dhcp_start: DHCP_START,
+                         libvirt__dhcp_stop: DHCP_STOP,
+                         libvirt__always_destroy: false,
+                         libvirt__mac: spec[:mac]
+
+      machine.vm.provider :libvirt do |libvirt|
+        libvirt.driver = "kvm"
+        libvirt.uri = "qemu:///system"
+        libvirt.default_prefix = ""
+        libvirt.cpus = spec[:cpus]
+        libvirt.memory = spec[:memory]
+        libvirt.machine_virtual_size = 20
+        libvirt.storage_pool_name = "default"
+
+        disk = spec[:data_disk]
+        disk_options = {
+          size: disk[:size],
+          type: "qcow2",
+          bus: "virtio",
+          device: "vdb"
+        }
+        if disk[:persistent]
+          disk_options[:path] = disk[:path]
+          disk_options[:allow_existing] = true
+        end
+        libvirt.storage :file, disk_options
+      end
+
+      machine.vm.provision "shell",
+                           env: {
+                             "ORBIT_SSH_PUBLIC_KEY" => public_key,
+                             "DATA_DEVICE" => "/dev/vdb",
+                             "DATA_MOUNT" => spec[:data_disk][:mount],
+                             "DATA_LABEL" => spec[:data_disk][:label]
+                           },
+                           inline: PROVISION_BASE
+    end
+  end
+end
