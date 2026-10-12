@@ -11,5 +11,3 @@ collections:
     version: ">=3.13.0"
   # base 롤의 timezone 모듈
   - name: community.general
-  # libvirt_remote_user 롤의 authorized_key 모듈
-  - name: ansible.posix
