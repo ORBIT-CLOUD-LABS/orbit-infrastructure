@@ -1,0 +1,10 @@
+# orbit-terra (성아 노트북 VM, Tailscale로 연결)
+db_name: campaign
+db_app_user: campaign_app
+db_app_password: "{{ vault_campaign_db_password | default('') }}"
+
+# 노트북 VM은 별도 데이터 volume 없음
+db_data_device: ""
+
+# astra 클러스터에서 오는 요청은 Tailscale(100.x) 또는 Lab 대역(192.168.100.x)으로 보인다
+db_allowed_hosts: ["100.%", "192.168.100.%"]

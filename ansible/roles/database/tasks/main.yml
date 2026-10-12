@@ -1,0 +1,168 @@
+---
+- name: 앱 계정 비밀번호가 있어야 함 (vault 또는 -e)
+  ansible.builtin.assert:
+    that: db_app_password | length >= 8
+    fail_msg: >-
+      db_app_password가 비어 있거나 8자 미만입니다.
+      secrets/vault.yml(ansible-vault)에 값을 넣거나, 테스트라면 -e db_app_password=... 로 실행하세요.
+    quiet: true
+
+# ── 1. 데이터 경로 ─────────────────────────────────────────────
+# 데이터 디스크를 /srv/db-data에 마운트하고, 그 안의 mysql 폴더를 /var/lib/mysql에 bind mount.
+# MySQL 설치 "전에" 해야 빈 폴더에 DB가 초기화된다.
+- name: 데이터 디스크 마운트
+  ansible.builtin.import_role:
+    name: data_disk
+  vars:
+    data_disk_device: "{{ db_data_device }}"
+    data_disk_mount: "{{ db_data_mount }}"
+    data_disk_var_name: db_data_device
+
+- name: 데이터 디스크 위에 MySQL 데이터 경로 연결
+  when: db_data_device | length > 0
+  block:
+    - name: 디스크 안 mysql 폴더
+      ansible.builtin.file:
+        path: "{{ db_data_mount }}/mysql"
+        state: directory
+        mode: "0750"
+
+    - name: /var/lib/mysql 마운트 지점
+      ansible.builtin.file:
+        path: /var/lib/mysql
+        state: directory
+        mode: "0750"
+
+    - name: bind mount ({{ db_data_mount }}/mysql → /var/lib/mysql)
+      ansible.posix.mount:
+        path: /var/lib/mysql
+        src: "{{ db_data_mount }}/mysql"
+        fstype: none
+        opts: bind,nofail
+        state: mounted
+
+# ── 2. 설치 ───────────────────────────────────────────────────
+- name: MySQL 설치
+  ansible.builtin.apt:
+    name: [mysql-server, python3-pymysql]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: 이전 설정 파일 제거 (이름 변경 전 99-orbit.cnf)
+  ansible.builtin.file:
+    path: /etc/mysql/mysql.conf.d/99-orbit.cnf
+    state: absent
+  notify: restart mysql
+
+- name: MySQL 설정 (외부 접속, 자원)
+  ansible.builtin.template:
+    src: 99-orbit.cnf.j2
+    dest: /etc/mysql/mysql.conf.d/zz-orbit.cnf
+    mode: "0644"
+  notify: restart mysql
+
+- name: MySQL 실행
+  ansible.builtin.systemd:
+    name: mysql
+    state: started
+    enabled: true
+
+- name: 설정 변경 즉시 반영
+  ansible.builtin.meta: flush_handlers
+
+# ── 3. 접근 제어 ──────────────────────────────────────────────
+- name: 익명 계정 제거
+  community.mysql.mysql_user:
+    name: ""
+    host_all: true
+    state: absent
+    login_unix_socket: /run/mysqld/mysqld.sock
+
+- name: test DB 제거
+  community.mysql.mysql_db:
+    name: test
+    state: absent
+    login_unix_socket: /run/mysqld/mysqld.sock
+
+- name: 서비스 DB 생성
+  community.mysql.mysql_db:
+    name: "{{ db_name }}"
+    encoding: utf8mb4
+    collation: utf8mb4_unicode_ci
+    state: present
+    login_unix_socket: /run/mysqld/mysqld.sock
+
+- name: 앱 계정 (허용 대역에서만, 서비스 DB 권한만)
+  community.mysql.mysql_user:
+    name: "{{ db_app_user }}"
+    host: "{{ item }}"
+    password: "{{ db_app_password }}"
+    priv: "{{ db_name }}.*:ALL"
+    state: present
+    login_unix_socket: /run/mysqld/mysqld.sock
+  loop: "{{ db_allowed_hosts }}"
+  no_log: true
+
+# ── 4. 백업 / 복구 ────────────────────────────────────────────
+- name: 백업 폴더
+  ansible.builtin.file:
+    path: "{{ db_backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: 백업 / 복구 스크립트
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/usr/local/sbin/{{ item }}"
+    mode: "0750"
+  loop: [orbit-db-backup, orbit-db-restore]
+
+- name: 매일 백업 (cron)
+  ansible.builtin.cron:
+    name: orbit-db-backup
+    cron_file: orbit-db-backup
+    user: root
+    minute: "17"
+    hour: "{{ db_backup_hour }}"
+    job: /usr/local/sbin/orbit-db-backup >> /var/log/orbit-db-backup.log 2>&1
+
+# ── 5. 검증 (-e db_verify=true 로 실행할 때만) ─────────────────
+- name: 검증
+  when: db_verify | bool
+  block:
+    - name: 앱 계정으로 접속 (자기 IP로 TCP 접속 → 허용 대역 규칙 검증)
+      ansible.builtin.command: >
+        mysql -h {{ ansible_host }} -P {{ db_port }} -u {{ db_app_user }} -p{{ db_app_password }}
+        -e "SELECT 1" {{ db_name }}
+      changed_when: false
+      no_log: true
+
+    - name: 백업 1회 실행
+      ansible.builtin.command: /usr/local/sbin/orbit-db-backup
+      register: backup_run
+
+    - name: 백업 파일 확인
+      ansible.builtin.find:
+        paths: "{{ db_backup_dir }}"
+        patterns: "{{ db_name }}-*.sql.gz"
+        size: 1
+      register: backups
+
+    - name: 백업 파일이 있어야 함
+      ansible.builtin.assert:
+        that: backups.matched > 0
+        fail_msg: "백업 파일이 생성되지 않았습니다: {{ backup_run.stdout }}"
+
+    - name: 데이터 경로 출력
+      ansible.builtin.command: df -h /var/lib/mysql
+      register: df_out
+      changed_when: false
+
+    - name: 결과
+      ansible.builtin.debug:
+        msg:
+          - "데이터: {{ df_out.stdout_lines[-1] }}"
+          - "최신 백업: {{ (backups.files | sort(attribute='mtime') | last).path }}"

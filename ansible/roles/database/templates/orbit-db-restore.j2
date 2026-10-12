@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# 사용법: orbit-db-restore                 → 백업 목록
+#        orbit-db-restore <파일> --yes      → 해당 백업으로 {{ db_name }} DB 덮어쓰기
+set -euo pipefail
+DIR="{{ db_backup_dir }}"
+
+if [ $# -eq 0 ]; then
+  echo "백업 목록 ($DIR):"; ls -lh "$DIR"/{{ db_name }}-*.sql.gz 2>/dev/null || echo "  (없음)"
+  exit 0
+fi
+
+FILE="$1"
+[ -f "$FILE" ] || FILE="$DIR/$1"
+[ -f "$FILE" ] || { echo "파일 없음: $1" >&2; exit 1; }
+[ "${2:-}" = "--yes" ] || { echo "{{ db_name }} DB를 $FILE 로 덮어씁니다. 진행하려면 --yes 를 붙이세요." >&2; exit 1; }
+
+# 복구 직전 상태도 백업
+/usr/local/sbin/orbit-db-backup
+gunzip -c "$FILE" | mysql
+echo "$(date '+%F %T') restore ok: $FILE"

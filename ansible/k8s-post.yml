@@ -1,0 +1,11 @@
+---
+# Kubernetes 후처리: node label, 예비 노드 taint, 클러스터 검증
+# 실행: ansible-playbook k8s-post.yml
+- name: Kubernetes post-processing
+  hosts: control_plane[0]
+  become: true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  roles:
+    - role: k8s_post
+      tags: [k8s_post]

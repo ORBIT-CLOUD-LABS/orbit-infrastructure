@@ -1,0 +1,16 @@
+---
+# Database Role 적용: astra-vehicle-db (vehicle_db), orbit-terra (campaign_db)
+# 실행: ansible-playbook database.yml --ask-vault-pass
+#      ansible-playbook database.yml --ask-vault-pass -e db_verify=true   (백업·접속 검증 포함)
+- name: Database
+  hosts: vehicle_db:campaign_db
+  become: true
+  pre_tasks:
+    - name: 비밀값 로드 (secrets/vault.yml이 있을 때)
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/secrets/vault.yml"
+      when: (playbook_dir ~ '/secrets/vault.yml') is file
+      tags: [always]
+  roles:
+    - role: database
+      tags: [database]

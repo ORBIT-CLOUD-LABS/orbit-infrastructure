@@ -1,0 +1,48 @@
+# {{ ansible_managed }}
+services:
+  prometheus:
+    image: {{ prometheus_image }}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time={{ prometheus_retention_time }}
+      - --storage.tsdb.retention.size={{ prometheus_retention_size }}
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - {{ monitoring_data_dir }}/prometheus:/prometheus
+    ports: ["9090:9090"]
+
+  alertmanager:
+    image: {{ alertmanager_image }}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager:/etc/alertmanager:ro
+      - {{ monitoring_data_dir }}/alertmanager:/alertmanager
+    ports: ["9093:9093"]
+
+  loki:
+    image: {{ loki_image }}
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./loki:/etc/loki:ro
+      - {{ monitoring_data_dir }}/loki:/loki
+    ports: ["3100:3100"]
+
+  grafana:
+    image: {{ grafana_image }}
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - {{ monitoring_data_dir }}/grafana:/var/lib/grafana
+    ports: ["3000:3000"]
+    depends_on: [prometheus, loki]
