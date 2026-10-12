@@ -80,12 +80,12 @@ NODES="test-db:13 test-mon:14" ./scripts/test-vms.sh delete
 ## Base (VM 공통 OS 설정)
 
 모든 VM(`all:!astra_host`)에 공통 OS 기본 설정을 적용합니다. ORBIT-ASTRA 호스트(`astra_host`)는
-대상에서 제외합니다.
+대상에서 제외한다.
 
 ### 실행
 
-ORBIT-ASTRA 호스트에서 실행합니다. VM의 `orbit` 계정은 비밀번호 없이 sudo를 쓸 수 있으므로
-`--ask-become-pass`는 필요 없습니다.
+ORBIT-ASTRA 호스트에서 실행한다. VM의 `orbit` 계정은 비밀번호 없이 sudo를 쓸 수 있으므로
+`--ask-become-pass`는 필요 없다.
 
 ```bash
 cd ansible
@@ -216,12 +216,11 @@ ansible-playbook playbooks/jenkins.yml --ask-vault-pass
 
 ## PostgreSQL (Terraform state 백엔드)
 
-ORBIT-ASTRA 호스트(`astra_host`)에 Terraform `pg` backend용 PostgreSQL과 state 백업을
-구성한다.
+Terraform state의 순환 의존성을 방지하기 위해, state 관리 대상이 아닌 ORBIT-ASTRA 호스트에 PostgreSQL `pg` backend와 state 백업을 구성한다.
 
 ### 실행
 
-ORBIT-ASTRA 호스트에서 실행합니다. DB와 백업 비밀번호는
+ORBIT-ASTRA 호스트에서 실행한다. DB와 백업 비밀번호는
 `group_vars/astra_host/vault.yml`에 Ansible Vault로 암호화하여 관리한다.
 
 ```bash
@@ -244,6 +243,9 @@ ansible-playbook playbooks/postgresql.yml --ask-become-pass --ask-vault-pass
 | State 백업 | PostgreSQL custom format dump를 GPG로 암호화 |
 | 백업 주기 | systemd timer로 매일 18:00 UTC에 실행 |
 | 보관 | ASTRA와 TERRA에 14일간 보관 |
+
+백업 상태 확인, 수동 실행, 보관 파일 확인 및 복구 검증 절차는
+[`RUNBOOK.md`](RUNBOOK.md)의 Terraform state PostgreSQL 백업·복구 절차를 따른다.
 
 ### 접속 제어
 
