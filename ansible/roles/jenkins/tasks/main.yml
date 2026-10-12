@@ -1,0 +1,206 @@
+---
+- name: Validate Jenkins administrator settings
+  ansible.builtin.assert:
+    that:
+      - jenkins_admin_user is match("^[A-Za-z0-9._-]+$")
+      - jenkins_admin_password is string
+      - jenkins_admin_password | length > 0
+    fail_msg: Jenkins 관리자 ID 형식과 관리자 비밀번호가 입력됐는지 확인한다.
+  no_log: true
+
+- name: Gather installed package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Install Java runtime for Jenkins
+  ansible.builtin.apt:
+    name:
+      - fontconfig
+      - "{{ jenkins_java_package }}"
+      - python3-debian
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create apt keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install Jenkins repository signing key
+  ansible.builtin.get_url:
+    url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+    dest: /etc/apt/keyrings/jenkins-keyring.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure Jenkins LTS apt repository
+  ansible.builtin.deb822_repository:
+    name: jenkins
+    types:
+      - deb
+    uris:
+      - https://pkg.jenkins.io/debian-stable
+    suites:
+      - binary/
+    signed_by: /etc/apt/keyrings/jenkins-keyring.asc
+    state: present
+  when: not ansible_check_mode or "jenkins" in ansible_facts.packages
+
+# package 설치 직후 초기 설정 마법사가 열린 상태로 service가 시작되지 않게 한다.
+- name: Install fixed Jenkins LTS version without starting it
+  ansible.builtin.apt:
+    name: "jenkins={{ jenkins_version }}"
+    state: present
+    update_cache: true
+    policy_rc_d: 101
+  when: not ansible_check_mode or "jenkins" in ansible_facts.packages
+
+# 첫 설치 전 check mode에서는 jenkins 계정과 디렉터리가 실제로 만들어지지 않는다.
+- name: Configure Jenkins runtime
+  when: not ansible_check_mode or "jenkins" in ansible_facts.packages
+  block:
+    - name: Create Jenkins Configuration as Code directory
+      ansible.builtin.file:
+        path: "{{ jenkins_casc_dir }}"
+        state: directory
+        owner: jenkins
+        group: jenkins
+        mode: "0750"
+
+    - name: Create Jenkins configuration directory
+      ansible.builtin.file:
+        path: /etc/jenkins
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create Jenkins plugin directory
+      ansible.builtin.file:
+        path: "{{ jenkins_home }}/plugins"
+        state: directory
+        owner: jenkins
+        group: jenkins
+        mode: "0755"
+
+    - name: Install Jenkins Plugin Installation Manager
+      ansible.builtin.get_url:
+        url: "https://github.com/jenkinsci/plugin-installation-manager-tool/releases/download/{{ jenkins_plugin_manager_version }}/jenkins-plugin-manager-{{ jenkins_plugin_manager_version }}.jar"
+        dest: "{{ jenkins_plugin_manager_jar }}"
+        checksum: "{{ jenkins_plugin_manager_checksum }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: jenkins_plugin_manager_result
+
+    - name: Install Jenkins plugin manifest
+      ansible.builtin.template:
+        src: plugins.txt.j2
+        dest: "{{ jenkins_plugin_manifest }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: jenkins_plugin_manifest_result
+
+    - name: Check locked Jenkins plugins
+      ansible.builtin.stat:
+        path: "{{ jenkins_home }}/plugins/{{ item.name }}.jpi"
+      loop: "{{ jenkins_plugin_lock }}"
+      register: jenkins_plugin_files
+
+    - name: Install required Jenkins plugins and dependencies
+      ansible.builtin.command:
+        argv:
+          - runuser
+          - -u
+          - jenkins
+          - --
+          - java
+          - -jar
+          - "{{ jenkins_plugin_manager_jar }}"
+          - --war
+          - /usr/share/java/jenkins.war
+          - --plugin-download-directory
+          - "{{ jenkins_home }}/plugins"
+          - --plugin-file
+          - "{{ jenkins_plugin_manifest }}"
+          - --latest
+          - "false"
+      environment:
+        HOME: "{{ jenkins_home }}"
+      when: >-
+        jenkins_plugin_manager_result is changed or
+        jenkins_plugin_manifest_result is changed or
+        (jenkins_plugin_files.results
+          | selectattr('stat.exists', 'equalto', false)
+          | list
+          | length > 0)
+      notify: Restart Jenkins
+
+    - name: Install root-only Jenkins administrator environment file
+      ansible.builtin.template:
+        src: jenkins-admin.env.j2
+        dest: /etc/jenkins/jenkins-admin.env
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      notify: Restart Jenkins
+
+    - name: Install Jenkins Configuration as Code file
+      ansible.builtin.template:
+        src: jenkins.yaml.j2
+        dest: "{{ jenkins_casc_dir }}/jenkins.yaml"
+        owner: jenkins
+        group: jenkins
+        mode: "0640"
+      notify: Restart Jenkins
+
+    - name: Create Jenkins systemd override directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/jenkins.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install Jenkins systemd override
+      ansible.builtin.template:
+        src: override.conf.j2
+        dest: /etc/systemd/system/jenkins.service.d/override.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart Jenkins
+
+    - name: Enable and start Jenkins
+      ansible.builtin.systemd:
+        name: jenkins
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Apply pending Jenkins restart
+      ansible.builtin.meta: flush_handlers
+
+- name: Wait for Jenkins HTTP port
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 8080
+    timeout: 120
+  when: not ansible_check_mode
+
+- name: Verify authenticated Jenkins API
+  ansible.builtin.uri:
+    url: http://127.0.0.1:8080/api/json
+    user: "{{ jenkins_admin_user }}"
+    password: "{{ jenkins_admin_password }}"
+    force_basic_auth: true
+    status_code: 200
+  when: not ansible_check_mode
+  no_log: true

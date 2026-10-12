@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up the Terraform state PostgreSQL database
+Wants=network-online.target
+After=network-online.target postgresql.service tailscaled.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/orbit-terraform-state-backup

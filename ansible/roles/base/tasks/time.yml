@@ -1,0 +1,16 @@
+---
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ base_timezone }}"
+
+# 랩 규모에서는 Ubuntu 기본 timesyncd로 충분해서 chrony를 따로 쓰지 않는다.
+- name: Install systemd-timesyncd
+  ansible.builtin.apt:
+    name: systemd-timesyncd
+    state: present
+
+- name: Ensure systemd-timesyncd is enabled and running
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    enabled: true
+    state: started
