@@ -40,22 +40,15 @@ vagrant plugin list
 
 - 현재 사용자가 `/dev/kvm`과 `qemu:///system`에 접근할 수 있음
 - `192.168.101.0/24`와 겹치는 route·libvirt network가 없음
-- `default` storage pool이 active 상태임
+- `default` storage pool이 active 상태이며 VM disk를 저장할 여유 공간이 있음
 - `vagrant-libvirt` plugin이 설치됨
 
-`default` storage pool의 실제 경로를 확인합니다.
+`default` storage pool의 상태와 실제 경로를 확인합니다.
 
 ```bash
+virsh -c qemu:///system pool-info default
 virsh -c qemu:///system pool-dumpxml default
 ```
-
-기본 경로가 `/var/lib/libvirt/images`가 아니면 실행 전에 실제 경로를 지정합니다.
-
-```bash
-export ORBIT_SOL_STORAGE_DIR="<default-pool-path>"
-```
-
-이 값을 바꾼 경우 `validate`, `up`, `destroy`와 재생성 명령을 실행하는 모든 shell에서 같은 값을 사용해야 합니다.
 
 ## SSH 공개키
 
@@ -133,13 +126,13 @@ ip route
 
 OS disk와 CDN cache disk는 Vagrant가 관리하므로 `vagrant destroy` 때 삭제됩니다. CDN cache는 원본 데이터가 아니므로 VM 재생성 후 다시 채웁니다.
 
-Storage data disk는 기본적으로 다음 경로를 사용합니다.
+Storage data disk는 `default` storage pool에 다음 volume 이름으로 생성합니다.
 
 ```text
-/var/lib/libvirt/images/orbit-sol-storage-data.qcow2
+orbit-sol-storage-data.qcow2
 ```
 
-Vagrantfile은 고정 경로와 `allow_existing: true`를 사용합니다. 따라서 Storage VM을 삭제해도 이 파일은 남고, VM을 다시 만들면 기존 disk를 재연결합니다. 기존 filesystem이 있으면 다시 포맷하지 않습니다.
+Vagrantfile은 상대 volume 이름과 `allow_existing: true`를 사용합니다. 따라서 Storage VM을 삭제해도 이 volume은 남고, VM을 다시 만들면 기존 disk를 재연결합니다. 기존 filesystem이 있으면 다시 포맷하지 않습니다. 실제 host 경로는 storage pool 설정에 따라 결정됩니다.
 
 삭제·재생성 검증에는 폐기 가능한 데이터만 사용합니다.
 
@@ -150,8 +143,11 @@ vagrant ssh orbit-sol-storage -c 'sudo -u orbit touch /srv/orbit-storage/recreat
 # VM과 Vagrant 관리 disk 삭제
 vagrant destroy
 
-# 영구 data disk가 남았는지 확인
-sudo qemu-img info "${ORBIT_SOL_STORAGE_DIR:-/var/lib/libvirt/images}/orbit-sol-storage-data.qcow2"
+# 영구 data volume이 남았는지 확인
+virsh -c qemu:///system vol-info \
+  --pool default orbit-sol-storage-data.qcow2
+virsh -c qemu:///system vol-path \
+  --pool default orbit-sol-storage-data.qcow2
 
 # 재생성 후 검증 파일 확인
 vagrant up orbit-sol-storage --provider=libvirt

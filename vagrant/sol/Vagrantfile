@@ -8,7 +8,6 @@ NETWORK_GATEWAY = "192.168.101.1"
 DHCP_START = "192.168.101.200"
 DHCP_STOP = "192.168.101.249"
 
-storage_dir = ENV.fetch("ORBIT_SOL_STORAGE_DIR", "/var/lib/libvirt/images")
 public_key_file = ENV.fetch(
   "ORBIT_SSH_PUBLIC_KEY_FILE",
   File.expand_path("~/.ssh/id_ed25519.pub")
@@ -91,7 +90,7 @@ machines = {
       mount: "/srv/orbit-storage",
       label: "orbit-storage",
       persistent: true,
-      path: File.join(storage_dir, "orbit-sol-storage-data.qcow2")
+      path: "orbit-sol-storage-data.qcow2"
     }
   }
 }.freeze
