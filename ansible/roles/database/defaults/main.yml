@@ -1,0 +1,24 @@
+---
+# 데이터 디스크 (Terraform이 붙인 libvirt volume). 비우면 루트 디스크 사용
+db_data_device: ""
+db_data_mount: /srv/db-data
+
+# DB / 계정
+db_name: orbit
+db_app_user: orbit_app
+db_app_password: ""                 # vault로 주입 (8자 이상)
+db_allowed_hosts: ["192.168.100.%"] # 앱 계정 접속 허용 대역 (MySQL host 패턴)
+
+# MySQL 설정
+db_bind_address: "0.0.0.0"
+db_port: 3306
+db_max_connections: 200
+db_innodb_buffer_pool_size: 512M
+
+# 백업
+db_backup_dir: /var/backups/mysql   # 데이터 디스크와 다른 디스크에 둔다
+db_backup_retention_days: 7
+db_backup_hour: 3                   # 매일 03:xx
+
+# 검증(앱 계정 접속 + 백업 1회)을 실행할지: -e db_verify=true
+db_verify: false

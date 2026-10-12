@@ -1,0 +1,48 @@
+---
+# 데이터 전용 디스크(libvirt volume)를 포맷·마운트한다.
+# 입력: data_disk_device (예: /dev/vdb, 비우면 이 롤은 아무것도 하지 않음)
+#       data_disk_mount  (예: /srv/db-data)
+# 이미 파일시스템이 있으면 포맷하지 않는다 (재실행·재구축 시 데이터 보존).
+
+- name: 데이터 디스크 사용
+  when: data_disk_device | default('') | length > 0
+  block:
+    - name: 디스크 장치 확인
+      ansible.builtin.stat:
+        path: "{{ data_disk_device }}"
+      register: disk_dev
+
+    - name: 디스크 장치가 있어야 함
+      ansible.builtin.assert:
+        that: disk_dev.stat.exists
+        fail_msg: >-
+          {{ inventory_hostname }}에 {{ data_disk_device }}가 없습니다.
+          Terraform에서 데이터 volume을 붙였는지, 장치 이름(lsblk)이 맞는지 확인하세요.
+          디스크 없이 테스트하려면 {{ data_disk_var_name | default('data_disk_device') }}=""로 실행하세요.
+        quiet: true
+
+    - name: 루트 디스크를 데이터 디스크로 지정하지 않았는지
+      ansible.builtin.assert:
+        that: >-
+          (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='device') | first)
+          is not search('^' ~ data_disk_device)
+        fail_msg: "{{ data_disk_device }}는 루트(/) 디스크입니다. 포맷하면 OS가 지워집니다."
+        quiet: true
+
+    - name: 파일시스템 생성 (이미 있으면 건너뜀)
+      community.general.filesystem:
+        dev: "{{ data_disk_device }}"
+        fstype: ext4
+
+    - name: 파일시스템 UUID 조회
+      ansible.builtin.command: blkid -s UUID -o value {{ data_disk_device }}
+      register: disk_uuid
+      changed_when: false
+
+    - name: 마운트 (fstab 등록)
+      ansible.posix.mount:
+        path: "{{ data_disk_mount }}"
+        src: "UUID={{ disk_uuid.stdout }}"
+        fstype: ext4
+        opts: defaults,nofail
+        state: mounted

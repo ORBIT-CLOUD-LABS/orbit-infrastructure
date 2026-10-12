@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ansible 롤 검증용 테스트 VM 3대 (libvirt 기본망 192.168.122.x)
+# Ansible 롤 검증용 테스트 VM(기본 3대, libvirt 기본망 192.168.122.x)
 # 사용법: ./scripts/test-vms.sh          생성
 #        ./scripts/test-vms.sh delete   삭제 (VM, 디스크, DHCP 예약, known_hosts 항목)
 # sudo 없이 libvirt 그룹 권한만으로 동작한다 (디스크는 libvirt 스토리지 풀 볼륨으로 만든다).

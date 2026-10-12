@@ -1,0 +1,106 @@
+---
+- name: Grafana 관리자 비밀번호가 있어야 함 (vault 또는 -e)
+  ansible.builtin.assert:
+    that: grafana_admin_password | length >= 8
+    fail_msg: >-
+      grafana_admin_password가 비어 있거나 8자 미만입니다.
+      secrets/vault.yml에 vault_grafana_admin_password를 넣거나, 테스트라면 -e grafana_admin_password=... 로 실행하세요.
+    quiet: true
+
+# ── 1. 저장 경로 ──────────────────────────────────────────────
+- name: 데이터 디스크 마운트
+  ansible.builtin.import_role:
+    name: data_disk
+  vars:
+    data_disk_device: "{{ monitoring_data_device }}"
+    data_disk_mount: "{{ monitoring_data_dir }}"
+    data_disk_var_name: monitoring_data_device
+
+- name: 데이터 폴더 (컨테이너 실행 UID에 맞춘 소유자)
+  ansible.builtin.file:
+    path: "{{ monitoring_data_dir }}/{{ item.name }}"
+    state: directory
+    owner: "{{ item.uid }}"
+    group: "{{ item.gid }}"
+    mode: "0755"
+  loop:
+    - { name: prometheus,   uid: 65534, gid: 65534 }
+    - { name: alertmanager, uid: 65534, gid: 65534 }
+    - { name: grafana,      uid: 472,   gid: 0 }
+    - { name: loki,         uid: 10001, gid: 10001 }
+
+- name: 설정 폴더
+  ansible.builtin.file:
+    path: "{{ monitoring_config_dir }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: ["", prometheus, prometheus/rules, alertmanager, loki, grafana/provisioning/datasources]
+
+# ── 2. 수집 서비스 ────────────────────────────────────────────
+- name: Docker / Compose 설치
+  ansible.builtin.apt:
+    name: [docker.io, docker-compose-v2]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Docker 실행
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+
+- name: 설정 파일
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ monitoring_config_dir }}/{{ item.dest }}"
+    mode: "{{ item.mode | default('0644') }}"
+  loop:
+    - { src: docker-compose.yml.j2,      dest: docker-compose.yml, mode: "0600" }
+    - { src: prometheus.yml.j2,          dest: prometheus/prometheus.yml }
+    - { src: rules-basic.yml.j2,         dest: prometheus/rules/basic.yml }
+    - { src: alertmanager.yml.j2,        dest: alertmanager/alertmanager.yml, mode: "0644" }
+    - { src: loki.yml.j2,                dest: loki/loki.yml }
+    - { src: grafana-datasources.yml.j2, dest: grafana/provisioning/datasources/datasources.yml }
+  notify: recreate monitoring
+  no_log: "{{ item.src in ['docker-compose.yml.j2', 'alertmanager.yml.j2'] }}"
+
+- name: 스택 기동
+  ansible.builtin.command: docker compose up -d
+  args:
+    chdir: "{{ monitoring_config_dir }}"
+  register: compose_up
+  changed_when: compose_up.stderr is search('Creat|Start|Recreat|Pull')
+
+- name: 설정 변경 반영
+  ansible.builtin.meta: flush_handlers
+
+# ── 3. 상태 확인 ──────────────────────────────────────────────
+- name: 각 서비스 준비 완료 대기
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ item.port }}{{ item.path }}"
+    status_code: 200
+  register: ready
+  retries: 30
+  delay: 5
+  until: ready.status == 200
+  loop:
+    - { name: prometheus,   port: 9090, path: /-/ready }
+    - { name: alertmanager, port: 9093, path: /-/ready }
+    - { name: grafana,      port: 3000, path: /api/health }
+    - { name: loki,         port: 3100, path: /ready }
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Prometheus 수집 대상 상태
+  ansible.builtin.uri:
+    url: http://127.0.0.1:9090/api/v1/targets?state=active
+    return_content: true
+  register: targets
+
+- name: 결과
+  ansible.builtin.debug:
+    msg:
+      - "Grafana:    http://{{ ansible_host }}:3000 (admin)"
+      - "Prometheus: http://{{ ansible_host }}:9090/targets"
+      - "수집 대상 up: {{ targets.json.data.activeTargets | selectattr('health', 'equalto', 'up') | list | length }} / {{ targets.json.data.activeTargets | length }}"
