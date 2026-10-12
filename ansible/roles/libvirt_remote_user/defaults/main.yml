@@ -3,6 +3,9 @@
 # libvirt 그룹은 사실상 하이퍼바이저 root 권한이라 이 용도로만 쓰고 사람이 로그인하지 않는다.
 libvirt_remote_user_name: jenkins-libvirt
 
+# --check에서는 계정이 아직 없어 홈을 조회할 수 없으므로 경로를 고정한다.
+libvirt_remote_user_home: "/home/{{ libvirt_remote_user_name }}"
+
 # Jenkins credential에 등록한 개인키의 공개키
 libvirt_remote_user_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINwQ9mO0uQ8Rx67Z6dF/bekORgyG/mNpdOBc9hgyg300 jenkins@astra-jenkins"
 

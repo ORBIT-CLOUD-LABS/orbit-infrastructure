@@ -5,6 +5,7 @@
   ansible.builtin.user:
     name: "{{ libvirt_remote_user_name }}"
     shell: /bin/bash
+    home: "{{ libvirt_remote_user_home }}"
     create_home: true
     groups: libvirt
     append: true
@@ -15,5 +16,7 @@
   ansible.posix.authorized_key:
     user: "{{ libvirt_remote_user_name }}"
     key: "{{ libvirt_remote_user_public_key }}"
+    # path를 주면 --check에서 계정 조회 없이 이 경로로 diff를 계산한다.
+    path: "{{ libvirt_remote_user_home }}/.ssh/authorized_keys"
     key_options: 'from="{{ libvirt_remote_user_allowed_from }}"'
     exclusive: true
