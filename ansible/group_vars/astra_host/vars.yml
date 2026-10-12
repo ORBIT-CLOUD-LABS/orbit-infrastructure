@@ -8,3 +8,14 @@ terraform_pg_password: "{{ vault_terraform_pg_password }}"
 
 # backend "pg" 접속을 허용할 네트워크 (orbit-astra-net)
 terraform_pg_allowed_cidr: 192.168.100.0/24
+
+# Terraform state DB 백업
+terraform_state_backup_passphrase: "{{ vault_terraform_state_backup_passphrase }}"
+terraform_state_backup_local_dir: /var/backups/orbit/terraform-state
+terraform_state_backup_passphrase_file: /etc/orbit/terraform-state-backup.passphrase
+terraform_state_backup_ssh_private_key: /etc/orbit/terraform-state-backup-ssh
+terraform_state_backup_known_hosts: /etc/orbit/terraform-state-backup-known_hosts
+terraform_state_backup_remote_user: orbit-backup
+terraform_state_backup_remote_host: orbit-terra
+terraform_state_backup_remote_dir: /home/orbit-backup/terraform-state
+terraform_state_backup_retention_days: 14

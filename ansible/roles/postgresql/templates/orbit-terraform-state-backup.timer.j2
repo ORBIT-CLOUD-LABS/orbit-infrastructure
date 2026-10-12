@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Terraform state PostgreSQL backup daily
+
+[Timer]
+OnCalendar=*-*-* 18:00:00 UTC
+Persistent=true
+Unit=orbit-terraform-state-backup.service
+
+[Install]
+WantedBy=timers.target

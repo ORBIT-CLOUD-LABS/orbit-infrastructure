@@ -1,0 +1,92 @@
+---
+- name: Gather installed package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Install HashiCorp repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - gnupg
+      - python3-debian
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create apt keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install HashiCorp repository signing key
+  ansible.builtin.get_url:
+    url: https://apt.releases.hashicorp.com/gpg
+    dest: /etc/apt/keyrings/hashicorp.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure HashiCorp apt repository
+  ansible.builtin.deb822_repository:
+    name: hashicorp
+    types:
+      - deb
+    uris:
+      - https://apt.releases.hashicorp.com
+    suites:
+      - "{{ ansible_distribution_release }}"
+    components:
+      - main
+    architectures:
+      - amd64
+    signed_by: /etc/apt/keyrings/hashicorp.asc
+    state: present
+  when: not ansible_check_mode or "terraform" in ansible_facts.packages
+
+- name: Install Terraform runner packages
+  ansible.builtin.apt:
+    name:
+      - "terraform={{ terraform_package_version }}"
+      - cloud-image-utils
+      - git
+    state: present
+    update_cache: true
+  when: not ansible_check_mode or "terraform" in ansible_facts.packages
+
+- name: Read Terraform version as Jenkins user
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - jenkins
+      - --
+      - terraform
+      - version
+    chdir: "{{ jenkins_home }}"
+  register: terraform_version_result
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Check cloud-localds as Jenkins user
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - jenkins
+      - --
+      - test
+      - -x
+      - /usr/bin/cloud-localds
+    chdir: "{{ jenkins_home }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify Terraform version
+  ansible.builtin.assert:
+    that:
+      - "'Terraform v1.16.5' in terraform_version_result.stdout"
+    fail_msg: 설치된 Terraform 버전이 1.16.5가 아니다.
+  when: not ansible_check_mode
