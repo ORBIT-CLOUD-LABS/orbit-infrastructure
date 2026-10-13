@@ -1,0 +1,11 @@
+---
+# Helm 기반 Argo CD bootstrap
+# 실행: ansible/ 폴더에서 ansible-playbook argocd.yml
+- name: Argo CD bootstrap
+  hosts: control_plane[0]
+  become: true
+  environment:
+    KUBECONFIG: "{{ argocd_kubeconfig }}"
+  roles:
+    - role: argocd
+      tags: [argocd]

@@ -40,6 +40,7 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 | Database | `database.yml` → `database`, `data_disk` | `vehicle_db`, `campaign_db` |
 | Monitoring | `monitoring.yml` → `node_exporter`, `monitoring_host`, `data_disk` | 전체 관리 노드, `monitoring` |
 | Kubernetes 후처리 | `k8s-post.yml` → `k8s_post` | `control_plane[0]` |
+| Argo CD bootstrap | `argocd.yml` → `argocd` | `control_plane[0]` |
 
 원격 사이트는 `inventory/lab/sites.ini`에서 관리한다.
 
@@ -182,6 +183,73 @@ cd .. && ./scripts/test-vms.sh delete   # VM·디스크·DHCP 예약·known_host
 `playbooks/group_vars/`는 `playbooks/` 아래 플레이북에 자동으로 적용된다. `astra_host` 변수는 아직
 `group_vars/astra_host/`에 있고 `postgresql.yml`이 `vars_files`로 직접 읽는다.
 나중에 `playbooks/group_vars/`로 합칠 예정이다.
+
+## Argo CD bootstrap
+
+준비된 Kubernetes 클러스터에 전용 플레이북으로 설치한다. Helm 실행 파일과
+Python YAML 의존성은 첫 번째 control plane VM에 설치하며,
+`/etc/kubernetes/admin.conf`로 클러스터에 접속한다.
+실행 장비에는 `ansible-core >= 2.16`과 `kubernetes.core` collection이 필요하다.
+
+```bash
+cd ansible
+ansible-galaxy collection install -r requirements.yml
+
+# 테스트 Kubernetes 클러스터가 준비된 상태에서 먼저 검증
+ansible-playbook -i inventory/test.ini argocd.yml
+
+# 같은 설정으로 재실행하여 changed=0 확인
+ansible-playbook -i inventory/test.ini argocd.yml
+
+# 테스트 검증 후 Lab에 설치
+ansible-playbook argocd.yml
+```
+
+이 플레이북은 `--check`를 지원하지 않는다. 설치와 Ready 검증은 테스트 클러스터에서
+실제 실행으로 확인한다. 같은 설정의 두 번째 실행에서 Helm 버전과 release values를
+비교하여 불필요한 설치·업그레이드를 건너뛴다. 클러스터 리소스의 수동 변경까지
+자동 복구하는 검증은 포함하지 않는다.
+
+기본 버전은 Helm `v4.2.3`, chart `10.10.3`, Argo CD `v3.5.5`이며,
+`roles/argocd/defaults/main.yml`에서 관리한다. 업그레이드할 때는 chart의
+`appVersion`과 Argo CD 버전을 함께 확인하고 해당 값을 수정한 뒤 테스트 클러스터에서
+검증하고 Lab에 재적용한다.
+
+`argocd` namespace를 만들고 CRD를 설치한다. API 서버는 HTTPS와 `ClusterIP`를
+사용하며 Ingress는 만들지 않는다. GitOps 저장소 인증과 Application은 구성하지 않는다.
+Helm 설치 완료 후 Deployment·StatefulSet의 rollout과 주요 Pod의 Ready 상태를 확인한다.
+
+### 임시 API·UI 접속 검증
+
+control plane VM에서 실행한다. port-forward는 해당 VM의 `127.0.0.1`에만 열린다.
+
+```bash
+kubectl -n argocd port-forward --address 127.0.0.1 svc/argocd-server 8080:443
+```
+
+같은 VM의 다른 터미널에서 API 응답을 확인한다. `-k`는 설치 검증용 자체 서명 인증서에만 사용한다.
+
+```bash
+curl --fail --silent --show-error -k https://127.0.0.1:8080/api/version
+```
+
+노트북에서 해당 VM으로 SSH 접속할 수 있으면 터널을 연결하고
+브라우저에서 `https://localhost:8080`에 접속한다.
+
+```bash
+ssh -N -L 8080:127.0.0.1:8080 orbit@192.168.100.101
+```
+
+초기 사용자 이름은 `admin`이다. 초기 비밀번호는 control plane VM에서 직접 조회한다.
+비밀번호를 Ansible 출력이나 PR에 남기지 않는다.
+
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 --decode
+```
+
+GitOps 저장소를 연결하지 않은 상태에서 API 응답과 UI 로그인을 확인한다.
+검증이 끝나면 SSH 터널과 port-forward를 종료한다.
 
 ## Jenkins (Controller와 Terraform runner)
 
