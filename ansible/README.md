@@ -249,7 +249,6 @@ Jenkins의 `Manage Jenkins` → `Credentials` → `System` → `Global credentia
 | ID | 종류 | 내용 |
 |---|---|---|
 | `astra-libvirt-ssh` | SSH Username with private key | 사용자 `jenkins-libvirt`와 `roles/libvirt_remote_user/defaults/main.yml`의 공개키에 대응하는 개인키 |
-| `astra-terraform-backend` | Secret file | 실제 비밀번호를 넣은 `terraform/environments/astra/backend-config/astra.conf` |
 
 검증 Job은 UI에 Pipeline script를 직접 저장하지 않는다. 저장소를 SCM으로 지정하고
 Script Path를 `jenkins/Jenkinsfile.libvirt-verify`로 설정한다. Jenkins VM을 재생성해도
@@ -265,28 +264,17 @@ sudo ssh-keygen -lf /home/jenkins-libvirt/.ssh/authorized_keys
 ssh-keygen -y -f <private-key> | ssh-keygen -lf -
 ```
 
-credential을 임시 파일로 바인딩한 Jenkins 작업에서 연결과 Terraform plan을 확인한다.
-`ssh_authorized_keys`에는 현재 ASTRA 업무 스택에 적용 중인 공개키 목록을 그대로 전달해야
-`No changes` 결과를 확인할 수 있다.
+credential을 임시 파일로 바인딩한 Jenkins 작업에서 ASTRA libvirt 연결을 확인한다.
 
 ```bash
 ssh -o BatchMode=yes \
   -i "${LIBVIRT_SSH_KEY}" \
   "${LIBVIRT_SSH_USER}@192.168.100.1" \
   'virsh -c qemu:///system list --all'
-
-cd terraform/environments/astra
-terraform init -backend-config="${TF_BACKEND_CONFIG}"
-terraform fmt -check -recursive
-terraform validate
-terraform plan \
-  -var "libvirt_uri=qemu+ssh://${LIBVIRT_SSH_USER}@192.168.100.1/system?keyfile=${LIBVIRT_SSH_KEY}" \
-  -var 'ssh_authorized_keys=["<현재 ASTRA 업무 VM에 적용 중인 SSH 공개키>"]'
 ```
 
-`LIBVIRT_SSH_USER`, `LIBVIRT_SSH_KEY`, `TF_BACKEND_CONFIG`는 위 credential을
-Jenkins 작업에 바인딩해 받은 값이다. 개인키와 backend 설정 파일을 저장소나 Jenkins
-workspace에 복사해 두지 않는다.
+`LIBVIRT_SSH_USER`, `LIBVIRT_SSH_KEY`는 위 credential을 Jenkins 작업에 바인딩해
+받은 값이다. 개인키를 저장소나 Jenkins workspace에 복사해 두지 않는다.
 
 ## PostgreSQL (Terraform state 백엔드)
 
