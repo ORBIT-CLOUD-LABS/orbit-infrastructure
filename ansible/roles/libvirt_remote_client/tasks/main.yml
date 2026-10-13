@@ -1,0 +1,29 @@
+---
+- name: Create Jenkins SSH configuration directory
+  ansible.builtin.file:
+    path: "{{ libvirt_remote_client_home }}/.ssh"
+    state: directory
+    owner: "{{ libvirt_remote_client_user }}"
+    group: "{{ libvirt_remote_client_group }}"
+    mode: "0700"
+
+- name: Trust ASTRA SSH host key
+  ansible.builtin.known_hosts:
+    name: "{{ libvirt_remote_host }}"
+    key: "{{ libvirt_remote_host }} {{ libvirt_remote_host_key }}"
+    path: "{{ libvirt_remote_client_home }}/.ssh/known_hosts"
+    state: present
+
+- name: Check Jenkins known_hosts file
+  ansible.builtin.stat:
+    path: "{{ libvirt_remote_client_home }}/.ssh/known_hosts"
+  register: libvirt_remote_known_hosts_file
+
+- name: Restrict Jenkins known_hosts permissions
+  ansible.builtin.file:
+    path: "{{ libvirt_remote_client_home }}/.ssh/known_hosts"
+    state: file
+    owner: "{{ libvirt_remote_client_user }}"
+    group: "{{ libvirt_remote_client_group }}"
+    mode: "0600"
+  when: libvirt_remote_known_hosts_file.stat.exists or not ansible_check_mode

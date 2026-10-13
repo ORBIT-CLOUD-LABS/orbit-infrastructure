@@ -1,0 +1,22 @@
+---
+# 비밀번호는 지정하지 않는다(useradd 기본값으로 잠김). 접속은 SSH 키로만 한다.
+# qemu+ssh는 원격에서 virt-ssh-helper를 실행하므로 로그인 셸이 필요하다.
+- name: Create libvirt remote access user
+  ansible.builtin.user:
+    name: "{{ libvirt_remote_user_name }}"
+    shell: /bin/bash
+    home: "{{ libvirt_remote_user_home }}"
+    create_home: true
+    groups: libvirt
+    append: true
+
+# no-port-forwarding 등은 붙이지 않는다. libvirt provider가 SSH 위에서 libvirt 소켓으로
+# 연결하는 방식에 따라 막힐 수 있어서 접속 IP 제한만 둔다.
+- name: Authorize Jenkins SSH key
+  ansible.posix.authorized_key:
+    user: "{{ libvirt_remote_user_name }}"
+    key: "{{ libvirt_remote_user_public_key }}"
+    # path를 주면 --check에서 계정 조회 없이 이 경로로 diff를 계산한다.
+    path: "{{ libvirt_remote_user_home }}/.ssh/authorized_keys"
+    key_options: 'from="{{ libvirt_remote_user_allowed_from }}"'
+    exclusive: true

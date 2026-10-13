@@ -214,6 +214,68 @@ ansible-playbook playbooks/jenkins.yml --ask-vault-pass
 | JCasC | 로컬 관리자, 익명 접근 차단, Executor 1개 설정 |
 | Terraform runner | Terraform, `cloud-localds`, Git 설치 |
 
+### Jenkins에서 ASTRA libvirt 접속
+
+Jenkins VM(`192.168.100.100`)이 ASTRA 호스트의 libvirt에 원격 접속할 때는
+전용 계정 `jenkins-libvirt`를 사용한다. 이 계정은 `libvirt` 그룹 권한을 가지므로
+SSH 개인키는 Jenkins credential에만 보관한다.
+
+ASTRA 호스트에서 전용 계정과 공개키를 적용하고, Jenkins VM에는 검증한 ASTRA
+SSH host key를 등록한다.
+
+```bash
+cd ansible
+
+# 변경 내용 미리 보기
+ansible-playbook playbooks/libvirt_remote.yml --check --diff --ask-become-pass
+
+# 적용
+ansible-playbook playbooks/libvirt_remote.yml --ask-become-pass
+
+# 멱등성 확인: changed=0이어야 한다
+ansible-playbook playbooks/libvirt_remote.yml --check --diff --ask-become-pass
+```
+
+이 플레이북은 다음 항목을 함께 관리한다.
+
+| 대상 | 항목 |
+|---|---|
+| ASTRA 호스트 | `jenkins-libvirt` 계정, `libvirt` 그룹, Jenkins 공개키, `192.168.100.100` 출발지 제한 |
+| Jenkins VM | `/var/lib/jenkins/.ssh/known_hosts`의 ASTRA host key |
+
+Jenkins의 `Manage Jenkins` → `Credentials` → `System` → `Global credentials`에
+다음 credential을 등록한다.
+
+| ID | 종류 | 내용 |
+|---|---|---|
+| `astra-libvirt-ssh` | SSH Username with private key | 사용자 `jenkins-libvirt`와 `roles/libvirt_remote_user/defaults/main.yml`의 공개키에 대응하는 개인키 |
+
+검증 Job은 UI에 Pipeline script를 직접 저장하지 않는다. 저장소를 SCM으로 지정하고
+Script Path를 `jenkins/Jenkinsfile.libvirt-verify`로 설정한다. Jenkins VM을 재생성해도
+검증 로직은 저장소에 남으며 같은 Job을 다시 구성할 수 있다.
+
+개인키 자체를 출력하지 말고 공개키 지문이 일치하는지만 확인한다.
+
+```bash
+# ASTRA에 설치된 공개키 지문
+sudo ssh-keygen -lf /home/jenkins-libvirt/.ssh/authorized_keys
+
+# Jenkins credential에 넣을 개인키의 공개키 지문
+ssh-keygen -y -f <private-key> | ssh-keygen -lf -
+```
+
+credential을 임시 파일로 바인딩한 Jenkins 작업에서 ASTRA libvirt 연결을 확인한다.
+
+```bash
+ssh -o BatchMode=yes \
+  -i "${LIBVIRT_SSH_KEY}" \
+  "${LIBVIRT_SSH_USER}@192.168.100.1" \
+  'virsh -c qemu:///system list --all'
+```
+
+`LIBVIRT_SSH_USER`, `LIBVIRT_SSH_KEY`는 위 credential을 Jenkins 작업에 바인딩해
+받은 값이다. 개인키를 저장소나 Jenkins workspace에 복사해 두지 않는다.
+
 ## PostgreSQL (Terraform state 백엔드)
 
 ORBIT-ASTRA 호스트(`astra_host`)에 Terraform `pg` backend용 PostgreSQL과 state 백업을
