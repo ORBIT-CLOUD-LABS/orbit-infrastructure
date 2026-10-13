@@ -79,7 +79,7 @@ NODES="test-db:13 test-mon:14" ./scripts/test-vms.sh delete
 
 ## Base (VM 공통 OS 설정)
 
-모든 VM(`all:!astra_host`)에 공통 OS 기본 설정을 적용합니다. ORBIT-ASTRA 호스트(`astra_host`)는
+모든 VM(`all:!astra_host`)에 공통 OS 기본 설정을 적용한다. ORBIT-ASTRA 호스트(`astra_host`)는
 대상에서 제외한다.
 
 ### 실행
