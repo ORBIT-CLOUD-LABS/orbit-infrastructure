@@ -7,7 +7,7 @@ libvirt_remote_user_name: jenkins-libvirt
 libvirt_remote_user_home: "/home/{{ libvirt_remote_user_name }}"
 
 # Jenkins credential에 등록한 개인키의 공개키
-libvirt_remote_user_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINwQ9mO0uQ8Rx67Z6dF/bekORgyG/mNpdOBc9hgyg300 jenkins@astra-jenkins"
+libvirt_remote_user_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ3ySdpidkETQ/vBEGnGVyFYoUxhOeDRZ1nSQEQIrO4N jenkins@astra-jenkins"
 
 # 키가 유출되어도 Jenkins VM이 아닌 곳에서는 쓸 수 없도록 접속 IP를 제한한다.
 libvirt_remote_user_allowed_from: 192.168.100.100
