@@ -14,6 +14,11 @@
     path: "{{ libvirt_remote_client_home }}/.ssh/known_hosts"
     state: present
 
+- name: Check Jenkins known_hosts file
+  ansible.builtin.stat:
+    path: "{{ libvirt_remote_client_home }}/.ssh/known_hosts"
+  register: libvirt_remote_known_hosts_file
+
 - name: Restrict Jenkins known_hosts permissions
   ansible.builtin.file:
     path: "{{ libvirt_remote_client_home }}/.ssh/known_hosts"
@@ -21,3 +26,4 @@
     owner: "{{ libvirt_remote_client_user }}"
     group: "{{ libvirt_remote_client_group }}"
     mode: "0600"
+  when: libvirt_remote_known_hosts_file.stat.exists or not ansible_check_mode
