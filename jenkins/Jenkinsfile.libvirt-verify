@@ -1,0 +1,30 @@
+pipeline {
+  agent any
+
+  stages {
+    stage('Verify ASTRA libvirt SSH') {
+      steps {
+        withCredentials([
+          sshUserPrivateKey(
+            credentialsId: 'astra-libvirt-ssh',
+            keyFileVariable: 'LIBVIRT_SSH_KEY',
+            usernameVariable: 'LIBVIRT_SSH_USER'
+          )
+        ]) {
+          sh '''
+            set -eu
+
+            test "$(ssh-keygen -lf "$LIBVIRT_SSH_KEY" | awk '{print $2}')" = \
+              'SHA256:SNq/eSDsNCFGHQqUeQq26SsddKslU/jKUx6iNlpV/S8'
+
+            ssh \
+              -o BatchMode=yes \
+              -i "$LIBVIRT_SSH_KEY" \
+              "${LIBVIRT_SSH_USER}@192.168.100.1" \
+              'virsh -c qemu:///system list --all'
+          '''
+        }
+      }
+    }
+  }
+}

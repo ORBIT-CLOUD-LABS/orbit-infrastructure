@@ -251,6 +251,10 @@ Jenkins의 `Manage Jenkins` → `Credentials` → `System` → `Global credentia
 | `astra-libvirt-ssh` | SSH Username with private key | 사용자 `jenkins-libvirt`와 `roles/libvirt_remote_user/defaults/main.yml`의 공개키에 대응하는 개인키 |
 | `astra-terraform-backend` | Secret file | 실제 비밀번호를 넣은 `terraform/environments/astra/backend-config/astra.conf` |
 
+검증 Job은 UI에 Pipeline script를 직접 저장하지 않는다. 저장소를 SCM으로 지정하고
+Script Path를 `jenkins/Jenkinsfile.libvirt-verify`로 설정한다. Jenkins VM을 재생성해도
+검증 로직은 저장소에 남으며 같은 Job을 다시 구성할 수 있다.
+
 개인키 자체를 출력하지 말고 공개키 지문이 일치하는지만 확인한다.
 
 ```bash
