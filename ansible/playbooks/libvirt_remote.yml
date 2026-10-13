@@ -1,5 +1,5 @@
 ---
-# Jenkins가 qemu+ssh로 ASTRA libvirt에 접속할 계정과 SSH 키 구성
+# Jenkins가 qemu+ssh로 ASTRA libvirt에 접속할 계정과 SSH 신뢰 구성
 # 롤 변수가 defaults에만 있어 group_vars(vault 포함)는 로드하지 않는다.
 - name: Configure libvirt remote access for Jenkins
   hosts: astra_host
@@ -7,3 +7,10 @@
 
   roles:
     - libvirt_remote_user
+
+- name: Configure ASTRA SSH trust for Jenkins
+  hosts: jenkins
+  become: true
+
+  roles:
+    - libvirt_remote_client

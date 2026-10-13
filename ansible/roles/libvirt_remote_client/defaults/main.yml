@@ -1,0 +1,7 @@
+---
+libvirt_remote_client_user: jenkins
+libvirt_remote_client_group: jenkins
+libvirt_remote_client_home: /var/lib/jenkins
+
+libvirt_remote_host: 192.168.100.1
+libvirt_remote_host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHrRp7MnGrVr7AzzgVPf/fa/YvfXVEZKP2+nA5O5Wa+q root@orbit-astra"

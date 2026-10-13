@@ -220,7 +220,8 @@ Jenkins VM(`192.168.100.100`)이 ASTRA 호스트의 libvirt에 원격 접속할 
 전용 계정 `jenkins-libvirt`를 사용한다. 이 계정은 `libvirt` 그룹 권한을 가지므로
 SSH 개인키는 Jenkins credential에만 보관한다.
 
-ASTRA 호스트에서 전용 계정과 공개키를 적용한다.
+ASTRA 호스트에서 전용 계정과 공개키를 적용하고, Jenkins VM에는 검증한 ASTRA
+SSH host key를 등록한다.
 
 ```bash
 cd ansible
@@ -234,6 +235,13 @@ ansible-playbook playbooks/libvirt_remote.yml --ask-become-pass
 # 멱등성 확인: changed=0이어야 한다
 ansible-playbook playbooks/libvirt_remote.yml --check --diff --ask-become-pass
 ```
+
+이 플레이북은 다음 항목을 함께 관리한다.
+
+| 대상 | 항목 |
+|---|---|
+| ASTRA 호스트 | `jenkins-libvirt` 계정, `libvirt` 그룹, Jenkins 공개키, `192.168.100.100` 출발지 제한 |
+| Jenkins VM | `/var/lib/jenkins/.ssh/known_hosts`의 ASTRA host key |
 
 Jenkins의 `Manage Jenkins` → `Credentials` → `System` → `Global credentials`에
 다음 credential을 등록한다.
