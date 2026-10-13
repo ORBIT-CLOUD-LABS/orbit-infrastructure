@@ -53,7 +53,7 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 ### 설정
 
 - 비밀값은 `secrets/vault.yml.example`을 복사해 `secrets/vault.yml`에 작성하고 Ansible Vault로 암호화한다.
-- Database와 Monitoring 데이터 디스크는 `db_data_device`, `monitoring_data_device`로 지정한다.
+- Database 데이터 디스크는 `db_data_device`로 지정한다.
 - 데이터 디스크에 파일시스템이 있으면 다시 포맷하지 않는다.
 - `k8s_reserved_nodes`의 기본값은 `astra-worker-3`이며 `orbit.io/reserved=true:NoSchedule` taint를 적용한다.
 
