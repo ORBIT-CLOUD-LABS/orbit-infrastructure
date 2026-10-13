@@ -38,7 +38,7 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 | 작업 | 플레이북 / 롤 | 대상 |
 |---|---|---|
 | Database | `database.yml` → `database`, `data_disk` | `vehicle_db`, `campaign_db` |
-| Monitoring | `monitoring.yml` → `node_exporter`, `monitoring_host`, `data_disk` | 전체 관리 노드, `monitoring` |
+| Monitoring | `monitoring.yml` → `node_exporter` | 전체 관리 노드 (Prometheus·Alertmanager·Loki·Grafana는 monitoring VM에 systemd로 직접 구성, orbit-observability#3) |
 | Kubernetes 후처리 | `k8s-post.yml` → `k8s_post` | `control_plane[0]` |
 
 원격 사이트는 `inventory/lab/sites.ini`에서 관리한다.
@@ -70,8 +70,7 @@ ansible-playbook -i inventory/test-services.ini database.yml \
   -e db_app_password=testpass123 \
   -e db_verify=true
 
-ansible-playbook -i inventory/test-services.ini monitoring.yml \
-  -e grafana_admin_password=testpass123
+ansible-playbook -i inventory/test-services.ini monitoring.yml
 
 cd ..
 NODES="test-db:13 test-mon:14" ./scripts/test-vms.sh delete
