@@ -6,6 +6,18 @@
   become: true
   environment:
     KUBECONFIG: "{{ argocd_kubeconfig }}"
+  pre_tasks:
+    - name: GitOps 비밀값 로드
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/secrets/argocd-vault.yml"
+      when:
+        - argocd_gitops_enabled | default(false) | bool
+        - (playbook_dir ~ '/secrets/argocd-vault.yml') is file
+      no_log: true
+      tags: [always]
   roles:
     - role: argocd
       tags: [argocd]
+    - role: argocd_gitops
+      when: argocd_gitops_enabled | default(false) | bool
+      tags: [argocd_gitops]

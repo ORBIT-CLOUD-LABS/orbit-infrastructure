@@ -5,5 +5,6 @@
 | 문서 | 내용 |
 | --- | --- |
 | [`docs/requirements.md`](docs/requirements.md) | 요구사항 원본(orbit 레포) 위치와 읽는 방법, 규칙 |
+| [`docs/argocd-gitops.md`](docs/argocd-gitops.md) | GitOps 인증, 최초 연결, 수동 Sync 검증 및 운영 정책 |
 
 `docs/`에 문서를 추가하거나 옮기면 이 표도 함께 수정합니다.

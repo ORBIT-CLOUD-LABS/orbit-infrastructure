@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ argocd_gitops_root_name | to_json }}
+  namespace: {{ argocd_namespace | to_json }}
+spec:
+  project: bootstrap
+  source:
+    repoURL: {{ argocd_gitops_repo_url | to_json }}
+    targetRevision: {{ argocd_gitops_revision | to_json }}
+    path: {{ argocd_gitops_root_path | to_json }}
+    directory:
+      recurse: false
+  destination:
+    server: {{ argocd_gitops_server | to_json }}
+    namespace: {{ argocd_namespace | to_json }}
+  syncPolicy:
+    automated:
+      enabled: false
+      prune: false
+      selfHeal: false

@@ -19,7 +19,7 @@ argocd_helm_architectures:
 
 argocd_wait_timeout: 300s
 
-# GitOps 저장소 인증이나 Application은 후속 작업에서 구성한다.
+# GitOps 저장소 인증과 Application은 argocd_gitops 롤이 별도로 관리한다.
 argocd_values:
   global:
     image:

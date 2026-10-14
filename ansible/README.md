@@ -216,8 +216,13 @@ ansible-playbook argocd.yml
 검증하고 Lab에 재적용한다.
 
 `argocd` namespace를 만들고 CRD를 설치한다. API 서버는 HTTPS와 `ClusterIP`를
-사용하며 Ingress는 만들지 않는다. GitOps 저장소 인증과 Application은 구성하지 않는다.
+사용하며 Ingress는 만들지 않는다. 기본 실행에서는 GitOps 저장소 인증과 Application을 구성하지 않는다.
 Helm 설치 완료 후 Deployment·StatefulSet의 rollout과 주요 Pod의 Ready 상태를 확인한다.
+
+GitOps 최초 연결은 `-e argocd_gitops_enabled=true --ask-vault-pass`로 명시적으로 켠다.
+이 경우 `argocd_gitops` 롤이 인증 Secret·AppProject·root Application을 적용하고,
+root의 자식 manifest 조회를 확인한다. Sync는 수동으로 수행한다.
+키 준비, 두 저장소 반영 순서와 검증 절차는 [GitOps 연결 문서](../docs/argocd-gitops.md)를 따른다.
 
 ### 임시 API·UI 접속 검증
 
