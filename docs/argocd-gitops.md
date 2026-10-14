@@ -94,7 +94,7 @@ ansible-playbook argocd.yml \
   -e argocd_gitops_enabled=true --ask-vault-pass
 ```
 
-GitOps 브랜치에서 먼저 테스트하면 `-e argocd_gitops_revision=task/34-argocd-gitops`로 root를
+GitOps 브랜치에서 먼저 테스트하면 `-e argocd_gitops_revision=task/5-argocd-gitops`로 root를
 지정할 수 있다. 이 경우 테스트 브랜치의 자식 Application `targetRevision`도 같은 브랜치로
 맞춰 커밋·push해야 한다. 로컬에만 있는 manifest는 Argo CD가 읽지 못한다.
 검증 후 root와 자식 모두 `main`으로 되돌린다.
