@@ -1,0 +1,116 @@
+---
+- name: GitOps 실행 환경과 고정 대상 확인
+  ansible.builtin.assert:
+    that:
+      - not ansible_check_mode
+      - argocd_namespace == 'argocd'
+      - argocd_gitops_repo_url == 'git@github.com:ORBIT-CLOUD-LABS/orbit-gitops.git'
+      - argocd_gitops_server == 'https://kubernetes.default.svc'
+      - argocd_gitops_workload_namespaces | length > 0
+      - argocd_gitops_platform_namespaces | length > 0
+      - "'argocd' not in argocd_gitops_workload_namespaces"
+      - "'argocd' not in argocd_gitops_platform_namespaces"
+      - "'*' not in argocd_gitops_workload_namespaces"
+      - "'*' not in argocd_gitops_platform_namespaces"
+    fail_msg: 실제 실행과 고정 ASTRA 대상이 필요합니다. 업무·플랫폼 namespace에 argocd나 wildcard를 허용하지 마세요.
+
+- name: GitOps 읽기 전용 개인키 입력 확인
+  ansible.builtin.assert:
+    that:
+      - argocd_gitops_ssh_private_key | length > 0
+      - "'-----BEGIN OPENSSH PRIVATE KEY-----' in argocd_gitops_ssh_private_key"
+      - "'-----END OPENSSH PRIVATE KEY-----' in argocd_gitops_ssh_private_key"
+    fail_msg: 읽기 전용 Deploy Key를 암호화된 secrets/argocd-vault.yml로 제공하세요.
+  no_log: true
+  diff: false
+
+- name: Kubernetes Python API 의존성 설치
+  ansible.builtin.apt:
+    name: [python3-kubernetes, python3-yaml, python3-jsonpatch]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: GitHub SSH host key가 준비되어 있는지 조회
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ argocd_kubeconfig }}"
+    api_version: v1
+    kind: ConfigMap
+    namespace: "{{ argocd_namespace }}"
+    name: argocd-ssh-known-hosts-cm
+  register: argocd_gitops_known_hosts
+
+- name: 검증된 GitHub host key가 필요함
+  ansible.builtin.assert:
+    that:
+      - argocd_gitops_known_hosts.resources | length == 1
+      - "'github.com ' in (argocd_gitops_known_hosts.resources[0].data['ssh_known_hosts'] | default(''))"
+    fail_msg: Helm의 GitHub known_hosts 설정을 확인하세요. SSH host 검증을 비활성화하지 마세요.
+
+# data를 사용하면 stringData의 write-only 동작으로 인한 재실행 변경을 피한다.
+# apply는 개인키를 last-applied annotation에 복사하므로 Secret에는 사용하지 않는다.
+- name: GitOps repository Secret 주입
+  kubernetes.core.k8s:
+    kubeconfig: "{{ argocd_kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ argocd_gitops_repo_secret_name }}"
+        namespace: "{{ argocd_namespace }}"
+        labels:
+          argocd.argoproj.io/secret-type: repository
+      type: Opaque
+      data:
+        type: "{{ 'git' | b64encode }}"
+        url: "{{ argocd_gitops_repo_url | b64encode }}"
+        sshPrivateKey: "{{ argocd_gitops_ssh_private_key | b64encode }}"
+  no_log: true
+  diff: false
+
+- name: Bootstrap·플랫폼·워크로드 AppProject 적용
+  kubernetes.core.k8s:
+    kubeconfig: "{{ argocd_kubeconfig }}"
+    state: present
+    apply: true
+    definition: "{{ lookup('template', 'projects.yml.j2') | from_yaml_all | list }}"
+
+# workload namespace 생성 권한을 자식 프로젝트에 줄 필요가 없다.
+- name: 허용된 namespace 최초 생성
+  kubernetes.core.k8s:
+    kubeconfig: "{{ argocd_kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ item }}"
+  loop: "{{ (argocd_gitops_workload_namespaces + argocd_gitops_platform_namespaces) | unique }}"
+
+- name: 수동 Sync root Application 적용
+  kubernetes.core.k8s:
+    kubeconfig: "{{ argocd_kubeconfig }}"
+    state: present
+    apply: true
+    definition: "{{ lookup('template', 'root-application.yml.j2') | from_yaml }}"
+
+# manifest 조회 성공은 Application 상태로 확인한다. Sync는 수행하지 않는다.
+- name: Root가 GitOps 경로를 읽고 자식 Application을 발견할 때까지 대기
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ argocd_kubeconfig }}"
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    namespace: "{{ argocd_namespace }}"
+    name: "{{ argocd_gitops_root_name }}"
+  register: argocd_gitops_root
+  until: >-
+    argocd_gitops_root.resources | length == 1 and
+    (argocd_gitops_root.resources[0].get('status', {}).get('sync', {}).get('status', '') in ['Synced', 'OutOfSync']) and
+    (argocd_gitops_root.resources[0].get('status', {}).get('sync', {}).get('comparedTo', {}).get('source', {}).get('repoURL', '') == argocd_gitops_repo_url) and
+    (argocd_gitops_root.resources[0].get('status', {}).get('sync', {}).get('comparedTo', {}).get('source', {}).get('targetRevision', '') == argocd_gitops_revision) and
+    (argocd_gitops_root.resources[0].get('status', {}).get('sync', {}).get('comparedTo', {}).get('source', {}).get('path', '') == argocd_gitops_root_path) and
+    (argocd_gitops_root.resources[0].get('status', {}).get('conditions', []) | selectattr('type', 'in', ['ComparisonError', 'InvalidSpecError', 'UnknownError']) | list | length == 0) and
+    (argocd_gitops_root.resources[0].get('status', {}).get('resources', []) | selectattr('kind', 'equalto', 'Application') | list | length > 0)
+  retries: "{{ argocd_gitops_verify_retries }}"
+  delay: "{{ argocd_gitops_verify_delay }}"
