@@ -187,6 +187,58 @@ root Prune은 자식 Application 삭제로 이어질 수 있어 초기에는 계
 키 회전은 새 Deploy Key 등록 → Vault 교체·Ansible 재적용 → 연결과 조회 성공 확인 →
 기존 Deploy Key 폐기 순서로 진행한다.
 
+## 테스트 검증 기록 (2026-10-14)
+
+ASTRA의 별도 작업 경로 `/home/orbit/issue34-gitops-test`에서 infrastructure
+`task/34-argocd-gitops`의 `afb657c`를 실행했다. 기존 `/home/orbit/orbit-infrastructure`
+작업 폴더와 운영 VM에는 적용하지 않았다.
+
+| 항목 | 검증 대상 / 결과 |
+| --- | --- |
+| 테스트 노드 | test-cp `.10`, test-w1 `.11`, test-w2 `.12` (192.168.122.0/24), 모두 Ready |
+| Kubernetes / CNI | v1.33.13 / Calico v3.31.4, CoreDNS·Calico 시스템 Pod Ready |
+| Argo CD | v3.5.5, Helm chart 10.10.3, 주요 Pod Ready |
+| GitOps 브랜치 | task/5-argocd-gitops, 최종 검증 커밋 a66c2d0 |
+| SSH 연결 | 테스트용 읽기 전용 Deploy Key로 root manifest 조회 성공, GitHub host key 지문 일치 확인 |
+| 최초 bootstrap | 자식 Application과 ConfigMap이 자동으로 생성되지 않음 |
+| root 수동 Sync | orbit-astra-smoke-test Application 생성, ConfigMap은 아직 없음 |
+| 자식 수동 Sync | gitops-smoke-test ConfigMap 생성, 값 gitops-v1 |
+| Git 변경 감지 | 94d3bea의 v2 변경을 OutOfSync로 조회, 수동 Sync 전 실제 값은 v1 유지 |
+| 변경 반영 | 수동 Sync 후 실제 값 v2, a66c2d0으로 Git 값 복원·재Sync 후 v1 |
+| Self Heal 비활성화 | 직접 변경한 manual-drift 값이 유지됨, 수동 Sync로 v1 복구 |
+| 권한 제한 | 임시 Application의 argocd destination이 InvalidSpecError로 거부됨, Sync 없이 해당 Application 삭제 |
+| 최종 상태 | root·자식 모두 Synced / Healthy, conditions 없음, ConfigMap 값 v1 |
+| 설치만 재실행 | ok=14, changed=0, unreachable=0, failed=0 |
+| GitOps 연결 포함 재실행 | ok=25, changed=0, unreachable=0, failed=0 |
+
+수동 Sync는 kubectl의 Application `operation`으로 요청했으며 매번 `prune: false`를
+지정했다. UI 로그인 검증과 `main` 전환·머지, 실제 플랫폼 애드온 배포는 이 기록에 포함하지 않는다.
+root와 자식은 아직 작업 브랜치를 읽는다.
+
+실제 Sync 검증에서 `source.directory.recurse: false`가 Argo CD에 의해 생략되어 root에
+불필요한 OutOfSync가 남는 문제를 확인했다. root template과 자식 manifest에서 해당 선언을
+제거했다(infrastructure afb657c, GitOps 6554d24). Directory의 기본 동작은 비재귀이다.
+
+GitHub 조직이 Deploy Key 생성을 차단하여 최초 등록은 실패했다. 사용자 승인 후
+ORBIT-CLOUD-LABS의 `deploy_keys_enabled_for_repositories`를 true로 변경하고,
+GitOps 저장소에 테스트용 읽기 전용 키를 등록했다. **허용 설정은 조직 전체에 유지되며**,
+등록한 키의 접근 범위는 orbit-gitops 하나이다.
+
+테스트 개인키는 ASTRA의 `~/.ssh/orbit-gitops-test-readonly`, 암호화된 Vault는 테스트
+작업본의 `ansible/secrets/argocd-vault.yml`에 있다. 무인 테스트용 Vault 암호는
+`/home/orbit/.config/orbit-issue34/vault-password`에 0600 권한으로 보관했다.
+비밀값은 Git과 검증 기록에 포함하지 않았다. 이 자격증명은 테스트 전용으로 사용한다.
+
+ASTRA에서 연결을 재실행하려면 다음 명령을 사용한다.
+
+```bash
+cd /home/orbit/issue34-gitops-test/ansible
+ansible-playbook -i inventory/test.ini argocd.yml \
+  -e argocd_gitops_enabled=true \
+  -e argocd_gitops_revision=task/5-argocd-gitops \
+  --vault-password-file /home/orbit/.config/orbit-issue34/vault-password
+```
+
 ## 애드온 추가 규칙과 참고
 
 `orbit-gitops/platform/<addon>/`에 실제 manifest를 두고
