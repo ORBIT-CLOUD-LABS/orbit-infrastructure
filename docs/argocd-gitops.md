@@ -213,7 +213,7 @@ ASTRA의 별도 작업 경로 `/home/orbit/issue34-gitops-test`에서 infrastruc
 
 수동 Sync는 kubectl의 Application `operation`으로 요청했으며 매번 `prune: false`를
 지정했다. UI 로그인 검증과 `main` 전환·머지, 실제 플랫폼 애드온 배포는 이 기록에 포함하지 않는다.
-root와 자식은 아직 작업 브랜치를 읽는다.
+이 작업 브랜치 검증 시점에는 root와 자식 모두 작업 브랜치를 읽었다.
 
 실제 Sync 검증에서 `source.directory.recurse: false`가 Argo CD에 의해 생략되어 root에
 불필요한 OutOfSync가 남는 문제를 확인했다. root template과 자식 manifest에서 해당 선언을
@@ -229,13 +229,23 @@ GitOps 저장소에 테스트용 읽기 전용 키를 등록했다. **허용 설
 `/home/orbit/.config/orbit-issue34/vault-password`에 0600 권한으로 보관했다.
 비밀값은 Git과 검증 기록에 포함하지 않았다. 이 자격증명은 테스트 전용으로 사용한다.
 
-ASTRA에서 연결을 재실행하려면 다음 명령을 사용한다.
+GitOps PR [#6](https://github.com/ORBIT-CLOUD-LABS/orbit-gitops/pull/6)이 main에 머지된 후
+테스트 클러스터의 root를 `argocd_gitops_revision=main`으로 전환했다.
+root → 자식 순서로 Prune 없이 수동 Sync하여 클러스터의 자식 설정도 main으로 적용했다.
+
+- main 검증 커밋: `5779a03e978f5cc04bea6d0be4e61298b5faa486`
+- root·자식 모두 `targetRevision: main`, Synced / Healthy, conditions 없음.
+- ConfigMap 값은 `gitops-v1` 유지, 자동 Sync / Prune / Self Heal은 모두 비활성화.
+- main 전환 Ansible 실행: changed=1(root 변경), 재실행: ok=25, changed=0, unreachable=0, failed=0.
+- 운영 클러스터에는 적용하지 않았으며 UI 로그인 검증은 포함하지 않았다.
+
+ASTRA에서 현재 main 연결을 재실행하려면 다음 명령을 사용한다.
 
 ```bash
 cd /home/orbit/issue34-gitops-test/ansible
 ansible-playbook -i inventory/test.ini argocd.yml \
   -e argocd_gitops_enabled=true \
-  -e argocd_gitops_revision=task/5-argocd-gitops \
+  -e argocd_gitops_revision=main \
   --vault-password-file /home/orbit/.config/orbit-issue34/vault-password
 ```
 
