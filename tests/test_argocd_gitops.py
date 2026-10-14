@@ -61,7 +61,8 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
         self.assertIn(root["spec"]["source"]["repoURL"], project["sourceRepos"])
         self.assertEqual(project["clusterResourceWhitelist"], [])
         self.assertEqual(project["namespaceResourceWhitelist"], [{"group": "argoproj.io", "kind": "Application"}])
-        self.assertFalse(root["spec"]["source"]["directory"]["recurse"])
+        # Directory의 기본값(false)을 명시하면 Argo CD 정규화 후 drift가 생긴다.
+        self.assertNotIn("directory", root["spec"]["source"])
         self.assertFalse(any(root["spec"]["syncPolicy"]["automated"].values()))
         self.assertNotIn("finalizers", root["metadata"])
 
