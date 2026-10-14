@@ -24,6 +24,7 @@ spec:
   description: ASTRA 플랫폼 애드온 전용 프로젝트
   sourceRepos:
     - {{ argocd_gitops_repo_url | to_json }}
+    - {{ argocd_gitops_platform_helm_repo_url | to_json }}
   destinations:
 {% for namespace in argocd_gitops_platform_namespaces %}
     - server: {{ argocd_gitops_server | to_json }}

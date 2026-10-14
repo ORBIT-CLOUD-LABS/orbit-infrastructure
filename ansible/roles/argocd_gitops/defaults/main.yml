@@ -16,10 +16,26 @@ argocd_gitops_workload_namespaces:
 # 애드온을 추가할 때 필요한 namespace와 리소스를 리뷰 후 확장한다.
 argocd_gitops_platform_namespaces:
   - orbit-platform
-argocd_gitops_platform_cluster_resources: []
+  - kube-system
+argocd_gitops_platform_helm_repo_url: https://kubernetes-sigs.github.io/metrics-server/
+argocd_gitops_platform_cluster_resources:
+  - group: rbac.authorization.k8s.io
+    kind: ClusterRole
+  - group: rbac.authorization.k8s.io
+    kind: ClusterRoleBinding
+  - group: apiregistration.k8s.io
+    kind: APIService
 argocd_gitops_platform_namespace_resources:
   - group: ""
     kind: ConfigMap
+  - group: ""
+    kind: ServiceAccount
+  - group: ""
+    kind: Service
+  - group: apps
+    kind: Deployment
+  - group: rbac.authorization.k8s.io
+    kind: RoleBinding
 argocd_gitops_workload_namespace_resources:
   - group: ""
     kind: ConfigMap
