@@ -11,6 +11,13 @@ from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar
 import yaml
 
+try:
+    from ansible.template import trust_as_template
+except ImportError:
+    # ansible-core 2.21 이전에는 문자열을 별도로 신뢰 표시할 필요가 없다.
+    def trust_as_template(value):
+        return value
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ROLE = ROOT / "ansible/roles/argocd_gitops"
@@ -22,7 +29,8 @@ def render(name, overrides=None):
     variables.update(overrides or {})
     loader = DataLoader()
     templar = Templar(loader=loader, variables=variables)
-    return list(yaml.safe_load_all(templar.template((ROLE / "templates" / name).read_text())))
+    template = trust_as_template((ROLE / "templates" / name).read_text())
+    return list(yaml.safe_load_all(templar.template(template)))
 
 
 class Issue34GitOpsPolicyTest(unittest.TestCase):
@@ -38,7 +46,8 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
 
         def ready(resources):
             variables = {**defaults, "argocd_gitops_root": {"resources": resources}}
-            return Templar(loader=DataLoader(), variables=variables).template("{{ (" + expression + ") }}")
+            template = trust_as_template("{{ (" + expression + ") }}")
+            return Templar(loader=DataLoader(), variables=variables).template(template)
 
         self.assertTrue(ready([{"status": status}]))
         self.assertFalse(ready([]))
@@ -69,7 +78,7 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
     def test_business_and_platform_cannot_deploy_into_argocd_or_create_apps(self):
         # 확장된 업무 리소스 허용 목록에서도 관리 CRD 금지는 유지되어야 한다.
         projects = render("projects.yml.j2", {
-            "argocd_gitops_workload_namespaces": ["orbit-gitops-test", "orbit-server"],
+            "argocd_gitops_workload_namespaces": ["orbit-gitops-test", "orbit"],
             "argocd_gitops_workload_namespace_resources": [{"group": "*", "kind": "*"}],
         })
         for p in projects[1:]:
@@ -80,6 +89,32 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
                 self.assertEqual(spec["clusterResourceWhitelist"], [])
                 for kind in ("Application", "ApplicationSet", "AppProject"):
                     self.assertIn({"group": "argoproj.io", "kind": kind}, spec["namespaceResourceBlacklist"])
+
+    def test_issue39_workload_destination_and_resource_scope(self):
+        projects = {p["metadata"]["name"]: p["spec"] for p in render("projects.yml.j2")}
+        workloads = projects["workloads"]
+
+        self.assertEqual(workloads["sourceRepos"], ["git@github.com:ORBIT-CLOUD-LABS/orbit-gitops.git"])
+        self.assertEqual(workloads["destinations"], [
+            {"server": "https://kubernetes.default.svc", "namespace": "orbit-gitops-test"},
+            {"server": "https://kubernetes.default.svc", "namespace": "orbit"},
+        ])
+        self.assertEqual(workloads["clusterResourceWhitelist"], [])
+        self.assertEqual(workloads["namespaceResourceWhitelist"], [
+            {"group": "", "kind": "ConfigMap"},
+            {"group": "apps", "kind": "Deployment"},
+            {"group": "", "kind": "Service"},
+            {"group": "autoscaling", "kind": "HorizontalPodAutoscaler"},
+            {"group": "policy", "kind": "PodDisruptionBudget"},
+        ])
+        self.assertEqual(workloads["namespaceResourceBlacklist"], [
+            {"group": "argoproj.io", "kind": "Application"},
+            {"group": "argoproj.io", "kind": "ApplicationSet"},
+            {"group": "argoproj.io", "kind": "AppProject"},
+        ])
+        self.assertEqual(projects["platform"]["destinations"], [
+            {"server": "https://kubernetes.default.svc", "namespace": "orbit-platform"},
+        ])
 
     def test_secret_is_redacted_and_not_stored_in_apply_annotation(self):
         tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text())

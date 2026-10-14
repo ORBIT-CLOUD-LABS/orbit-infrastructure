@@ -12,6 +12,7 @@ argocd_gitops_ssh_private_key: "{{ vault_argocd_gitops_ssh_private_key | default
 argocd_gitops_server: https://kubernetes.default.svc
 argocd_gitops_workload_namespaces:
   - orbit-gitops-test
+  - orbit
 # 애드온을 추가할 때 필요한 namespace와 리소스를 리뷰 후 확장한다.
 argocd_gitops_platform_namespaces:
   - orbit-platform
@@ -22,5 +23,13 @@ argocd_gitops_platform_namespace_resources:
 argocd_gitops_workload_namespace_resources:
   - group: ""
     kind: ConfigMap
+  - group: apps
+    kind: Deployment
+  - group: ""
+    kind: Service
+  - group: autoscaling
+    kind: HorizontalPodAutoscaler
+  - group: policy
+    kind: PodDisruptionBudget
 argocd_gitops_verify_retries: 30
 argocd_gitops_verify_delay: 10
