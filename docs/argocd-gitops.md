@@ -109,12 +109,15 @@ GitOps 브랜치에서 먼저 테스트하면 `-e argocd_gitops_revision=task/5-
 | --- | --- | --- |
 | bootstrap | argocd | argoproj.io/Application만 |
 | platform | orbit-platform | ConfigMap만, 클러스터 리소스 없음 |
-| workloads | orbit-gitops-test | ConfigMap만, 클러스터 리소스 없음 |
+| workloads | orbit-gitops-test, orbit | ConfigMap, Deployment, Service, HorizontalPodAutoscaler, PodDisruptionBudget. 클러스터 리소스 없음 |
 
 platform/workloads는 Application·ApplicationSet·AppProject를 명시적으로 금지한다. namespace는 Ansible이
-생성하므로 업무 프로젝트에 Namespace 생성 권한을 주지 않는다. 실제 서비스와 애드온 추가 시
-defaults의 namespace 및 리소스 허용 목록을 리뷰 후 확장한다. cluster-admin 역할이나 wildcard
-허용을 편의상 추가하지 않는다. 외부 chart 저장소는 별도 sourceRepos 변경이 필요하다.
+생성하므로 업무 프로젝트에 Namespace 생성 권한을 주지 않는다. `orbit`과 업무 리소스 권한은
+[infrastructure #39](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/39)의 적용 대상이다.
+Secret은 이 허용 목록에 없으며, [orbit-gitops #3](https://github.com/ORBIT-CLOUD-LABS/orbit-gitops/issues/3)의
+수동 생성 절차를 따른다. 실제 애드온 추가 시 defaults의 namespace 및 리소스 허용 목록을 리뷰 후
+확장한다. cluster-admin 역할이나 wildcard 허용을 편의상 추가하지 않는다. 외부 chart 저장소는
+별도 sourceRepos 변경이 필요하다.
 
 AppProject는 허용 범위이며 사용자 역할 분리 전체를 대신하지 않는다. 기존 admin은 모든 프로젝트에
 접근할 수 있다. `default` 프로젝트나 root 경로를 수정할 권한도 업무 사용자에게 주지 않는다.
