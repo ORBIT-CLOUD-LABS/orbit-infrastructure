@@ -229,7 +229,10 @@ Helm 설치 완료 후 Deployment·StatefulSet의 rollout과 주요 Pod의 Ready
 
 GitOps 최초 연결은 `-e argocd_gitops_enabled=true --ask-vault-pass`로 명시적으로 켠다.
 이 경우 `argocd_gitops` 롤이 인증 Secret·AppProject·root Application을 적용하고,
-root의 자식 manifest 조회를 확인한다. Sync는 수동으로 수행한다.
+root의 자식 manifest 조회를 확인한다. root는 자동 Sync와 최대 5회 재시도를 사용하며,
+Prune·Self Heal은 비활성화한다. 적용 즉시 GitOps의 자식 Application이 자동 반영될 수 있으므로
+실행 전에 대상 revision의 변경을 검토한다. 자식의 실제 앱 배포는 각 Application의 Sync 정책을 따른다.
+플레이북 성공은 자식 배포 완료를 보장하지 않으므로 root·자식 상태와 실제 리소스를 별도로 확인한다.
 키 준비, 두 저장소 반영 순서와 검증 절차는 [GitOps 연결 문서](../docs/argocd-gitops.md)를 따른다.
 
 ### 임시 API·UI 접속 검증
