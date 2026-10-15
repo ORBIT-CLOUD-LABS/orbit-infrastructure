@@ -18,10 +18,19 @@ db_port: 3306
 db_max_connections: 200
 db_innodb_buffer_pool_size: 512M
 
+# 앱 연결 수 예산 (검증에서 max_connections와 비교)
+# 필요 연결 = pool × (최대 replica + 롤링 업데이트 중 추가 파드) + 운영 여유
+db_app_pool_size: 10                # 앱 파드당 커넥션 pool 최대 크기 (Hikari 기본값 10)
+db_app_max_replicas: 1
+db_app_surge_replicas: 1
+db_reserved_connections: 20         # 운영자·모니터링·백업 접속 몫
+# 앱이 접속해 오는 인벤토리 그룹. 검증 때 이 그룹의 각 호스트에서 3306 접속을 확인한다 (비우면 생략)
+db_app_client_group: ""
+
 # 백업
 db_backup_dir: /var/backups/mysql   # 데이터 디스크와 다른 디스크에 둔다
 db_backup_retention_days: 7
 db_backup_hour: 3                   # 매일 03:xx
 
-# 검증(앱 계정 접속 + 백업 1회)을 실행할지: -e db_verify=true
+# 검증(연결 수 예산·DB 설정·권한·앱 출발지 포트 + 백업 1회)을 실행할지: -e db_verify=true
 db_verify: false
