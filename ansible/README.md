@@ -62,7 +62,9 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 - 비밀값은 `secrets/vault.yml.example`을 복사해 `secrets/vault.yml`에 작성하고 Ansible Vault로 암호화한다.
 - Database와 Monitoring 데이터 디스크는 `db_data_device`, `monitoring_data_device`로 지정한다.
 - 데이터 디스크에 파일시스템이 있으면 다시 포맷하지 않는다.
-- `k8s_reserved_nodes`의 기본값은 `astra-worker-3`이며 `orbit.io/reserved=true:NoSchedule` taint를 적용한다.
+- `k8s_reserved_nodes`의 기본값은 `[]`이며 worker 3대 모두 일반 Pod를 받는다.
+- 필요할 때만 예비 노드를 목록에 지정해 `orbit.io/reserved=true:NoSchedule` taint를 적용한다. 목록에서 빼고 `k8s-post.yml`을 실행하면 예약 taint·label이 제거된다.
+- worker-3 개방 후 실제 배치 확인은 [RUNBOOK의 검증 절차](RUNBOOK.md#3-2-worker-배치와-예비-노드-관리)를 따른다.
 
 ### 서비스 롤 테스트
 
