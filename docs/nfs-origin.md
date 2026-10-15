@@ -1,6 +1,5 @@
 # ASTRA NFS 원본 저장소 구성·검증
 
-- 상태: Team Review
 - 작성일: 2026-10-15
 - 수정일: 2026-10-15
 - 관련 이슈: [#43](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/43)
