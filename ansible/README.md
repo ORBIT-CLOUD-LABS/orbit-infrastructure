@@ -44,6 +44,8 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 
 `node_exporter`는 `playbooks/site.yml`에도 포함돼 있어 클러스터 구성 때 모든 VM·`astra_host`에 함께 설치된다. `monitoring.yml`은 재적용(`--tags node_exporter`)이나 `inventory/test-services.ini` 같은 별도 인벤토리에 단독으로 쓸 때 쓴다.
 
+`node_exporter` 롤은 `ufw`로 9100(:9100)을 `monitoring` 그룹 IP에서만 허용하고 나머지는 차단하는 규칙도 같이 넣는다. 다만 **`ufw enable`은 이 롤에서 하지 않는다** — SSH(22)·Kubernetes 관련 포트(6443, 10250, 2379-2380 등)의 allowlist가 아직 없어서, 지금 ufw를 켜면 모든 VM 접속이 끊길 수 있다. ufw를 실제로 켜는 작업은 그 포트들을 먼저 정리하는 별도 이슈로 다룬다. `inventory/test.ini`처럼 `monitoring` 그룹이 없는 인벤토리에서는 이 규칙을 건너뛴다.
+
 원격 사이트는 `inventory/lab/sites.ini`에서 관리한다.
 
 - `sol`: CDN

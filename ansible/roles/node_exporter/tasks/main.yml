@@ -12,3 +12,33 @@
     name: prometheus-node-exporter
     state: started
     enabled: true
+
+# 9100은 모니터링 VM에서만 수집하면 되므로 다른 출발지는 막는다.
+# 인벤토리에 monitoring 그룹이 없는 테스트 환경(inventory/test.ini)에서는 건너뛴다.
+# ufw 자체는 여기서 활성화하지 않는다 — SSH·K8s 포트 allowlist 없이 켜면 전체 접속이 끊긴다.
+- name: 모니터링 VM IP 확인
+  ansible.builtin.set_fact:
+    node_exporter_monitoring_ip: "{{ hostvars[groups['monitoring'][0]].ansible_host }}"
+  when: groups['monitoring'] | default([]) | length > 0
+
+- name: ufw 설치 (활성화는 하지 않음)
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+  when: node_exporter_monitoring_ip is defined
+
+- name: 9100 - 모니터링 VM 출발지만 허용
+  community.general.ufw:
+    rule: allow
+    port: "9100"
+    proto: tcp
+    src: "{{ node_exporter_monitoring_ip }}"
+    insert: 0
+  when: node_exporter_monitoring_ip is defined
+
+- name: 9100 - 그 외 출발지 차단
+  community.general.ufw:
+    rule: deny
+    port: "9100"
+    proto: tcp
+  when: node_exporter_monitoring_ip is defined
