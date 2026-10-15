@@ -46,6 +46,8 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 
 `node_exporter` 롤은 `ufw`로 9100(:9100)을 `monitoring` 그룹 IP에서만 허용하고 나머지는 차단하는 규칙도 같이 넣는다. 다만 **`ufw enable`은 이 롤에서 하지 않는다** — SSH(22)·Kubernetes 관련 포트(6443, 10250, 2379-2380 등)의 allowlist가 아직 없어서, 지금 ufw를 켜면 모든 VM 접속이 끊길 수 있다. ufw를 실제로 켜는 작업은 그 포트들을 먼저 정리하는 별도 이슈로 다룬다. `inventory/test.ini`처럼 `monitoring` 그룹이 없는 인벤토리에서는 이 규칙을 건너뛴다.
 
+**node 이름 규칙 (node_exporter ↔ cAdvisor label 중복 방지):** `k8s_worker`, `k8s_control_plane` 롤은 `kubeadm join`/`init`에 `--node-name={{ inventory_hostname }}`를 명시해, Kubernetes Node 이름이 항상 Ansible 인벤토리 호스트명(`astra-worker-1` 등 — node_exporter가 쓰는 것과 같은 이름)과 일치하도록 고정한다. 클러스터 안 수집기(cAdvisor 등 Kubernetes 서비스 디스커버리 기반 수집기)가 이 Node 이름을 label로 쓰면 node_exporter 타겟과 별도 relabel 없이 같은 이름으로 맞아떨어지므로, 같은 노드가 두 다른 이름으로 중복 표현되지 않는다.
+
 원격 사이트는 `inventory/lab/sites.ini`에서 관리한다.
 
 - `sol`: CDN
