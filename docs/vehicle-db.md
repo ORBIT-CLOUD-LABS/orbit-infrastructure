@@ -14,7 +14,7 @@
 | DB명 | `vehicle` | `utf8mb4` / `utf8mb4_unicode_ci` |
 | 앱 계정 | `vehicle_app` | 비밀번호는 Vault(`vault_vehicle_db_password`)에만 둔다 |
 | 접속 허용 host | `192.168.100.102`, `.103`, `.104` | `astra-worker-1` ~ `3` |
-| 앱 계정 권한 | `vehicle.*`에 `SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES` | |
+| 앱 계정 권한 | `vehicle.*`에 `SELECT, INSERT, UPDATE, DELETE, CREATE, CREATE VIEW, ALTER, INDEX, DROP, REFERENCES` | |
 | `max_connections` | 200 | |
 | 서버 파드당 Hikari pool | 5 | orbit-gitops#7 `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE` |
 
@@ -24,12 +24,25 @@ Calico IP Pool은 `natOutgoing: Enabled`이다. Pod가 IP Pool 밖(DB VM)으로 
 그 Pod가 뜬 worker 노드 IP로 바뀐다. 그래서 앱 계정은 worker IP에서만 접속할 수 있게 만든다.
 
 `db_allowed_hosts`에서 빠진 host의 앱 계정은 role이 지운다. 예전의 `vehicle_app@192.168.100.%`도 이렇게 정리된다.
-worker를 추가하거나 IP를 바꾸면 이 목록부터 고친다.
+worker를 추가하거나 IP를 바꾸면 이 목록부터 고친다. 이때 뷰 DEFINER도 함께 확인한다 (아래 [권한](#권한)).
 
 ## 권한
 
 서버는 기동할 때마다 Flyway migration을 실행한다. 그래서 앱 계정에 DML과 함께 migration에 필요한
-DDL(CREATE, ALTER, INDEX, DROP, REFERENCES)을 준다. 권한 범위는 `vehicle` DB로 한정한다.
+DDL(CREATE, CREATE VIEW, ALTER, INDEX, DROP, REFERENCES)을 준다. 권한 범위는 `vehicle` DB로 한정한다.
+
+- MySQL은 뷰 생성을 `CREATE`와 별도인 `CREATE VIEW` 권한으로 다룬다. orbit-server의
+  `V2__create_vehicle_status_view.sql`이 `vehicle_status` 뷰를 만들므로 이 권한이 없으면 Flyway가 실패해 서버가 기동하지 않는다.
+- 나중에 뷰를 `CREATE OR REPLACE VIEW`로 바꾸는 migration은 `CREATE VIEW`와 `DROP`을 함께 쓴다. 둘 다 부여되어 있다.
+- migration을 추가할 때 트리거·프로시저·이벤트처럼 위 목록에 없는 객체를 만들면 권한(`TRIGGER`, `CREATE ROUTINE`, `EVENT` 등)을 먼저 추가한다.
+
+뷰는 기본값으로 `DEFINER = 만든 계정@host`, `SQL SECURITY DEFINER`로 생성된다. Flyway를 실행한 Pod가 있던 worker의 계정
+(예: `vehicle_app@192.168.100.103`)이 DEFINER가 된다. 그 host가 허용 목록에서 빠져 계정이 지워지면 뷰 조회가 실패하므로,
+worker를 바꾸기 전에 확인한다.
+
+```bash
+ssh orbit@192.168.100.106 'sudo mysql -e "SELECT TABLE_NAME, DEFINER FROM information_schema.VIEWS WHERE TABLE_SCHEMA = \"vehicle\""'
+```
 
 migration용 계정과 앱용 계정을 나누려면 서버 설정도 바꿔야 하므로 별도 서버 이슈로 다룬다.
 
@@ -77,6 +90,7 @@ ssh -t orbit@192.168.100.101 'kubectl run mysql-check -n orbit -it --rm --restar
 
 - `If you don't see a command prompt, try pressing enter.`만 보이면 그 상태에서 비밀번호를 입력한다.
 - `CURRENT_USER()`가 `vehicle_app@192.168.100.10x`(worker IP)로 나오면 정상이다.
+- 뷰 권한까지 보려면 `-e` 쿼리를 `CREATE VIEW zz_priv_check AS SELECT 1 AS ok; DROP VIEW zz_priv_check`로 바꿔 실행한다. 오류 없이 끝나면 된다.
 - 이미지 pull이 늦어 attach가 끊기면 `mysql-check` Pod가 남는다. `kubectl delete pod mysql-check -n orbit` 후 다시 실행한다.
 
 ### Flyway 적용
