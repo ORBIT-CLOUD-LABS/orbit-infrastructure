@@ -38,7 +38,7 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 | 작업 | 플레이북 / 롤 | 대상 |
 |---|---|---|
 | Database | `database.yml` → `database`, `data_disk` | `vehicle_db` (campaign 테이블 포함, [`docs/vehicle-db.md`](../docs/vehicle-db.md)) |
-| Monitoring | `monitoring.yml` → `node_exporter`, `monitoring_host`, `data_disk` | 전체 관리 노드, `monitoring` |
+| Monitoring | `monitoring.yml` → `node_exporter` | 전체 관리 노드 (Prometheus·Alertmanager·Loki·Grafana는 monitoring VM에 systemd로 직접 구성, orbit-observability#3) |
 | Kubernetes 후처리 | `k8s-post.yml` → `k8s_post` | `control_plane[0]` |
 | Argo CD bootstrap | `argocd.yml` → `argocd` | `control_plane[0]` |
 
@@ -60,7 +60,7 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 ### 설정
 
 - 비밀값은 `secrets/vault.yml.example`을 복사해 `secrets/vault.yml`에 작성하고 Ansible Vault로 암호화한다.
-- Database와 Monitoring 데이터 디스크는 `db_data_device`, `monitoring_data_device`로 지정한다.
+- Database 데이터 디스크는 `db_data_device`로 지정한다.
 - 데이터 디스크에 파일시스템이 있으면 다시 포맷하지 않는다.
 - `k8s_reserved_nodes`의 기본값은 `[]`이며 worker 3대 모두 일반 Pod를 받는다.
 - 필요할 때만 예비 노드를 목록에 지정해 `orbit.io/reserved=true:NoSchedule` taint를 적용한다. 목록에서 빼고 `k8s-post.yml`을 실행하면 예약 taint·label이 제거된다.
@@ -79,8 +79,7 @@ ansible-playbook -i inventory/test-services.ini database.yml \
   -e db_app_password=testpass123 \
   -e db_verify=true
 
-ansible-playbook -i inventory/test-services.ini monitoring.yml \
-  -e grafana_admin_password=testpass123
+ansible-playbook -i inventory/test-services.ini monitoring.yml
 
 cd ..
 NODES="test-db:13 test-mon:14" ./scripts/test-vms.sh delete
@@ -230,7 +229,10 @@ Helm 설치 완료 후 Deployment·StatefulSet의 rollout과 주요 Pod의 Ready
 
 GitOps 최초 연결은 `-e argocd_gitops_enabled=true --ask-vault-pass`로 명시적으로 켠다.
 이 경우 `argocd_gitops` 롤이 인증 Secret·AppProject·root Application을 적용하고,
-root의 자식 manifest 조회를 확인한다. Sync는 수동으로 수행한다.
+root의 자식 manifest 조회를 확인한다. root는 자동 Sync와 최대 5회 재시도를 사용하며,
+Prune·Self Heal은 비활성화한다. 적용 즉시 GitOps의 자식 Application이 자동 반영될 수 있으므로
+실행 전에 대상 revision의 변경을 검토한다. 자식의 실제 앱 배포는 각 Application의 Sync 정책을 따른다.
+플레이북 성공은 자식 배포 완료를 보장하지 않으므로 root·자식 상태와 실제 리소스를 별도로 확인한다.
 키 준비, 두 저장소 반영 순서와 검증 절차는 [GitOps 연결 문서](../docs/argocd-gitops.md)를 따른다.
 
 ### 임시 API·UI 접속 검증

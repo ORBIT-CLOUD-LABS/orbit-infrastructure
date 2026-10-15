@@ -5,7 +5,7 @@
 | 문서 | 내용 |
 | --- | --- |
 | [`docs/requirements.md`](docs/requirements.md) | 요구사항 원본(orbit 레포) 위치와 읽는 방법, 규칙 |
-| [`docs/argocd-gitops.md`](docs/argocd-gitops.md) | GitOps 인증, 최초 연결, 수동 Sync 검증 및 운영 정책 |
+| [`docs/argocd-gitops.md`](docs/argocd-gitops.md) | GitOps 인증, 최초 연결, root 자동 Sync·권한·운영 검증 및 삭제 정책 |
 | [`docs/nfs-origin.md`](docs/nfs-origin.md) | Phase1 NFS VM 직접 구성, worker 클라이언트 및 시험 파일 검증 |
 | [`docs/vehicle-db.md`](docs/vehicle-db.md) | Vehicle DB 앱 계정·권한·허용 host, 연결 수 계산, 검증 절차 |
 

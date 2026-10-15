@@ -54,7 +54,7 @@ spec:
     - server: {{ argocd_gitops_server | to_json }}
       namespace: {{ namespace | to_json }}
 {% endfor %}
-  clusterResourceWhitelist: []
+  clusterResourceWhitelist: {{ argocd_gitops_workload_cluster_resources | to_json }}
   namespaceResourceWhitelist: {{ argocd_gitops_workload_namespace_resources | to_json }}
   namespaceResourceBlacklist:
     - group: argoproj.io
