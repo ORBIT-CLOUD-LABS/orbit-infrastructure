@@ -122,7 +122,7 @@ OutOfSync도 조회 성공으로 처리하므로 자동 배포 성공은 아래 
 | 프로젝트 | 대상 namespace | 선언된 허용 리소스 |
 | --- | --- | --- |
 | bootstrap | argocd | argoproj.io/Application만 |
-| platform | orbit-platform, kube-system | ConfigMap, ServiceAccount, Service, Deployment, RoleBinding. 클러스터 리소스는 ClusterRole, ClusterRoleBinding, APIService |
+| platform | orbit-platform, kube-system, observability | ConfigMap, ServiceAccount, Service, Deployment, DaemonSet, RoleBinding. 클러스터 리소스는 ClusterRole, ClusterRoleBinding, APIService |
 | workloads | orbit-gitops-test, orbit | ConfigMap, Deployment, Service, HorizontalPodAutoscaler, PodDisruptionBudget, PersistentVolumeClaim. 클러스터 리소스는 PersistentVolume |
 
 platform/workloads는 Application·ApplicationSet·AppProject를 명시적으로 금지한다. namespace는 Ansible이
@@ -144,10 +144,21 @@ NFS 볼륨 유형으로 제한되는 권한이 아니다. `workloads`의 허용 
 PV의 `claimRef`, PVC의 정적 바인딩, Origin 읽기 전용 설정, `Retain` 정책은 GitOps 선언에서 검토한다.
 권한 추가 자체가 PV·PVC나 NFS 데이터를 생성하지는 않는다.
 
-[orbit-gitops #10](https://github.com/ORBIT-CLOUD-LABS/orbit-gitops/issues/10)의 수집기는 실제 선언과
-namespace·프로젝트·배포 방식·chart 저장소가 확정된 뒤 권한을 대조한다. 현재 허용 목록에
-`observability`나 수집기용 리소스가 모두 준비되었다고 간주하지 않는다. #7~#10의 실제 선언 및
-선택한 chart 렌더링 결과와 대조하기 전에는 #52 전체 권한 검증을 완료로 기록하지 않는다.
+`platform`의 `observability` 대상과 kube-state-metrics(`https://prometheus-community.github.io/helm-charts`)·
+Alloy(`https://grafana.github.io/helm-charts`) Helm 저장소·`apps/DaemonSet` 리소스 권한은
+[infrastructure #57](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/57)의 적용 대상이다.
+이는 [orbit-gitops #10](https://github.com/ORBIT-CLOUD-LABS/orbit-gitops/issues/10)의 클러스터 메트릭·로그 수집기
+설치 권한만 준비하며, Application 생성이나 Sync를 수행하지 않는다. `observability`는 이 롤의 namespace
+생성 단계(`argocd_gitops_workload_namespaces + argocd_gitops_platform_namespaces`)에서 새로 만들어진다.
+네임스페이스 이름은 `orbit` 레포 `docs/phase1.md`의 공통 값(미확정)을 따른다.
+단일 Helm 저장소만 받던 `argocd_gitops_platform_helm_repo_url`은 애드온별로 저장소가 늘어나 복수형
+`argocd_gitops_platform_helm_repo_urls`(리스트)로 바꿨다. ClusterRole·ClusterRoleBinding은 metrics-server
+때 이미 연 종류를 kube-state-metrics·Alloy가 재사용하므로 클러스터 리소스 허용 목록 자체는 늘지 않았다.
+
+[orbit-gitops #10](https://github.com/ORBIT-CLOUD-LABS/orbit-gitops/issues/10)의 수집기는 #57로 설치 권한만
+준비됐다. 실제 선언과 namespace·프로젝트·배포 방식·chart 저장소가 확정된 뒤 권한을 대조한다. 현재
+허용 목록에 준비된 것은 설치 권한뿐이며, 실제 kube-state-metrics·Alloy Application과 고정 버전 chart
+렌더링 결과와 대조하기 전에는 #52·#57 전체 권한 검증을 완료로 기록하지 않는다.
 
 AppProject는 허용 범위이며 사용자 역할 분리 전체를 대신하지 않는다. 기존 admin은 모든 프로젝트에
 접근할 수 있다. `default` 프로젝트나 root 경로를 수정할 권한도 업무 사용자에게 주지 않는다.

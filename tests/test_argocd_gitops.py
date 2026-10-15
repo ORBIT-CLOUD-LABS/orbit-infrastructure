@@ -135,17 +135,54 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
         ])
 
     def test_issue40_platform_metrics_server_scope(self):
+        # 전체 범위는 이후 애드온(#57)이 확장하므로 metrics-server 전용 항목만 부분 검증한다.
+        projects = {p["metadata"]["name"]: p["spec"] for p in render("projects.yml.j2")}
+        platform = projects["platform"]
+
+        self.assertIn("https://kubernetes-sigs.github.io/metrics-server/", platform["sourceRepos"])
+        self.assertIn(
+            {"server": "https://kubernetes.default.svc", "namespace": "kube-system"},
+            platform["destinations"],
+        )
+        self.assertEqual(platform["clusterResourceWhitelist"], [
+            {"group": "rbac.authorization.k8s.io", "kind": "ClusterRole"},
+            {"group": "rbac.authorization.k8s.io", "kind": "ClusterRoleBinding"},
+            {"group": "apiregistration.k8s.io", "kind": "APIService"},
+        ])
+        for kind in (
+            {"group": "", "kind": "ServiceAccount"},
+            {"group": "", "kind": "Service"},
+            {"group": "apps", "kind": "Deployment"},
+            {"group": "rbac.authorization.k8s.io", "kind": "RoleBinding"},
+        ):
+            self.assertIn(kind, platform["namespaceResourceWhitelist"])
+        self.assertEqual(platform["namespaceResourceBlacklist"], [
+            {"group": "argoproj.io", "kind": "Application"},
+            {"group": "argoproj.io", "kind": "ApplicationSet"},
+            {"group": "argoproj.io", "kind": "AppProject"},
+        ])
+        for name in ("bootstrap", "workloads"):
+            self.assertEqual(projects[name]["sourceRepos"], [
+                "git@github.com:ORBIT-CLOUD-LABS/orbit-gitops.git",
+            ])
+
+    def test_issue57_platform_observability_scope(self):
+        # kube-state-metrics·Alloy(orbit-gitops#10)를 위해 platform 범위를 확장한다.
         projects = {p["metadata"]["name"]: p["spec"] for p in render("projects.yml.j2")}
         platform = projects["platform"]
 
         self.assertEqual(platform["sourceRepos"], [
             "git@github.com:ORBIT-CLOUD-LABS/orbit-gitops.git",
             "https://kubernetes-sigs.github.io/metrics-server/",
+            "https://prometheus-community.github.io/helm-charts",
+            "https://grafana.github.io/helm-charts",
         ])
         self.assertEqual(platform["destinations"], [
             {"server": "https://kubernetes.default.svc", "namespace": "orbit-platform"},
             {"server": "https://kubernetes.default.svc", "namespace": "kube-system"},
+            {"server": "https://kubernetes.default.svc", "namespace": "observability"},
         ])
+        # Alloy·kube-state-metrics는 기존 ClusterRole/ClusterRoleBinding 종류를 재사용하므로 변하지 않는다.
         self.assertEqual(platform["clusterResourceWhitelist"], [
             {"group": "rbac.authorization.k8s.io", "kind": "ClusterRole"},
             {"group": "rbac.authorization.k8s.io", "kind": "ClusterRoleBinding"},
@@ -156,20 +193,15 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
             {"group": "", "kind": "ServiceAccount"},
             {"group": "", "kind": "Service"},
             {"group": "apps", "kind": "Deployment"},
+            {"group": "apps", "kind": "DaemonSet"},
             {"group": "rbac.authorization.k8s.io", "kind": "RoleBinding"},
         ])
-        self.assertEqual(platform["namespaceResourceBlacklist"], [
-            {"group": "argoproj.io", "kind": "Application"},
-            {"group": "argoproj.io", "kind": "ApplicationSet"},
-            {"group": "argoproj.io", "kind": "AppProject"},
-        ])
-        for name in ("bootstrap", "workloads"):
-            self.assertEqual(projects[name]["sourceRepos"], [
-                "git@github.com:ORBIT-CLOUD-LABS/orbit-gitops.git",
-            ])
         tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text())
         self.assertIn(
-            "argocd_gitops_platform_helm_repo_url == 'https://kubernetes-sigs.github.io/metrics-server/'",
+            "argocd_gitops_platform_helm_repo_urls == "
+            "['https://kubernetes-sigs.github.io/metrics-server/', "
+            "'https://prometheus-community.github.io/helm-charts', "
+            "'https://grafana.github.io/helm-charts']",
             tasks[0]["ansible.builtin.assert"]["that"],
         )
 
