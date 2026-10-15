@@ -104,6 +104,24 @@
   loop: "{{ db_allowed_hosts }}"
   no_log: true
 
+- name: 앱 계정의 현재 접속 host 목록
+  community.mysql.mysql_query:
+    query: SELECT Host FROM mysql.user WHERE User = %s
+    positional_args: ["{{ db_app_user }}"]
+    login_unix_socket: /run/mysqld/mysqld.sock
+  register: db_app_user_hosts
+  changed_when: false
+
+- name: 허용 목록에서 빠진 host의 앱 계정 제거
+  community.mysql.mysql_user:
+    name: "{{ db_app_user }}"
+    host: "{{ item }}"
+    state: absent
+    login_unix_socket: /run/mysqld/mysqld.sock
+  loop: >-
+    {{ db_app_user_hosts.query_result[0] | map(attribute='Host')
+       | difference(db_allowed_hosts) }}
+
 # ── 4. 백업 / 복구 ────────────────────────────────────────────
 - name: 백업 폴더
   ansible.builtin.file:
