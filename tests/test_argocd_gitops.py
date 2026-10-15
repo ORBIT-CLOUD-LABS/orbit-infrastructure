@@ -164,7 +164,7 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
         self.assertEqual(platform["destinations"], [
             {"server": "https://kubernetes.default.svc", "namespace": "orbit-platform"},
             {"server": "https://kubernetes.default.svc", "namespace": "kube-system"},
-            {"server": "https://kubernetes.default.svc", "namespace": "orbit-observability"},
+            {"server": "https://kubernetes.default.svc", "namespace": "observability"},
         ])
         # Alloy·kube-state-metrics는 기존 ClusterRole/ClusterRoleBinding 종류를 재사용하므로 변하지 않는다.
         self.assertEqual(platform["clusterResourceWhitelist"], [

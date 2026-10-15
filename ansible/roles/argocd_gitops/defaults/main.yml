@@ -17,7 +17,7 @@ argocd_gitops_workload_namespaces:
 argocd_gitops_platform_namespaces:
   - orbit-platform
   - kube-system
-  - orbit-observability
+  - observability
 argocd_gitops_platform_helm_repo_urls:
   - https://kubernetes-sigs.github.io/metrics-server/
   - https://prometheus-community.github.io/helm-charts
