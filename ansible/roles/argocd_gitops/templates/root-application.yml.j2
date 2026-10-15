@@ -14,6 +14,12 @@ spec:
     namespace: {{ argocd_namespace | to_json }}
   syncPolicy:
     automated:
-      enabled: false
+      enabled: true
       prune: false
       selfHeal: false
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

@@ -1,4 +1,4 @@
-"""Issue #34: bootstrap 권한 및 인증정보 노출 회귀 검증.
+"""Issue #34/#52: bootstrap 권한, 인증정보 보호 및 root 자동 Sync 회귀 검증.
 
 실행: python -m unittest discover -s tests -v (ansible-core, PyYAML 필요)
 """
@@ -72,7 +72,18 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
         self.assertEqual(project["namespaceResourceWhitelist"], [{"group": "argoproj.io", "kind": "Application"}])
         # Directory의 기본값(false)을 명시하면 Argo CD 정규화 후 drift가 생긴다.
         self.assertNotIn("directory", root["spec"]["source"])
-        self.assertFalse(any(root["spec"]["syncPolicy"]["automated"].values()))
+        self.assertNotIn("finalizers", root["metadata"])
+
+    def test_issue52_root_auto_sync_has_bounded_retries_without_prune_or_self_heal(self):
+        root = render("root-application.yml.j2")[0]
+        policy = root["spec"]["syncPolicy"]
+        self.assertTrue(policy["automated"]["enabled"])
+        self.assertFalse(policy["automated"]["prune"])
+        self.assertFalse(policy["automated"]["selfHeal"])
+        self.assertEqual(policy["retry"], {
+            "limit": 5,
+            "backoff": {"duration": "5s", "factor": 2, "maxDuration": "3m"},
+        })
         self.assertNotIn("finalizers", root["metadata"])
 
     def test_business_and_platform_cannot_deploy_into_argocd_or_create_apps(self):
