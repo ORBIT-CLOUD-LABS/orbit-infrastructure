@@ -27,13 +27,15 @@
     state: present
   when: node_exporter_monitoring_ip is defined
 
+# insert: 0을 쓰면 community.general.ufw가 port·proto를 공백 없이 붙여("9100proto tcp")
+# "Cannot insert rule at position '0'" 에러를 낸다. allow 태스크가 deny보다 먼저
+# 실행되므로 insert 없이도 allow가 deny보다 위 규칙으로 append된다.
 - name: 9100 - 모니터링 VM 출발지만 허용
   community.general.ufw:
     rule: allow
     port: "9100"
     proto: tcp
     src: "{{ node_exporter_monitoring_ip }}"
-    insert: 0
   when: node_exporter_monitoring_ip is defined
 
 - name: 9100 - 그 외 출발지 차단
