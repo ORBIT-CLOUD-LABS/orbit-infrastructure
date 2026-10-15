@@ -69,22 +69,22 @@ DB VM 자신은 허용 host가 아니므로 Ansible은 앱 계정으로 로그�
 ### Pod에서 앱 계정 로그인
 
 실제 출발지에서 확인한다. 비밀번호는 프롬프트로 입력하고 명령줄이나 문서에 남기지 않는다.
+ssh는 원격 명령을 한 줄로 이어 붙여 넘기므로 원격 명령 전체를 작은따옴표로 감싼다.
 
 ```bash
-ssh -t orbit@192.168.100.101 kubectl run mysql-check -n orbit -it --rm --restart=Never \
-  --image=mysql:8.4 -- mysql -h 192.168.100.106 -u vehicle_app -p vehicle \
-  -e "SELECT CURRENT_USER(), @@max_connections"
+ssh -t orbit@192.168.100.101 'kubectl run mysql-check -n orbit -it --rm --restart=Never --image=mysql:8.4 -- mysql -h 192.168.100.106 -u vehicle_app -p vehicle -e "SELECT CURRENT_USER(), @@max_connections"'
 ```
 
-`CURRENT_USER()`가 `vehicle_app@192.168.100.10x`(worker IP)로 나오면 정상이다.
+- `If you don't see a command prompt, try pressing enter.`만 보이면 그 상태에서 비밀번호를 입력한다.
+- `CURRENT_USER()`가 `vehicle_app@192.168.100.10x`(worker IP)로 나오면 정상이다.
+- 이미지 pull이 늦어 attach가 끊기면 `mysql-check` Pod가 남는다. `kubectl delete pod mysql-check -n orbit` 후 다시 실행한다.
 
 ### Flyway 적용
 
 orbit-gitops#7 배포로 서버가 기동한 뒤 DB VM에서 확인한다.
 
 ```bash
-ssh orbit@192.168.100.106 sudo mysql vehicle \
-  -e "SELECT installed_rank, version, description, success FROM flyway_schema_history ORDER BY installed_rank"
+ssh orbit@192.168.100.106 'sudo mysql vehicle -e "SELECT installed_rank, version, description, success FROM flyway_schema_history ORDER BY installed_rank"'
 ```
 
 모든 행의 `success`가 `1`이면 정상이다.
