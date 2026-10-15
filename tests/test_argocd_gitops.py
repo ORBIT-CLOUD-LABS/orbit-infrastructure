@@ -1,4 +1,4 @@
-"""Issue #34: bootstrap 권한 및 인증정보 노출 회귀 검증.
+"""Issue #34/#52: bootstrap 권한, 인증정보 보호 및 root 자동 Sync 회귀 검증.
 
 실행: python -m unittest discover -s tests -v (ansible-core, PyYAML 필요)
 """
@@ -72,7 +72,18 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
         self.assertEqual(project["namespaceResourceWhitelist"], [{"group": "argoproj.io", "kind": "Application"}])
         # Directory의 기본값(false)을 명시하면 Argo CD 정규화 후 drift가 생긴다.
         self.assertNotIn("directory", root["spec"]["source"])
-        self.assertFalse(any(root["spec"]["syncPolicy"]["automated"].values()))
+        self.assertNotIn("finalizers", root["metadata"])
+
+    def test_issue52_root_auto_sync_has_bounded_retries_without_prune_or_self_heal(self):
+        root = render("root-application.yml.j2")[0]
+        policy = root["spec"]["syncPolicy"]
+        self.assertTrue(policy["automated"]["enabled"])
+        self.assertFalse(policy["automated"]["prune"])
+        self.assertFalse(policy["automated"]["selfHeal"])
+        self.assertEqual(policy["retry"], {
+            "limit": 5,
+            "backoff": {"duration": "5s", "factor": 2, "maxDuration": "3m"},
+        })
         self.assertNotIn("finalizers", root["metadata"])
 
     def test_business_and_platform_cannot_deploy_into_argocd_or_create_apps(self):
@@ -91,11 +102,13 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
                     for resource in spec["clusterResourceWhitelist"]
                 ))
                 if p["metadata"]["name"] == "workloads":
-                    self.assertEqual(spec["clusterResourceWhitelist"], [])
+                    self.assertEqual(spec["clusterResourceWhitelist"], [
+                        {"group": "", "kind": "PersistentVolume"},
+                    ])
                 for kind in ("Application", "ApplicationSet", "AppProject"):
                     self.assertIn({"group": "argoproj.io", "kind": kind}, spec["namespaceResourceBlacklist"])
 
-    def test_issue39_workload_destination_and_resource_scope(self):
+    def test_issue39_issue52_workload_destination_and_cdn_storage_scope(self):
         projects = {p["metadata"]["name"]: p["spec"] for p in render("projects.yml.j2")}
         workloads = projects["workloads"]
 
@@ -104,13 +117,16 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
             {"server": "https://kubernetes.default.svc", "namespace": "orbit-gitops-test"},
             {"server": "https://kubernetes.default.svc", "namespace": "orbit"},
         ])
-        self.assertEqual(workloads["clusterResourceWhitelist"], [])
+        self.assertEqual(workloads["clusterResourceWhitelist"], [
+            {"group": "", "kind": "PersistentVolume"},
+        ])
         self.assertEqual(workloads["namespaceResourceWhitelist"], [
             {"group": "", "kind": "ConfigMap"},
             {"group": "apps", "kind": "Deployment"},
             {"group": "", "kind": "Service"},
             {"group": "autoscaling", "kind": "HorizontalPodAutoscaler"},
             {"group": "policy", "kind": "PodDisruptionBudget"},
+            {"group": "", "kind": "PersistentVolumeClaim"},
         ])
         self.assertEqual(workloads["namespaceResourceBlacklist"], [
             {"group": "argoproj.io", "kind": "Application"},

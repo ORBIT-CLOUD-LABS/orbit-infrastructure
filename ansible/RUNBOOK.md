@@ -27,8 +27,8 @@ Lab 인프라(astra + Sol·Terra·Luna)를 적용·되돌리기·복구·백업�
 | `preflight.yml` | 전체 | 접속·OS·자원·중복·포트·인터넷·원격 사이트 경로 점검 (변경 없음) |
 | `site.yml` | 전체 | preflight → k8s 설치 → 후처리 → DB → Monitoring (+NFS·Jenkins) |
 | `k8s-post.yml` | control_plane | node label, 선택적 예비 노드 taint, 클러스터 검증 |
-| `database.yml` | vehicle_db, campaign_db | MySQL, 데이터 디스크, 접근 제어, 백업 |
-| `monitoring.yml` | 전체 + monitoring | node-exporter, Prometheus·Alertmanager·Loki·Grafana |
+| `database.yml` | vehicle_db | MySQL, 데이터 디스크, 접근 제어, 백업 (campaign 테이블도 같은 `vehicle` DB) |
+| `monitoring.yml` | 전체 | node-exporter (Prometheus·Alertmanager·Loki·Grafana는 monitoring VM에 systemd로 직접 구성, orbit-observability#3) |
 
 ---
 
@@ -65,7 +65,7 @@ ansible-playbook site.yml --tags database --ask-vault-pass     # 태그로 선�
 ### 1-5. 적용 후 확인
 ```bash
 ssh orbit@192.168.100.101 kubectl get nodes -L orbit.io/reserved
-ansible-playbook database.yml --ask-vault-pass -e db_verify=true   # DB 접속 + 백업 검증
+ansible-playbook database.yml --ask-vault-pass -e db_verify=true   # 연결 수·권한·worker 포트 + 백업 검증
 ansible-playbook site.yml --ask-vault-pass                     # 재실행 → PLAY RECAP changed ≈ 0 (멱등성)
 ```
 
@@ -88,8 +88,6 @@ ansible-playbook site.yml --ask-vault-pass
 | 항목 | 방법 |
 |---|---|
 | 예비 노드 해제/지정 | `k8s_reserved_nodes` 수정 후 `ansible-playbook k8s-post.yml` (목록에서 빠진 노드는 taint 자동 제거) |
-| 모니터링 이미지 버전 | `roles/monitoring_host/defaults/main.yml`의 이미지 태그를 이전 값으로 → `monitoring.yml` |
-| Prometheus/Loki retention | 같은 파일의 retention 값 → `monitoring.yml` (줄이면 오래된 데이터 삭제됨) |
 | MySQL 설정 | `templates/99-orbit.cnf.j2` 되돌림 → `database.yml` (MySQL 재시작 발생) |
 | DB 데이터 | [4-1 DB 복구](#4-1-db) |
 | Kubernetes 버전 | `k8s_version` 되돌림만으로는 **다운그레이드 안 됨** (패키지 hold). 노드 재구축으로 처리 → [3-4](#3-4-vm-자체를-잃었을-때-재구축) |
@@ -240,9 +238,12 @@ ansible-playbook preflight.yml --limit remote
 | 지연 큼 (relay) | `tailscale status`에서 direct 여부 확인. 측정 결과에 relay 사용 명시 |
 
 ### 3-7. 모니터링 스택 장애
+
+Prometheus·Alertmanager·Loki·Grafana는 이 레포의 Ansible이 아니라 monitoring VM에 systemd 서비스로 직접 구성한다 (orbit-observability#3). 장애 대응은 그 서비스 운영 절차를 따른다.
+
 ```bash
-ssh orbit@192.168.100.107 'cd /opt/orbit-monitoring && sudo docker compose ps && sudo docker compose logs --tail 50'
-ansible-playbook monitoring.yml --ask-vault-pass --limit monitoring
+ssh orbit@192.168.100.107 'sudo systemctl status loki --no-pager'
+ansible-playbook monitoring.yml --limit monitoring   # node-exporter만 재적용
 ```
 
 ---
@@ -402,7 +403,7 @@ ssh orbit@192.168.100.101 'sudo kubectl --kubeconfig /etc/kubernetes/admin.conf 
 
 ### 4-4. 모니터링 데이터
 
-Prometheus·Loki 데이터는 retention(15일/14일) 동안만 보관하며 백업하지 않는다. 대시보드·알림 규칙은 Git(롤 템플릿)이 원본이다.
+Prometheus·Loki 데이터는 retention 기간 동안만 보관하며 백업하지 않는다. 설정값과 보관 정책은 orbit-observability에서 관리한다.
 
 ---
 

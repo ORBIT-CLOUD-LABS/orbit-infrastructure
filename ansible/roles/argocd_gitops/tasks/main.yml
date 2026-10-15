@@ -89,14 +89,14 @@
         name: "{{ item }}"
   loop: "{{ (argocd_gitops_workload_namespaces + argocd_gitops_platform_namespaces) | unique }}"
 
-- name: 수동 Sync root Application 적용
+- name: 자동 Sync root Application 적용
   kubernetes.core.k8s:
     kubeconfig: "{{ argocd_kubeconfig }}"
     state: present
     apply: true
     definition: "{{ lookup('template', 'root-application.yml.j2') | from_yaml }}"
 
-# manifest 조회 성공은 Application 상태로 확인한다. Sync는 수행하지 않는다.
+# manifest 조회 성공만 확인한다. 자동 Sync는 Argo CD가 수행하며 이 대기는 완료를 보장하지 않는다.
 - name: Root가 GitOps 경로를 읽고 자식 Application을 발견할 때까지 대기
   kubernetes.core.k8s_info:
     kubeconfig: "{{ argocd_kubeconfig }}"

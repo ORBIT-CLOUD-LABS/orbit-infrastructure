@@ -1,9 +1,10 @@
 ---
-# Database Role 적용: astra-vehicle-db (vehicle_db), orbit-terra (campaign_db)
+# Database Role 적용: astra-vehicle-db (vehicle_db)
+# campaign 테이블도 vehicle DB에 함께 있다 (별도 campaign DB 없음)
 # 실행: ansible-playbook database.yml --ask-vault-pass
-#      ansible-playbook database.yml --ask-vault-pass -e db_verify=true   (백업·접속 검증 포함)
+#      ansible-playbook database.yml --ask-vault-pass -e db_verify=true   (연결 수·권한·worker 포트·백업 검증 포함)
 - name: Database
-  hosts: vehicle_db:campaign_db
+  hosts: vehicle_db
   become: true
   pre_tasks:
     - name: 비밀값 로드 (secrets/vault.yml이 있을 때)
