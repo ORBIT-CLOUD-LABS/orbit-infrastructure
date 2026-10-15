@@ -98,7 +98,7 @@
     name: "{{ db_app_user }}"
     host: "{{ item }}"
     password: "{{ db_app_password }}"
-    priv: "{{ db_name }}.*:ALL"
+    priv: "{{ db_name }}.*:{{ db_app_privileges }}"
     state: present
     login_unix_socket: /run/mysqld/mysqld.sock
   loop: "{{ db_allowed_hosts }}"

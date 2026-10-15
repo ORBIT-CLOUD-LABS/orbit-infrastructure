@@ -8,6 +8,9 @@ db_name: orbit
 db_app_user: orbit_app
 db_app_password: ""                 # vault로 주입 (8자 이상)
 db_allowed_hosts: ["192.168.100.%"] # 앱 계정 접속 허용 대역 (MySQL host 패턴)
+# 앱 계정 권한 (서비스 DB 한정). 서버가 기동할 때마다 Flyway migration을 실행하므로
+# DML에 더해 DDL(CREATE, ALTER, INDEX, DROP, REFERENCES)이 필요하다
+db_app_privileges: "SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,DROP,REFERENCES"
 
 # MySQL 설정
 db_bind_address: "0.0.0.0"
