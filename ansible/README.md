@@ -42,6 +42,12 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 | Kubernetes 후처리 | `k8s-post.yml` → `k8s_post` | `control_plane[0]` |
 | Argo CD bootstrap | `argocd.yml` → `argocd` | `control_plane[0]` |
 
+`node_exporter`는 `playbooks/site.yml`에도 포함돼 있어 클러스터 구성 때 모든 VM·`astra_host`에 함께 설치된다. `monitoring.yml`은 재적용(`--tags node_exporter`)이나 `inventory/test-services.ini` 같은 별도 인벤토리에 단독으로 쓸 때 쓴다.
+
+`node_exporter` 롤은 `ufw`로 9100(:9100)을 `monitoring` 그룹 IP에서만 허용하고 나머지는 차단하는 규칙도 같이 넣는다. 다만 **`ufw enable`은 이 롤에서 하지 않는다** — SSH(22)·Kubernetes 관련 포트(6443, 10250, 2379-2380 등)의 allowlist가 아직 없어서, 지금 ufw를 켜면 모든 VM 접속이 끊길 수 있다. ufw를 실제로 켜는 작업은 그 포트들을 먼저 정리하는 별도 이슈로 다룬다. `inventory/test.ini`처럼 `monitoring` 그룹이 없는 인벤토리에서는 이 규칙을 건너뛴다.
+
+**node 이름 규칙 (node_exporter ↔ cAdvisor label 중복 방지):** `k8s_worker`, `k8s_control_plane` 롤은 `kubeadm join`/`init`에 `--node-name={{ inventory_hostname }}`를 명시해, Kubernetes Node 이름이 항상 Ansible 인벤토리 호스트명(`astra-worker-1` 등 — node_exporter가 쓰는 것과 같은 이름)과 일치하도록 고정한다. 클러스터 안 수집기(cAdvisor 등 Kubernetes 서비스 디스커버리 기반 수집기)가 이 Node 이름을 label로 쓰면 node_exporter 타겟과 별도 relabel 없이 같은 이름으로 맞아떨어지므로, 같은 노드가 두 다른 이름으로 중복 표현되지 않는다.
+
 원격 사이트는 `inventory/lab/sites.ini`에서 관리한다.
 
 - `sol`: CDN
@@ -138,7 +144,8 @@ cloud-init이 관리하는 설정(hostname, `orbit` 계정, SSH 키, 비밀번�
 3. `k8s_node` 롤 (`k8s` 그룹): swap 끄기, 커널 모듈·sysctl, containerd, kubelet/kubeadm/kubectl 설치
 4. `k8s_control_plane` 롤 (`control_plane` 그룹): `kubeadm init`, Calico(Tigera Operator) 설치, join 명령 생성
 5. `k8s_worker` 롤 (`workers` 그룹): `kubeadm join`
-6. 모든 노드 `Ready` 확인
+6. `node_exporter` 롤 (`all` — `astra_host` 포함): Monitoring VM의 Prometheus가 수집할 `:9100` 노출
+7. 모든 노드 `Ready` 확인
 
 ### 실행
 

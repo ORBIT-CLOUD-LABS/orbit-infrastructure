@@ -32,9 +32,17 @@
   roles:
     - k8s_worker
 
-# (다음 롤은 각 이슈/PR에서 여기에 추가: jenkins, monitoring, nfs, db, addons)
+# 5. 모든 관리 노드(astra_host 포함): node_exporter (Monitoring VM의 Prometheus가 수집)
+- name: Node exporter
+  hosts: all
+  become: true
+  roles:
+    - role: node_exporter
+      tags: [monitoring, node_exporter]
 
-# 5. 검증: 인벤토리의 모든 k8s 노드가 등록되고 Ready
+# (다음 롤은 각 이슈/PR에서 여기에 추가: jenkins, nfs, db, addons)
+
+# 6. 검증: 인벤토리의 모든 k8s 노드가 등록되고 Ready
 - name: Verify cluster
   hosts: control_plane
   become: true
