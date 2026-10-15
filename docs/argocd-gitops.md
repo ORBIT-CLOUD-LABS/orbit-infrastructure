@@ -199,7 +199,8 @@ Argo CD UI 접속은 `ansible/README.md`의 port-forward와 SSH 터널 절차를
    PV·PVC와 수집기가 지정한 프로젝트로 배포 가능한지 별도로 확인한다. 선언이 없거나
    미확정 값이 남은 항목은 미검증으로 기록한다.
 
-이 목록은 수행할 절차다. #52의 ASTRA 적용·자동 배포·멱등성 검증은 실제 실행 전까지 미완료이며,
+이 목록은 수행할 절차다. #52의 별도 테스트 클러스터 결과는 아래 검증 기록을 따른다.
+운영 ASTRA 적용과 #15의 Nginx 자동 배포 검증은 아직 완료하지 않았다.
 #15의 임시 리소스와 정리 절차는 해당 GitOps 이슈에서 관리한다.
 
 ## Sync 정책과 삭제
@@ -302,6 +303,59 @@ ansible-playbook -i inventory/test.ini argocd.yml \
   -e argocd_gitops_enabled=true \
   -e argocd_gitops_revision=main \
   --vault-password-file /home/orbit/.config/orbit-issue34/vault-password
+```
+
+## #52 테스트 클러스터 검증 기록 (2026-10-15)
+
+infrastructure `task/52-root-auto-sync`의 `73881a8`을 원격에 push한 뒤, ASTRA 호스트의
+별도 경로 `/home/orbit/issue52-gitops-test`에서 검증했다. 기존 테스트 VM이 없어
+`scripts/test-vms.sh`로 기본 libvirt 망에 테스트 VM 3대를 새로 만들었다.
+운영망 `192.168.100.0/24`의 클러스터에는 플레이북이나 테스트 리소스를 적용하지 않았다.
+
+| 항목 | 대상 / 결과 |
+| --- | --- |
+| 테스트 노드 | test-cp `.10`, test-w1 `.11`, test-w2 `.12` (`192.168.122.0/24`), 모두 Ready |
+| Kubernetes / CNI | v1.33.13 / Calico v3.31.4 |
+| Argo CD | v3.5.5, Helm chart 10.10.3, 주요 Pod Ready |
+| 로컬 회귀 검증 | 테스트 7개 통과, 플레이북 문법 검사·`git diff --check` 통과 |
+| ASTRA 제어 노드 | ansible-core 2.16.3, kubernetes.core 6.6.0, 문법 검사 통과 |
+| 최초 Argo CD·GitOps 적용 | `ok=30 changed=12 unreachable=0 failed=0` |
+| 동일 설정 재실행 | `ok=25 changed=0 unreachable=0 failed=0 skipped=5`, root 정책 유지 |
+| root 정책 | 자동 Sync 활성화, Prune·Self Heal 비활성화, retry limit 5·5s·factor 2·maxDuration 3m |
+| GitOps 연결 | 테스트 전용 읽기 전용 Deploy Key 사용, GitHub SSH 호스트 키 지문 공식 문서와 일치 |
+| 최초 자동 Sync | 수동 Refresh·Sync 없이 root가 `orbit-issue52-test` 생성, 자식이 ConfigMap·PV·PVC 생성 |
+| 스토리지 권한 | `workloads`의 `issue52-test-pv`·`orbit-gitops-test/issue52-test-pvc`가 모두 Bound |
+| Git 변경 자동 반영 | 자식 라벨 `v2`, ConfigMap `issue52-v2`로 자동 갱신, root·자식 모두 `1c7ce17`에서 Synced / Healthy |
+| 기존 수동 자식 | smoke-test는 자동 Sync 비활성 상태 유지, 테스트 클러스터에서 OutOfSync·operation 없음 |
+| 권한 차단·재시도 | bootstrap에 금지된 ConfigMap 선언을 추가하자 생성 차단, root가 retryCount 5 후 Failed로 종료 |
+| 실패 후 복구 | 오류 선언 revert 후 정상 라벨 변경 `f2bb21a`를 자동 적용, root operation Succeeded·retryCount 0 |
+
+테스트용 GitOps 브랜치는 `task/52-auto-sync-test`이며 운영 main은 수정하지 않았다.
+검증 revision은 최초 `d1a0d78`, Git 변경 `1c7ce17`, 권한 오류·재시도 `ad1c5e3`이다.
+오류 선언은 `8288c6a`에서 revert하고, `f2bb21a`에서 복구 확인용 자식 라벨을 추가했다.
+오류 제거만으로는 이전 실패 operation 이력이 남을 수 있어, 새 정상 변경이 자동 적용되어
+root operation이 Succeeded로 바뀌는 것까지 확인했다. root·테스트 자식은 최종 Synced / Healthy이다.
+이 검증에서는 수동 Sync operation을 요청하지 않았다.
+
+PV·PVC는 권한과 정적 바인딩을 검증하기 위한 테스트용 hostPath 볼륨이다. 마운트하는 Pod는
+만들지 않았으므로 실제 hostPath 디렉터리 생성·NFS 접근·Origin 읽기 전용 설정·데이터 보존의
+동작 검증을 의미하지 않는다. 이는 GitOps #9의 실제 NFS 선언으로 별도 검증한다.
+#15의 Nginx Pod·HTTP·rollout, #7~#10 실제 선언 및 수집기 권한 대조도 이 기록에 포함하지 않는다.
+
+테스트 VM 3대와 GitOps 테스트 브랜치·전용 읽기 전용 Deploy Key는 후속 검증을 위해 유지한다.
+암호화된 테스트 Vault는 테스트 작업본의 `ansible/secrets/argocd-vault.yml`에 보관하며,
+개인키와 Vault 비밀번호는 출력·커밋하지 않았다. 실행 로그와 인증정보를 제외한 상태 기록은
+ASTRA의 `/home/orbit/.config/orbit-issue52/`에 있다.
+
+재실행은 ASTRA에서 다음과 같이 수행한다. 테스트 전용 Vault 비밀번호를 입력하며 운영용 Vault를
+복사하지 않는다. 이 명령은 테스트 인벤토리와 테스트 GitOps 브랜치를 대상으로 한다.
+
+```bash
+cd /home/orbit/issue52-gitops-test/ansible
+ansible-playbook -i inventory/test.ini argocd.yml \
+  -e argocd_gitops_enabled=true \
+  -e argocd_gitops_revision=task/52-auto-sync-test \
+  --ask-vault-pass
 ```
 
 ## 애드온 추가 규칙과 참고
