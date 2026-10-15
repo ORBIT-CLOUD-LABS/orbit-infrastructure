@@ -26,7 +26,7 @@ Lab 인프라(astra + Sol·Terra·Luna)를 적용·되돌리기·복구·백업�
 |---|---|---|
 | `preflight.yml` | 전체 | 접속·OS·자원·중복·포트·인터넷·원격 사이트 경로 점검 (변경 없음) |
 | `site.yml` | 전체 | preflight → k8s 설치 → 후처리 → DB → Monitoring (+NFS·Jenkins) |
-| `k8s-post.yml` | control_plane | node label, Worker 3 예비 taint, 클러스터 검증 |
+| `k8s-post.yml` | control_plane | node label, 선택적 예비 노드 taint, 클러스터 검증 |
 | `database.yml` | vehicle_db, campaign_db | MySQL, 데이터 디스크, 접근 제어, 백업 |
 | `monitoring.yml` | 전체 + monitoring | node-exporter, Prometheus·Alertmanager·Loki·Grafana |
 
@@ -126,13 +126,78 @@ ansible-playbook site.yml --limit control_plane,astra-worker-N   # join 명령 �
 ansible-playbook k8s-post.yml
 ```
 
-### 3-2. 예비 노드(Worker 3) 투입
-Worker 1·2 중 하나가 장시간 복구 불가일 때:
+### 3-2. Worker 배치와 예비 노드 관리
+
+기본값은 `k8s_reserved_nodes: []`로 worker 3대 모두 일반 Pod를 받는다.
+worker-3 개방은 HPA가 늘린 Pod의 배치 공간 부족이 부하 실험 결과에 섞이지 않게 하기 위한 구성이다 (#46).
+원본 요구사항은 orbit의 `docs/phase1.md`, `docs/infrastructure-plan.md`를 따른다.
+
+제어 노드의 `ansible/`에서 적용 전 대상 그룹과 변수 재정의 여부를 확인한 뒤 실행한다.
+
 ```bash
-# group_vars 또는 -e 로 예비 목록을 비우고 적용
-ansible-playbook k8s-post.yml -e '{"k8s_reserved_nodes": []}'
+ansible-inventory --graph
+# inventory/group_vars, host_vars, 실행 옵션에서 k8s_reserved_nodes를 재정의하지 않았는지 확인
+ansible-playbook k8s-post.yml --syntax-check
+ansible-playbook k8s-post.yml
 ```
-복구 후 원래대로: `ansible-playbook k8s-post.yml` (기본값으로 다시 taint).
+
+control plane VM의 kubectl 사용 환경에서 예약 label과 taint 제거를 확인한다.
+
+```bash
+kubectl get nodes -L orbit.io/reserved
+kubectl describe node astra-worker-3
+```
+
+worker-3에서 `orbit.io/reserved` label과 `orbit.io/reserved=true:NoSchedule` taint가 없어야 한다.
+기존 스모크 테스트는 예약 목록이 비어 있으면 어느 노드에 배치돼도 통과하므로,
+worker-3 지정 검증을 별도로 수행한다. 기존 Pod는 taint를 해제해도 자동 재배치되지 않는다.
+
+아래 임시 Pod는 `nodeSelector`로 worker-3를 선택하고 예약 taint의 toleration은 넣지 않는다.
+`nodeName` 직접 지정은 스케줄러를 우회하므로 사용하지 않는다.
+같은 이름의 Pod가 없는지 먼저 확인한다 (NotFound가 정상).
+
+```bash
+kubectl -n default get pod orbit-worker3-smoke
+kubectl -n default create -f - <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: orbit-worker3-smoke
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: astra-worker-3
+  containers:
+    - name: dns
+      image: busybox:1.36
+      command: ["nslookup", "kubernetes.default.svc.cluster.local"]
+YAML
+kubectl -n default wait pod/orbit-worker3-smoke \
+  --for=jsonpath='{.status.phase}'=Succeeded --timeout=180s
+kubectl -n default get pod orbit-worker3-smoke -o wide
+kubectl -n default logs orbit-worker3-smoke
+```
+
+`Succeeded`와 배치 노드 `astra-worker-3`, DNS 조회 성공을 확인한다.
+실패하면 `kubectl -n default describe pod orbit-worker3-smoke`의 Events를 확인하고 결과를 기록한다.
+확인이 끝나면 성공·실패와 관계없이 생성한 테스트 Pod를 삭제한다.
+
+```bash
+kubectl -n default delete pod orbit-worker3-smoke
+```
+
+제어 노드에서 `ansible-playbook k8s-post.yml`을 다시 실행하고,
+예약 taint·label이 돌아오지 않는지 확인한다. 검증 기록에는 적용 Git SHA, 대상 클러스터,
+실행 recap, 예약 taint·label 상태, 테스트 Pod의 배치 노드와 DNS 결과를 남긴다.
+실제 클러스터에서 확인하기 전에는 검증 완료로 기록하지 않는다.
+
+ASTRA는 물리 CPU 12스레드에 VM vCPU 합계 14개를 할당한다.
+worker-3를 열어도 물리 CPU는 늘지 않으므로 부하 실험 기록에 이 조건과 호스트 CPU 사용률을 함께 남긴다.
+
+필요할 때만 inventory의 그룹/호스트 변수로 `k8s_reserved_nodes`를 지정한다.
+예를 들어 worker-3를 예비 노드로 지정하려면 `[astra-worker-3]`로 설정하고 `k8s-post.yml`을 실행한다.
+다시 개방할 때는 재정의를 제거하거나 `[]`로 바꾸고 같은 플레이북을 실행한다.
+`NoSchedule`은 새 일반 Pod 배치를 막으며 이미 실행 중인 Pod를 퇴거시키지는 않는다.
 
 ### 3-3. Control plane 장애
 ```bash
