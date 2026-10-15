@@ -42,6 +42,8 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 | Kubernetes 후처리 | `k8s-post.yml` → `k8s_post` | `control_plane[0]` |
 | Argo CD bootstrap | `argocd.yml` → `argocd` | `control_plane[0]` |
 
+`node_exporter`는 `playbooks/site.yml`에도 포함돼 있어 클러스터 구성 때 모든 VM·`astra_host`에 함께 설치된다. `monitoring.yml`은 재적용(`--tags node_exporter`)이나 `inventory/test-services.ini` 같은 별도 인벤토리에 단독으로 쓸 때 쓴다.
+
 원격 사이트는 `inventory/lab/sites.ini`에서 관리한다.
 
 - `sol`: CDN
@@ -138,7 +140,8 @@ cloud-init이 관리하는 설정(hostname, `orbit` 계정, SSH 키, 비밀번�
 3. `k8s_node` 롤 (`k8s` 그룹): swap 끄기, 커널 모듈·sysctl, containerd, kubelet/kubeadm/kubectl 설치
 4. `k8s_control_plane` 롤 (`control_plane` 그룹): `kubeadm init`, Calico(Tigera Operator) 설치, join 명령 생성
 5. `k8s_worker` 롤 (`workers` 그룹): `kubeadm join`
-6. 모든 노드 `Ready` 확인
+6. `node_exporter` 롤 (`all` — `astra_host` 포함): Monitoring VM의 Prometheus가 수집할 `:9100` 노출
+7. 모든 노드 `Ready` 확인
 
 ### 실행
 
