@@ -1,0 +1,51 @@
+---
+# 설치만 수행하는 기존 bootstrap은 그대로 사용할 수 있다.
+argocd_gitops_enabled: false
+argocd_gitops_repo_url: git@github.com:ORBIT-CLOUD-LABS/orbit-gitops.git
+argocd_gitops_revision: main
+argocd_gitops_root_name: orbit-astra-root
+argocd_gitops_root_path: clusters/orbit-astra/apps
+argocd_gitops_repo_secret_name: orbit-gitops-repository
+argocd_gitops_ssh_private_key: "{{ vault_argocd_gitops_ssh_private_key | default('') }}"
+# argocd Helm chart가 제공하는 github.com known_hosts를 사용한다.
+# 이 연결 방식은 repo URL, namespace 및 클러스터를 고정한다.
+argocd_gitops_server: https://kubernetes.default.svc
+argocd_gitops_workload_namespaces:
+  - orbit-gitops-test
+  - orbit
+# 애드온을 추가할 때 필요한 namespace와 리소스를 리뷰 후 확장한다.
+argocd_gitops_platform_namespaces:
+  - orbit-platform
+  - kube-system
+argocd_gitops_platform_helm_repo_url: https://kubernetes-sigs.github.io/metrics-server/
+argocd_gitops_platform_cluster_resources:
+  - group: rbac.authorization.k8s.io
+    kind: ClusterRole
+  - group: rbac.authorization.k8s.io
+    kind: ClusterRoleBinding
+  - group: apiregistration.k8s.io
+    kind: APIService
+argocd_gitops_platform_namespace_resources:
+  - group: ""
+    kind: ConfigMap
+  - group: ""
+    kind: ServiceAccount
+  - group: ""
+    kind: Service
+  - group: apps
+    kind: Deployment
+  - group: rbac.authorization.k8s.io
+    kind: RoleBinding
+argocd_gitops_workload_namespace_resources:
+  - group: ""
+    kind: ConfigMap
+  - group: apps
+    kind: Deployment
+  - group: ""
+    kind: Service
+  - group: autoscaling
+    kind: HorizontalPodAutoscaler
+  - group: policy
+    kind: PodDisruptionBudget
+argocd_gitops_verify_retries: 30
+argocd_gitops_verify_delay: 10

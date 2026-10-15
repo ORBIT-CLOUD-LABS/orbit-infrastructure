@@ -40,6 +40,13 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 | Database | `database.yml` → `database`, `data_disk` | `vehicle_db`, `campaign_db` |
 | Monitoring | `monitoring.yml` → `node_exporter` | 전체 관리 노드 (Prometheus·Alertmanager·Loki·Grafana는 monitoring VM에 systemd로 직접 구성, orbit-observability#3) |
 | Kubernetes 후처리 | `k8s-post.yml` → `k8s_post` | `control_plane[0]` |
+| Argo CD bootstrap | `argocd.yml` → `argocd` | `control_plane[0]` |
+
+`node_exporter`는 `playbooks/site.yml`에도 포함돼 있어 클러스터 구성 때 모든 VM·`astra_host`에 함께 설치된다. `monitoring.yml`은 재적용(`--tags node_exporter`)이나 `inventory/test-services.ini` 같은 별도 인벤토리에 단독으로 쓸 때 쓴다.
+
+`node_exporter` 롤은 `ufw`로 9100(:9100)을 `monitoring` 그룹 IP에서만 허용하고 나머지는 차단하는 규칙도 같이 넣는다. 다만 **`ufw enable`은 이 롤에서 하지 않는다** — SSH(22)·Kubernetes 관련 포트(6443, 10250, 2379-2380 등)의 allowlist가 아직 없어서, 지금 ufw를 켜면 모든 VM 접속이 끊길 수 있다. ufw를 실제로 켜는 작업은 그 포트들을 먼저 정리하는 별도 이슈로 다룬다. `inventory/test.ini`처럼 `monitoring` 그룹이 없는 인벤토리에서는 이 규칙을 건너뛴다.
+
+**node 이름 규칙 (node_exporter ↔ cAdvisor label 중복 방지):** `k8s_worker`, `k8s_control_plane` 롤은 `kubeadm join`/`init`에 `--node-name={{ inventory_hostname }}`를 명시해, Kubernetes Node 이름이 항상 Ansible 인벤토리 호스트명(`astra-worker-1` 등 — node_exporter가 쓰는 것과 같은 이름)과 일치하도록 고정한다. 클러스터 안 수집기(cAdvisor 등 Kubernetes 서비스 디스커버리 기반 수집기)가 이 Node 이름을 label로 쓰면 node_exporter 타겟과 별도 relabel 없이 같은 이름으로 맞아떨어지므로, 같은 노드가 두 다른 이름으로 중복 표현되지 않는다.
 
 원격 사이트는 `inventory/lab/sites.ini`에서 관리한다.
 
@@ -55,7 +62,9 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 - 비밀값은 `secrets/vault.yml.example`을 복사해 `secrets/vault.yml`에 작성하고 Ansible Vault로 암호화한다.
 - Database 데이터 디스크는 `db_data_device`로 지정한다.
 - 데이터 디스크에 파일시스템이 있으면 다시 포맷하지 않는다.
-- `k8s_reserved_nodes`의 기본값은 `astra-worker-3`이며 `orbit.io/reserved=true:NoSchedule` taint를 적용한다.
+- `k8s_reserved_nodes`의 기본값은 `[]`이며 worker 3대 모두 일반 Pod를 받는다.
+- 필요할 때만 예비 노드를 목록에 지정해 `orbit.io/reserved=true:NoSchedule` taint를 적용한다. 목록에서 빼고 `k8s-post.yml`을 실행하면 예약 taint·label이 제거된다.
+- worker-3 개방 후 실제 배치 확인은 [RUNBOOK의 검증 절차](RUNBOOK.md#3-2-worker-배치와-예비-노드-관리)를 따른다.
 
 ### 서비스 롤 테스트
 
@@ -136,7 +145,8 @@ cloud-init이 관리하는 설정(hostname, `orbit` 계정, SSH 키, 비밀번�
 3. `k8s_node` 롤 (`k8s` 그룹): swap 끄기, 커널 모듈·sysctl, containerd, kubelet/kubeadm/kubectl 설치
 4. `k8s_control_plane` 롤 (`control_plane` 그룹): `kubeadm init`, Calico(Tigera Operator) 설치, join 명령 생성
 5. `k8s_worker` 롤 (`workers` 그룹): `kubeadm join`
-6. 모든 노드 `Ready` 확인
+6. `node_exporter` 롤 (`all` — `astra_host` 포함): Monitoring VM의 Prometheus가 수집할 `:9100` 노출
+7. 모든 노드 `Ready` 확인
 
 ### 실행
 
@@ -181,6 +191,78 @@ cd .. && ./scripts/test-vms.sh delete   # VM·디스크·DHCP 예약·known_host
 `playbooks/group_vars/`는 `playbooks/` 아래 플레이북에 자동으로 적용된다. `astra_host` 변수는 아직
 `group_vars/astra_host/`에 있고 `postgresql.yml`이 `vars_files`로 직접 읽는다.
 나중에 `playbooks/group_vars/`로 합칠 예정이다.
+
+## Argo CD bootstrap
+
+준비된 Kubernetes 클러스터에 전용 플레이북으로 설치한다. Helm 실행 파일과
+Python YAML 의존성은 첫 번째 control plane VM에 설치하며,
+`/etc/kubernetes/admin.conf`로 클러스터에 접속한다.
+실행 장비에는 `ansible-core >= 2.16`과 `kubernetes.core` collection이 필요하다.
+
+```bash
+cd ansible
+ansible-galaxy collection install -r requirements.yml
+
+# 테스트 Kubernetes 클러스터가 준비된 상태에서 먼저 검증
+ansible-playbook -i inventory/test.ini argocd.yml
+
+# 같은 설정으로 재실행하여 changed=0 확인
+ansible-playbook -i inventory/test.ini argocd.yml
+
+# 테스트 검증 후 Lab에 설치
+ansible-playbook argocd.yml
+```
+
+이 플레이북은 `--check`를 지원하지 않는다. 설치와 Ready 검증은 테스트 클러스터에서
+실제 실행으로 확인한다. 같은 설정의 두 번째 실행에서 Helm 버전과 release values를
+비교하여 불필요한 설치·업그레이드를 건너뛴다. 클러스터 리소스의 수동 변경까지
+자동 복구하는 검증은 포함하지 않는다.
+
+기본 버전은 Helm `v4.2.3`, chart `10.10.3`, Argo CD `v3.5.5`이며,
+`roles/argocd/defaults/main.yml`에서 관리한다. 업그레이드할 때는 chart의
+`appVersion`과 Argo CD 버전을 함께 확인하고 해당 값을 수정한 뒤 테스트 클러스터에서
+검증하고 Lab에 재적용한다.
+
+`argocd` namespace를 만들고 CRD를 설치한다. API 서버는 HTTPS와 `ClusterIP`를
+사용하며 Ingress는 만들지 않는다. 기본 실행에서는 GitOps 저장소 인증과 Application을 구성하지 않는다.
+Helm 설치 완료 후 Deployment·StatefulSet의 rollout과 주요 Pod의 Ready 상태를 확인한다.
+
+GitOps 최초 연결은 `-e argocd_gitops_enabled=true --ask-vault-pass`로 명시적으로 켠다.
+이 경우 `argocd_gitops` 롤이 인증 Secret·AppProject·root Application을 적용하고,
+root의 자식 manifest 조회를 확인한다. Sync는 수동으로 수행한다.
+키 준비, 두 저장소 반영 순서와 검증 절차는 [GitOps 연결 문서](../docs/argocd-gitops.md)를 따른다.
+
+### 임시 API·UI 접속 검증
+
+control plane VM에서 실행한다. port-forward는 해당 VM의 `127.0.0.1`에만 열린다.
+
+```bash
+kubectl -n argocd port-forward --address 127.0.0.1 svc/argocd-server 8080:443
+```
+
+같은 VM의 다른 터미널에서 API 응답을 확인한다. `-k`는 설치 검증용 자체 서명 인증서에만 사용한다.
+
+```bash
+curl --fail --silent --show-error -k https://127.0.0.1:8080/api/version
+```
+
+노트북에서 해당 VM으로 SSH 접속할 수 있으면 터널을 연결하고
+브라우저에서 `https://localhost:8080`에 접속한다.
+
+```bash
+ssh -N -L 8080:127.0.0.1:8080 orbit@192.168.100.101
+```
+
+초기 사용자 이름은 `admin`이다. 초기 비밀번호는 control plane VM에서 직접 조회한다.
+비밀번호를 Ansible 출력이나 PR에 남기지 않는다.
+
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 --decode
+```
+
+GitOps 저장소를 연결하지 않은 상태에서 API 응답과 UI 로그인을 확인한다.
+검증이 끝나면 SSH 터널과 port-forward를 종료한다.
 
 ## Jenkins (Controller와 Terraform runner)
 

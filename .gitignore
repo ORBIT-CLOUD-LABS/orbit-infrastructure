@@ -1,4 +1,10 @@
 .DS_Store
+__pycache__/
+
+# GitOps 인증정보는 암호화 여부와 관계없이 로컬에만 보관한다.
+ansible/secrets/argocd-vault.yml
+ansible/secrets/argocd-vault.yml.*
+!ansible/secrets/argocd-vault.yml.example
 
 # Terraform
 **/.terraform/*

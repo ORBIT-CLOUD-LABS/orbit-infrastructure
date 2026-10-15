@@ -1,0 +1,37 @@
+---
+argocd_namespace: argocd
+argocd_release_name: argocd
+argocd_kubeconfig: /etc/kubernetes/admin.conf
+
+argocd_chart_repo_name: argo
+argocd_chart_repo_url: https://argoproj.github.io/argo-helm
+argocd_chart_ref: "{{ argocd_chart_repo_name }}/argo-cd"
+
+# Kubernetes 1.33 지원 조합. chart 10.10.3의 appVersion은 v3.5.5이다.
+argocd_helm_version: "v4.2.3"
+argocd_chart_version: "10.10.3"
+argocd_version: "v3.5.5"
+
+argocd_helm_binary: /usr/local/bin/helm
+argocd_helm_architectures:
+  x86_64: amd64
+  aarch64: arm64
+
+argocd_wait_timeout: 300s
+
+# GitOps 저장소 인증과 Application은 argocd_gitops 롤이 별도로 관리한다.
+argocd_values:
+  global:
+    image:
+      tag: "{{ argocd_version }}"
+  crds:
+    install: true
+    keep: true
+  server:
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: false
+  configs:
+    params:
+      server.insecure: false

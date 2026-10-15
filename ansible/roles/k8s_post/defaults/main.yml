@@ -1,7 +1,7 @@
 ---
-# 예비(reserve) 노드: 클러스터에는 들어가지만 평소에는 Pod가 배치되지 않음
+# 기본은 모든 worker에 일반 Pod 배치. 필요할 때만 예비(reserve) 노드를 지정한다.
 # workers 그룹에 없는 이름은 무시된다. 목록에서 빼고 다시 실행하면 taint가 제거된다.
-k8s_reserved_nodes: [astra-worker-3]
+k8s_reserved_nodes: []
 k8s_reserved_taint_key: orbit.io/reserved
 k8s_reserved_taint: "orbit.io/reserved=true:NoSchedule"
 

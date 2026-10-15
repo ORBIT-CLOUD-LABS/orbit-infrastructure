@@ -23,6 +23,14 @@
 
 3. 둘 다 안 되면 추측해서 구현하지 말고 사용자에게 요구사항을 요청한다.
 
+## Phase1
+
+Phase1 작업은 orbit `docs/phase1.md` 를 먼저 읽는다. Phase1 은 orbit-astra 한 대만 쓰며, 원본 저장소(`astra-nfs`), CDN(클러스터 안 Origin·Edge), 다른 저장소와 함께 쓰는 값이 이 문서에 있다.
+
+- `phase1.md` 와 다른 문서(`infrastructure-plan.md`, `flow.md`)가 다르면 `phase1.md` 를 따른다.
+- `phase1.md` 의 값이 **미확정**이면 그 값을 확정된 것처럼 설정에 고정하지 말고 사용자에게 확인한다.
+- SOL(`vagrant/sol/`)·Luna 구성은 Phase1 에서 쓰지 않는다.
+
 ## 규칙
 
 - 기능을 구현하기 전에 관련 요구사항을 먼저 읽는다.

@@ -98,11 +98,29 @@
     name: "{{ db_app_user }}"
     host: "{{ item }}"
     password: "{{ db_app_password }}"
-    priv: "{{ db_name }}.*:ALL"
+    priv: "{{ db_name }}.*:{{ db_app_privileges }}"
     state: present
     login_unix_socket: /run/mysqld/mysqld.sock
   loop: "{{ db_allowed_hosts }}"
   no_log: true
+
+- name: 앱 계정의 현재 접속 host 목록
+  community.mysql.mysql_query:
+    query: SELECT Host FROM mysql.user WHERE User = %s
+    positional_args: ["{{ db_app_user }}"]
+    login_unix_socket: /run/mysqld/mysqld.sock
+  register: db_app_user_hosts
+  changed_when: false
+
+- name: 허용 목록에서 빠진 host의 앱 계정 제거
+  community.mysql.mysql_user:
+    name: "{{ db_app_user }}"
+    host: "{{ item }}"
+    state: absent
+    login_unix_socket: /run/mysqld/mysqld.sock
+  loop: >-
+    {{ db_app_user_hosts.query_result[0] | map(attribute='Host')
+       | difference(db_allowed_hosts) }}
 
 # ── 4. 백업 / 복구 ────────────────────────────────────────────
 - name: 백업 폴더
@@ -133,12 +151,58 @@
 - name: 검증
   when: db_verify | bool
   block:
-    - name: 앱 계정으로 접속 (자기 IP로 TCP 접속 → 허용 대역 규칙 검증)
-      ansible.builtin.command: >
-        mysql -h {{ ansible_host }} -P {{ db_port }} -u {{ db_app_user }} -p{{ db_app_password }}
-        -e "SELECT 1" {{ db_name }}
+    # 앱 계정 로그인은 실제 출발지(Pod → worker SNAT)에서 확인한다 (docs/vehicle-db.md).
+    # DB VM 자신은 허용 목록에 없으므로 여기서는 로그인하지 않는다.
+    - name: max_connections 조회
+      community.mysql.mysql_query:
+        query: SELECT @@GLOBAL.max_connections AS max_connections
+        login_unix_socket: /run/mysqld/mysqld.sock
+      register: db_max_conn
       changed_when: false
-      no_log: true
+
+    - name: 앱 최대 연결 수가 max_connections 안에 들어와야 함
+      vars:
+        db_required_connections: >-
+          {{ db_app_pool_size * (db_app_max_replicas + db_app_surge_replicas)
+             + db_reserved_connections }}
+      ansible.builtin.assert:
+        that: db_max_conn.query_result[0][0].max_connections | int >= db_required_connections | int
+        fail_msg: >-
+          필요 연결 {{ db_required_connections }}
+          (pool {{ db_app_pool_size }} × replica {{ db_app_max_replicas }}+{{ db_app_surge_replicas }}
+          + 여유 {{ db_reserved_connections }})이
+          max_connections {{ db_max_conn.query_result[0][0].max_connections }}를 넘습니다.
+        success_msg: >-
+          필요 연결 {{ db_required_connections }} ≤
+          max_connections {{ db_max_conn.query_result[0][0].max_connections }}
+
+    - name: 서비스 DB 문자셋·collation 조회
+      community.mysql.mysql_query:
+        query: >-
+          SELECT DEFAULT_CHARACTER_SET_NAME AS charset, DEFAULT_COLLATION_NAME AS collation
+          FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = %s
+        positional_args: ["{{ db_name }}"]
+        login_unix_socket: /run/mysqld/mysqld.sock
+      register: db_schema
+      changed_when: false
+
+    - name: 앱 계정 권한 조회
+      community.mysql.mysql_query:
+        query: SHOW GRANTS FOR %s@%s
+        positional_args: ["{{ db_app_user }}", "{{ item }}"]
+        login_unix_socket: /run/mysqld/mysqld.sock
+      loop: "{{ db_allowed_hosts }}"
+      register: db_grants
+      changed_when: false
+
+    - name: 앱 출발지에서 DB 포트 접속 확인
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ db_port }}"
+        timeout: 5
+      delegate_to: "{{ item }}"
+      become: false
+      loop: "{{ groups[db_app_client_group] | default([]) if db_app_client_group else [] }}"
 
     - name: 백업 1회 실행
       ansible.builtin.command: /usr/local/sbin/orbit-db-backup
@@ -164,5 +228,7 @@
     - name: 결과
       ansible.builtin.debug:
         msg:
+          - "DB: {{ db_name }} ({{ db_schema.query_result[0][0].charset }} / {{ db_schema.query_result[0][0].collation }})"
+          - "권한: {{ db_grants.results | map(attribute='query_result') | flatten | map('dict2items') | flatten | map(attribute='value') | list }}"
           - "데이터: {{ df_out.stdout_lines[-1] }}"
           - "최신 백업: {{ (backups.files | sort(attribute='mtime') | last).path }}"

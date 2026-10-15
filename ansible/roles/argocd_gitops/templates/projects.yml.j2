@@ -1,0 +1,65 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: bootstrap
+  namespace: {{ argocd_namespace | to_json }}
+spec:
+  description: ASTRA root Application 전용 관리자 프로젝트
+  sourceRepos:
+    - {{ argocd_gitops_repo_url | to_json }}
+  destinations:
+    - server: {{ argocd_gitops_server | to_json }}
+      namespace: {{ argocd_namespace | to_json }}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: argoproj.io
+      kind: Application
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: {{ argocd_namespace | to_json }}
+spec:
+  description: ASTRA 플랫폼 애드온 전용 프로젝트
+  sourceRepos:
+    - {{ argocd_gitops_repo_url | to_json }}
+    - {{ argocd_gitops_platform_helm_repo_url | to_json }}
+  destinations:
+{% for namespace in argocd_gitops_platform_namespaces %}
+    - server: {{ argocd_gitops_server | to_json }}
+      namespace: {{ namespace | to_json }}
+{% endfor %}
+  clusterResourceWhitelist: {{ argocd_gitops_platform_cluster_resources | to_json }}
+  namespaceResourceWhitelist: {{ argocd_gitops_platform_namespace_resources | to_json }}
+  namespaceResourceBlacklist:
+    - group: argoproj.io
+      kind: Application
+    - group: argoproj.io
+      kind: ApplicationSet
+    - group: argoproj.io
+      kind: AppProject
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: workloads
+  namespace: {{ argocd_namespace | to_json }}
+spec:
+  description: ASTRA 업무 리소스 전용 프로젝트
+  sourceRepos:
+    - {{ argocd_gitops_repo_url | to_json }}
+  destinations:
+{% for namespace in argocd_gitops_workload_namespaces %}
+    - server: {{ argocd_gitops_server | to_json }}
+      namespace: {{ namespace | to_json }}
+{% endfor %}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist: {{ argocd_gitops_workload_namespace_resources | to_json }}
+  namespaceResourceBlacklist:
+    - group: argoproj.io
+      kind: Application
+    - group: argoproj.io
+      kind: ApplicationSet
+    - group: argoproj.io
+      kind: AppProject

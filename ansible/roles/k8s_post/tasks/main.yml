@@ -19,7 +19,7 @@
   register: extra_label
   changed_when: "'not labeled' not in extra_label.stdout"
 
-# ── 2. Worker 3 reserve taint ─────────────────────────────────
+# ── 2. Optional reserve taint ─────────────────────────────────
 - name: 현재 taint 조회
   ansible.builtin.command: kubectl get node {{ item }} -o jsonpath={.spec.taints[*].key}
   loop: "{{ groups['workers'] | default([]) }}"

@@ -1,5 +1,7 @@
 # SOL File Storage·CDN Vagrant VM
 
+> Phase1 에서는 이 구성을 사용하지 않는다. 펌웨어 원본은 `astra-nfs`, CDN 은 orbit-astra Kubernetes 안의 Origin·Edge 로 대체했다. 기준은 orbit 레포 `docs/phase1.md`.
+
 ORBIT-SOL에서 QEMU/KVM, libvirt와 Vagrant로 CDN VM과 원본 파일 저장소 VM을 생성합니다. 이 구성은 VM과 기본 OS 설정만 관리하며 CDN·SeaweedFS 서비스 설치는 포함하지 않습니다.
 
 ## VM 명세
