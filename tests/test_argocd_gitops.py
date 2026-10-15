@@ -86,7 +86,12 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
                 spec = p["spec"]
                 self.assertNotIn("argocd", [d["namespace"] for d in spec["destinations"]])
                 self.assertNotIn("*", spec["sourceRepos"])
-                self.assertEqual(spec["clusterResourceWhitelist"], [])
+                self.assertTrue(all(
+                    resource["group"] != "*" and resource["kind"] != "*"
+                    for resource in spec["clusterResourceWhitelist"]
+                ))
+                if p["metadata"]["name"] == "workloads":
+                    self.assertEqual(spec["clusterResourceWhitelist"], [])
                 for kind in ("Application", "ApplicationSet", "AppProject"):
                     self.assertIn({"group": "argoproj.io", "kind": kind}, spec["namespaceResourceBlacklist"])
 
@@ -112,9 +117,45 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
             {"group": "argoproj.io", "kind": "ApplicationSet"},
             {"group": "argoproj.io", "kind": "AppProject"},
         ])
-        self.assertEqual(projects["platform"]["destinations"], [
-            {"server": "https://kubernetes.default.svc", "namespace": "orbit-platform"},
+
+    def test_issue40_platform_metrics_server_scope(self):
+        projects = {p["metadata"]["name"]: p["spec"] for p in render("projects.yml.j2")}
+        platform = projects["platform"]
+
+        self.assertEqual(platform["sourceRepos"], [
+            "git@github.com:ORBIT-CLOUD-LABS/orbit-gitops.git",
+            "https://kubernetes-sigs.github.io/metrics-server/",
         ])
+        self.assertEqual(platform["destinations"], [
+            {"server": "https://kubernetes.default.svc", "namespace": "orbit-platform"},
+            {"server": "https://kubernetes.default.svc", "namespace": "kube-system"},
+        ])
+        self.assertEqual(platform["clusterResourceWhitelist"], [
+            {"group": "rbac.authorization.k8s.io", "kind": "ClusterRole"},
+            {"group": "rbac.authorization.k8s.io", "kind": "ClusterRoleBinding"},
+            {"group": "apiregistration.k8s.io", "kind": "APIService"},
+        ])
+        self.assertEqual(platform["namespaceResourceWhitelist"], [
+            {"group": "", "kind": "ConfigMap"},
+            {"group": "", "kind": "ServiceAccount"},
+            {"group": "", "kind": "Service"},
+            {"group": "apps", "kind": "Deployment"},
+            {"group": "rbac.authorization.k8s.io", "kind": "RoleBinding"},
+        ])
+        self.assertEqual(platform["namespaceResourceBlacklist"], [
+            {"group": "argoproj.io", "kind": "Application"},
+            {"group": "argoproj.io", "kind": "ApplicationSet"},
+            {"group": "argoproj.io", "kind": "AppProject"},
+        ])
+        for name in ("bootstrap", "workloads"):
+            self.assertEqual(projects[name]["sourceRepos"], [
+                "git@github.com:ORBIT-CLOUD-LABS/orbit-gitops.git",
+            ])
+        tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text())
+        self.assertIn(
+            "argocd_gitops_platform_helm_repo_url == 'https://kubernetes-sigs.github.io/metrics-server/'",
+            tasks[0]["ansible.builtin.assert"]["that"],
+        )
 
     def test_secret_is_redacted_and_not_stored_in_apply_annotation(self):
         tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text())

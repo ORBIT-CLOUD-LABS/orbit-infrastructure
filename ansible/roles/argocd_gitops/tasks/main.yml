@@ -5,6 +5,7 @@
       - not ansible_check_mode
       - argocd_namespace == 'argocd'
       - argocd_gitops_repo_url == 'git@github.com:ORBIT-CLOUD-LABS/orbit-gitops.git'
+      - argocd_gitops_platform_helm_repo_url == 'https://kubernetes-sigs.github.io/metrics-server/'
       - argocd_gitops_server == 'https://kubernetes.default.svc'
       - argocd_gitops_workload_namespaces | length > 0
       - argocd_gitops_platform_namespaces | length > 0

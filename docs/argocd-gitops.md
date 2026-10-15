@@ -105,19 +105,24 @@ GitOps 브랜치에서 먼저 테스트하면 `-e argocd_gitops_revision=task/5-
 
 ## 프로젝트 권한
 
-| 프로젝트 | 대상 namespace | 초기 허용 리소스 |
+| 프로젝트 | 대상 namespace | 선언된 허용 리소스 |
 | --- | --- | --- |
 | bootstrap | argocd | argoproj.io/Application만 |
-| platform | orbit-platform | ConfigMap만, 클러스터 리소스 없음 |
+| platform | orbit-platform, kube-system | ConfigMap, ServiceAccount, Service, Deployment, RoleBinding. 클러스터 리소스는 ClusterRole, ClusterRoleBinding, APIService |
 | workloads | orbit-gitops-test, orbit | ConfigMap, Deployment, Service, HorizontalPodAutoscaler, PodDisruptionBudget. 클러스터 리소스 없음 |
 
 platform/workloads는 Application·ApplicationSet·AppProject를 명시적으로 금지한다. namespace는 Ansible이
 생성하므로 업무 프로젝트에 Namespace 생성 권한을 주지 않는다. `orbit`과 업무 리소스 권한은
 [infrastructure #39](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/39)의 적용 대상이다.
 Secret은 이 허용 목록에 없으며, [orbit-gitops #3](https://github.com/ORBIT-CLOUD-LABS/orbit-gitops/issues/3)의
-수동 생성 절차를 따른다. 실제 애드온 추가 시 defaults의 namespace 및 리소스 허용 목록을 리뷰 후
-확장한다. cluster-admin 역할이나 wildcard 허용을 편의상 추가하지 않는다. 외부 chart 저장소는
-별도 sourceRepos 변경이 필요하다.
+수동 생성 절차를 따른다. `platform`의 `kube-system` 대상과 metrics-server Helm 저장소
+(`https://kubernetes-sigs.github.io/metrics-server/`)·리소스 권한은
+[infrastructure #40](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/40)의 적용 대상이다.
+이는 [orbit-gitops #8](https://github.com/ORBIT-CLOUD-LABS/orbit-gitops/issues/8)의 설치 권한만 준비하며,
+Application 생성이나 Sync를 수행하지 않는다. `kube-system`은 기존 namespace이므로 Ansible이 유지한다.
+클러스터 리소스 허용 목록은 종류 기준이며 metrics-server의 특정 이름으로 제한되지 않는다. 실제 애드온
+추가 시 defaults의 namespace·리소스·sourceRepos 허용 목록을 다시 검토한다. cluster-admin 역할이나
+wildcard 허용을 편의상 추가하지 않는다.
 
 AppProject는 허용 범위이며 사용자 역할 분리 전체를 대신하지 않는다. 기존 admin은 모든 프로젝트에
 접근할 수 있다. `default` 프로젝트나 root 경로를 수정할 권한도 업무 사용자에게 주지 않는다.
