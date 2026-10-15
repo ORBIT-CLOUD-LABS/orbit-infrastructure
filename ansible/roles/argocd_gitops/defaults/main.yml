@@ -36,6 +36,10 @@ argocd_gitops_platform_namespace_resources:
     kind: Deployment
   - group: rbac.authorization.k8s.io
     kind: RoleBinding
+# CDN의 정적 NFS PV 배포를 위한 종류 단위 권한이다. PV 이름이나 볼륨 유형은 제한하지 않는다.
+argocd_gitops_workload_cluster_resources:
+  - group: ""
+    kind: PersistentVolume
 argocd_gitops_workload_namespace_resources:
   - group: ""
     kind: ConfigMap
@@ -47,5 +51,7 @@ argocd_gitops_workload_namespace_resources:
     kind: HorizontalPodAutoscaler
   - group: policy
     kind: PodDisruptionBudget
+  - group: ""
+    kind: PersistentVolumeClaim
 argocd_gitops_verify_retries: 30
 argocd_gitops_verify_delay: 10

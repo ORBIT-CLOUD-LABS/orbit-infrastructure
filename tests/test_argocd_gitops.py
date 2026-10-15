@@ -102,11 +102,13 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
                     for resource in spec["clusterResourceWhitelist"]
                 ))
                 if p["metadata"]["name"] == "workloads":
-                    self.assertEqual(spec["clusterResourceWhitelist"], [])
+                    self.assertEqual(spec["clusterResourceWhitelist"], [
+                        {"group": "", "kind": "PersistentVolume"},
+                    ])
                 for kind in ("Application", "ApplicationSet", "AppProject"):
                     self.assertIn({"group": "argoproj.io", "kind": kind}, spec["namespaceResourceBlacklist"])
 
-    def test_issue39_workload_destination_and_resource_scope(self):
+    def test_issue39_issue52_workload_destination_and_cdn_storage_scope(self):
         projects = {p["metadata"]["name"]: p["spec"] for p in render("projects.yml.j2")}
         workloads = projects["workloads"]
 
@@ -115,13 +117,16 @@ class Issue34GitOpsPolicyTest(unittest.TestCase):
             {"server": "https://kubernetes.default.svc", "namespace": "orbit-gitops-test"},
             {"server": "https://kubernetes.default.svc", "namespace": "orbit"},
         ])
-        self.assertEqual(workloads["clusterResourceWhitelist"], [])
+        self.assertEqual(workloads["clusterResourceWhitelist"], [
+            {"group": "", "kind": "PersistentVolume"},
+        ])
         self.assertEqual(workloads["namespaceResourceWhitelist"], [
             {"group": "", "kind": "ConfigMap"},
             {"group": "apps", "kind": "Deployment"},
             {"group": "", "kind": "Service"},
             {"group": "autoscaling", "kind": "HorizontalPodAutoscaler"},
             {"group": "policy", "kind": "PodDisruptionBudget"},
+            {"group": "", "kind": "PersistentVolumeClaim"},
         ])
         self.assertEqual(workloads["namespaceResourceBlacklist"], [
             {"group": "argoproj.io", "kind": "Application"},
