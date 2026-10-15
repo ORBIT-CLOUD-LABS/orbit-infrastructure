@@ -108,7 +108,7 @@ GitOps 브랜치에서 먼저 테스트하면 `-e argocd_gitops_revision=task/5-
 | 프로젝트 | 대상 namespace | 선언된 허용 리소스 |
 | --- | --- | --- |
 | bootstrap | argocd | argoproj.io/Application만 |
-| platform | orbit-platform, kube-system | ConfigMap, ServiceAccount, Service, Deployment, RoleBinding. 클러스터 리소스는 ClusterRole, ClusterRoleBinding, APIService |
+| platform | orbit-platform, kube-system, orbit-observability | ConfigMap, ServiceAccount, Service, Deployment, DaemonSet, RoleBinding. 클러스터 리소스는 ClusterRole, ClusterRoleBinding, APIService |
 | workloads | orbit-gitops-test, orbit | ConfigMap, Deployment, Service, HorizontalPodAutoscaler, PodDisruptionBudget. 클러스터 리소스 없음 |
 
 platform/workloads는 Application·ApplicationSet·AppProject를 명시적으로 금지한다. namespace는 Ansible이
@@ -123,6 +123,16 @@ Application 생성이나 Sync를 수행하지 않는다. `kube-system`은 기존
 클러스터 리소스 허용 목록은 종류 기준이며 metrics-server의 특정 이름으로 제한되지 않는다. 실제 애드온
 추가 시 defaults의 namespace·리소스·sourceRepos 허용 목록을 다시 검토한다. cluster-admin 역할이나
 wildcard 허용을 편의상 추가하지 않는다.
+
+`platform`의 `orbit-observability` 대상과 kube-state-metrics(`https://prometheus-community.github.io/helm-charts`)·
+Alloy(`https://grafana.github.io/helm-charts`) Helm 저장소·`apps/DaemonSet` 리소스 권한은
+[infrastructure #57](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/57)의 적용 대상이다.
+이는 [orbit-gitops #10](https://github.com/ORBIT-CLOUD-LABS/orbit-gitops/issues/10)의 클러스터 메트릭·로그 수집기
+설치 권한만 준비하며, Application 생성이나 Sync를 수행하지 않는다. `orbit-observability`는 이 롤의 namespace
+생성 단계(`argocd_gitops_workload_namespaces + argocd_gitops_platform_namespaces`)에서 새로 만들어진다.
+단일 Helm 저장소만 받던 `argocd_gitops_platform_helm_repo_url`은 애드온별로 저장소가 늘어나 복수형
+`argocd_gitops_platform_helm_repo_urls`(리스트)로 바꿨다. ClusterRole·ClusterRoleBinding은 metrics-server
+때 이미 연 종류를 kube-state-metrics·Alloy가 재사용하므로 클러스터 리소스 허용 목록 자체는 늘지 않았다.
 
 AppProject는 허용 범위이며 사용자 역할 분리 전체를 대신하지 않는다. 기존 admin은 모든 프로젝트에
 접근할 수 있다. `default` 프로젝트나 root 경로를 수정할 권한도 업무 사용자에게 주지 않는다.

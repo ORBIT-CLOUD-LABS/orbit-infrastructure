@@ -17,7 +17,11 @@ argocd_gitops_workload_namespaces:
 argocd_gitops_platform_namespaces:
   - orbit-platform
   - kube-system
-argocd_gitops_platform_helm_repo_url: https://kubernetes-sigs.github.io/metrics-server/
+  - orbit-observability
+argocd_gitops_platform_helm_repo_urls:
+  - https://kubernetes-sigs.github.io/metrics-server/
+  - https://prometheus-community.github.io/helm-charts
+  - https://grafana.github.io/helm-charts
 argocd_gitops_platform_cluster_resources:
   - group: rbac.authorization.k8s.io
     kind: ClusterRole
@@ -34,6 +38,8 @@ argocd_gitops_platform_namespace_resources:
     kind: Service
   - group: apps
     kind: Deployment
+  - group: apps
+    kind: DaemonSet
   - group: rbac.authorization.k8s.io
     kind: RoleBinding
 argocd_gitops_workload_namespace_resources:
