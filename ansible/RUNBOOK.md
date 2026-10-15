@@ -27,7 +27,7 @@ Lab 인프라(astra + Sol·Terra·Luna)를 적용·되돌리기·복구·백업�
 | `preflight.yml` | 전체 | 접속·OS·자원·중복·포트·인터넷·원격 사이트 경로 점검 (변경 없음) |
 | `site.yml` | 전체 | preflight → k8s 설치 → 후처리 → DB → Monitoring (+NFS·Jenkins) |
 | `k8s-post.yml` | control_plane | node label, 선택적 예비 노드 taint, 클러스터 검증 |
-| `database.yml` | vehicle_db, campaign_db | MySQL, 데이터 디스크, 접근 제어, 백업 |
+| `database.yml` | vehicle_db | MySQL, 데이터 디스크, 접근 제어, 백업 (campaign 테이블도 같은 `vehicle` DB) |
 | `monitoring.yml` | 전체 + monitoring | node-exporter, Prometheus·Alertmanager·Loki·Grafana |
 
 ---
@@ -65,7 +65,7 @@ ansible-playbook site.yml --tags database --ask-vault-pass     # 태그로 선�
 ### 1-5. 적용 후 확인
 ```bash
 ssh orbit@192.168.100.101 kubectl get nodes -L orbit.io/reserved
-ansible-playbook database.yml --ask-vault-pass -e db_verify=true   # DB 접속 + 백업 검증
+ansible-playbook database.yml --ask-vault-pass -e db_verify=true   # 연결 수·권한·worker 포트 + 백업 검증
 ansible-playbook site.yml --ask-vault-pass                     # 재실행 → PLAY RECAP changed ≈ 0 (멱등성)
 ```
 

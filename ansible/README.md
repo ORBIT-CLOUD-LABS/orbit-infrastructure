@@ -37,7 +37,7 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 
 | 작업 | 플레이북 / 롤 | 대상 |
 |---|---|---|
-| Database | `database.yml` → `database`, `data_disk` | `vehicle_db`, `campaign_db` |
+| Database | `database.yml` → `database`, `data_disk` | `vehicle_db` (campaign 테이블 포함, [`docs/vehicle-db.md`](../docs/vehicle-db.md)) |
 | Monitoring | `monitoring.yml` → `node_exporter`, `monitoring_host`, `data_disk` | 전체 관리 노드, `monitoring` |
 | Kubernetes 후처리 | `k8s-post.yml` → `k8s_post` | `control_plane[0]` |
 | Argo CD bootstrap | `argocd.yml` → `argocd` | `control_plane[0]` |
@@ -51,7 +51,7 @@ terraform apply → inventory/lab/hosts.ini 생성 → ansible-playbook playbook
 원격 사이트는 `inventory/lab/sites.ini`에서 관리한다.
 
 - `sol`: CDN
-- `terra`: Campaign DB
+- `terra`: Terraform state 백업 원격지 (`astra_host`의 `terraform_state_backup_remote_host`). Campaign DB는 별도로 두지 않고 `vehicle_db`에 합쳤다
 - `luna`: Agent
 - `remote`: 전체 원격 사이트
 
