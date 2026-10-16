@@ -1,6 +1,6 @@
 # #52 실제 GitOps 선언과 AppProject 대조
 
-작성: 2026-10-16. 저장소의 정책과 렌더링 결과를 검사한 기록이며 운영 적용 완료 기록은 아니다.
+작성: 2026-10-16. 저장소 정적 검사와 이후 ASTRA 운영 조회 기록이다. 최신 판정은 마지막 운영 검증 기록을 따른다.
 관련: [#52](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/52),
 [기존 구현 #58](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/pull/58),
 [수집기 권한 #60](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/pull/60).
@@ -94,3 +94,46 @@ python -m unittest discover -s tests -v
 기록은 [기존 운영 문서](argocd-gitops.md) 및 GitOps `docs/deploy-test.md`를 참조한다. 과거 기록을
 현재 운영 검증으로 바꾸지 않는다. 접속 복구 후 원본과 운영 정책을 비교하고, 필요한 적용만 수행한 뒤
 동일 설정 재실행과 현재 자식 자동 반영 증거를 기록한다. #52는 그 전까지 종료하지 않는다.
+
+
+## SSH 복구 후 ASTRA 운영 검증 — 2026-10-16
+
+공개키 등록 후 `orbit@orbit-astra` 접속과 내부 `orbit@192.168.100.101` 경유 운영 조회에 성공했다.
+운영 control-plane은 `astra-control-plane`, 노드 4개 모두 Ready이며 Kubernetes v1.33.13이다.
+Secret/Vault 원문 조회·수동 Sync·직접 workload apply는 수행하지 않았다.
+
+| 확인 항목 | 결과 |
+| --- | --- |
+| 운영 GitOps revision | `8db0459293ac19c0589c7ef7b7325ed0c90f31f0` |
+| root | Synced / Healthy, 자동 Sync enabled, Prune·Self Heal false, retry 5 / 5s·2·3m. Ansible 원본의 project/source/destination/syncPolicy와 일치 |
+| Project | bootstrap·platform·workloads의 원본 관리 필드가 실제 운영 값과 일치. namespace·repo·허용/차단 리소스 목록 대조 |
+| 자식 | 서버·CDN·Metrics Server·Alloy·kube-state-metrics 모두 Synced / Healthy, conditions 없음 |
+| 자동 반영 증거 | root operation 자동 실행·Succeeded, 종료 `2026-10-15T23:41:58Z`. Alloy·kube-state-metrics 자동 실행·Succeeded, 종료 `2026-10-15T23:42:04Z` |
+| 실제 스토리지 | PV orbit-origin-nfs-ro·orbit-origin-nfs-rw 및 PVC orbit/origin-files·orbit/origin-files-rw 모두 Bound |
+| workload Ready | 서버 2/2, CDN Origin 1/1·Edge 2/2, kube-state-metrics 1/1, Alloy DaemonSet 3/3 |
+| 현재 운영 권한 대조 | 위 revision에서 5개 Application·35개 리소스를 다시 렌더링하고 실제 운영 Project JSON으로 검사, 모두 통과 |
+
+앞선 PR #27 미머지 기록 이후 수집기가 운영에 반영됐다. 현재 판정에는 위 운영 revision의 chart·values를
+사용한다. multi-source 자식은 단일 status.sync.revision 대신 status.sync.revisions의 chart 버전과 Git SHA를
+함께 확인했다. 관측 데이터의 Prometheus/Loki 수신 검증은 #52의 권한 검증과 구분한다.
+
+### 원격 checkout과 재실행 제한
+
+ASTRA의 기존 checkout은 과거 `task/57-argocd-platform-observability`의 `de2d36d`였다.
+실행 전 비교 검사에서 이 원본은 root 자동 Sync 비활성·PV/PVC 권한 누락·옛 namespace를 갖고 있어
+플레이북을 실행하지 않았다. 기존 checkout을 `task/52-root-auto-sync-verify`의 `4235b59`로 전환했다.
+미추적 `ansible/secrets/vault.yml`과 기존 인증 파일은 보존했다. 별도 checkout/worktree는 만들지 않았다.
+
+최신 원본에서 GitOps role만 실행했으나 암호화 비밀값 로드 task에서 no_log 실패했다.
+recap은 `ok=1 changed=0 unreachable=0 failed=1`로, 실제 자원 적용 task에 도달하지 않았다.
+이는 멱등성 성공 결과가 아니다. 사용자가 안전한 ASTRA 터미널에서 Vault 비밀번호를 입력한
+재실행 결과를 확인해야 한다.
+
+```bash
+cd ~/orbit-infrastructure/ansible
+ansible-playbook argocd.yml --tags argocd_gitops \
+  -e argocd_gitops_enabled=true --ask-vault-pass
+```
+
+같은 명령을 재실행한 recap의 changed=0·failed=0과 정책 유지를 기록하기 전에는 #52를 종료하지 않는다.
+Vault 비밀번호는 채팅·명령 인수·Git에 남기지 않는다.
