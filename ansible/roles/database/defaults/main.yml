@@ -19,6 +19,13 @@ db_bind_address: "0.0.0.0"
 db_port: 3306
 db_max_connections: 200
 db_innodb_buffer_pool_size: 512M
+# commit 마다 디스크 동기화(fsync)를 하지 않고 redo log 는 1초마다, binlog 는 OS 에 맡긴다.
+# ASTRA 호스트 디스크(DRAM 없는 소비자용 NVMe, 모든 VM 공유)는 commit 마다 오는 동기화가
+# 이어지면 쓰기 지연이 3~4배로 늘어 DB 한계가 약 290 → 180 req/s 까지 떨어졌다.
+# 완화 후 약 700 req/s (DB CPU 한계). 대가: DB VM·호스트가 갑자기 꺼지면 최대 약 1초치 commit 유실
+# (MySQL 프로세스만 죽으면 유실 없음). 근거: orbit#23 사전 측정, docs/vehicle-db.md "commit 동기화"
+db_innodb_flush_log_at_trx_commit: 2
+db_sync_binlog: 0
 
 # 앱 연결 수 예산 (검증에서 max_connections와 비교)
 # 필요 연결 = pool × (최대 replica + 롤링 업데이트 중 추가 파드) + 운영 여유
