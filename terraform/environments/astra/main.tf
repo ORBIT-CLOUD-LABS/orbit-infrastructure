@@ -49,13 +49,15 @@ module "vms" {
   base_image_sha256   = "6a81c37564db9b1ee84e141922625e1d7c5b389b99bb3c572e0243607d5bb4d2"
   ssh_authorized_keys = var.ssh_authorized_keys
 
+  # astra-vehicle-db vcpu 1 → 2: commit 동기화 완화(#63) 뒤 DB 한계가 디스크에서 CPU(1 vCPU 93~98%)로
+  # 옮겨졌다 (orbit#23 사전 측정, 약 700~750 req/s). 물리 CPU 는 그 부하에서도 ASTRA 호스트 43% 라 여유가 있다
   vms = {
     astra-control-plane = { vcpu = 2, memory_mib = 4096, os_disk_gib = 25, data_disk_gib = null, mac = "52:54:00:64:00:00", ip = "192.168.100.101" }
     astra-worker-1      = { vcpu = 2, memory_mib = 8192, os_disk_gib = 35, data_disk_gib = null, mac = "52:54:00:64:00:01", ip = "192.168.100.102" }
     astra-worker-2      = { vcpu = 2, memory_mib = 8192, os_disk_gib = 35, data_disk_gib = null, mac = "52:54:00:64:00:02", ip = "192.168.100.103" }
     astra-worker-3      = { vcpu = 2, memory_mib = 8192, os_disk_gib = 35, data_disk_gib = null, mac = "52:54:00:64:00:03", ip = "192.168.100.104" }
     astra-nfs           = { vcpu = 1, memory_mib = 4096, os_disk_gib = 20, data_disk_gib = 45, mac = "52:54:00:64:00:05", ip = "192.168.100.105" }
-    astra-vehicle-db    = { vcpu = 1, memory_mib = 4096, os_disk_gib = 20, data_disk_gib = 15, mac = "52:54:00:64:00:06", ip = "192.168.100.106" }
+    astra-vehicle-db    = { vcpu = 2, memory_mib = 4096, os_disk_gib = 20, data_disk_gib = 15, mac = "52:54:00:64:00:06", ip = "192.168.100.106" }
     astra-monitoring    = { vcpu = 2, memory_mib = 8192, os_disk_gib = 25, data_disk_gib = 20, mac = "52:54:00:64:00:07", ip = "192.168.100.107" }
   }
 }
