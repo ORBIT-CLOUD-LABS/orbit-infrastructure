@@ -17,6 +17,8 @@
 | 앱 계정 권한 | `vehicle.*`에 `SELECT, INSERT, UPDATE, DELETE, CREATE, CREATE VIEW, ALTER, INDEX, DROP, REFERENCES` | |
 | `max_connections` | 200 | |
 | 서버 파드당 Hikari pool | 5 | orbit-gitops#7 `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE` |
+| `innodb_flush_log_at_trx_commit` | 2 | 아래 "commit 동기화" |
+| `sync_binlog` | 0 | 아래 "commit 동기화" |
 
 ## 접속 허용 host
 
@@ -57,6 +59,23 @@ migration용 계정과 앱용 계정을 나누려면 서버 설정도 바꿔야 
 - pool 크기를 지정하지 않으면 Hikari 기본값 10이 적용된다. 이때는 10 × 5 + 20 = 70이 되어도 200 안에 들어온다.
 - `ansible-playbook database.yml -e db_verify=true`를 실행하면 실제 `max_connections` 값으로 이 식을 assert한다.
 
+## commit 동기화
+
+MySQL 기본값(`innodb_flush_log_at_trx_commit=1`, `sync_binlog=1`)은 commit 마다 redo log 와 binlog 를 디스크에 동기화(fsync)한다. 서버는 체크인마다 트랜잭션을 commit 하므로 요청 수만큼 동기화가 생긴다.
+
+DB 데이터 디스크는 ASTRA 호스트 NVMe(Samsung SSD 980, DRAM 없는 소비자용, 모든 VM 공유) 위의 raw 파일이다. 2026-10-17 서버 부하 사전 측정([orbit#23](https://github.com/ORBIT-CLOUD-LABS/orbit/issues/23))에서 다음을 확인했다.
+
+| DB 설정 | DB 한계 (P95 500ms 기준) | 막힌 곳 |
+| --- | --- | --- |
+| 기본값 (1 / 1) | 약 290 req/s, 쓰기가 몇 분 이어지면 약 180 | 디스크 동기화. 쓰기 약 2300회/s 에서 꺾이고, 계속되면 쓰기 지연이 0.35 → 1.1~1.5ms 로 늘어 20분가량 쉬어야 회복. DB CPU(user+system)는 55~58% |
+| 완화 (2 / 0) | 약 700~750 req/s | DB CPU (user+system 93~98%). 디스크 쓰기 약 50회/s, iowait 거의 0 |
+
+그래서 redo log 는 1초마다 동기화(`innodb_flush_log_at_trx_commit=2`)하고 binlog 동기화는 OS 에 맡긴다(`sync_binlog=0`).
+
+- 대가: DB VM 이나 ASTRA 호스트가 갑자기 꺼지면 최대 약 1초치 commit 이 유실될 수 있다. MySQL 프로세스만 죽는 경우에는 유실되지 않는다
+- 차량은 다음 체크인 주기에 상태를 다시 보내므로 체크인 기록 유실은 다음 주기에 복구된다. 관리자 작업(파일·캠페인 등록)은 장애 직후 결과를 확인한다
+- 설정을 바꾸면 Ansible 이 MySQL 을 재시작한다. 부하 실험 중에는 적용하지 않는다
+
 ## 시간대
 
 DB 기본 시간대는 `+09:00`이다. 서버는 접속할 때 세션 시간대를 `+00:00`으로 강제하므로 시간대 테이블을 적재하지 않아도 된다.
@@ -73,6 +92,7 @@ ansible-playbook database.yml --ask-vault-pass -e db_verify=true
 | 확인 항목 | 기대 결과 |
 | --- | --- |
 | 연결 수 assert | `필요 연결 45 ≤ max_connections 200` |
+| commit 동기화 설정 | `ssh orbit@192.168.100.106 'sudo mysql -e "SELECT @@innodb_flush_log_at_trx_commit, @@sync_binlog"'` 결과 `2  0` |
 | 각 worker에서 DB 3306 포트 접속 | 모두 ok |
 | 결과 출력의 `DB` | `vehicle (utf8mb4 / utf8mb4_unicode_ci)` |
 | 결과 출력의 `권한` | worker host마다 `GRANT SELECT, INSERT, ... ON vehicle.*` |
