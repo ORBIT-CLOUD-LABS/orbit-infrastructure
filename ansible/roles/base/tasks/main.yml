@@ -1,0 +1,21 @@
+# 모든 장비 공통: 이름, /etc/hosts
+# 인벤토리에 lan_ip가 있는 장비(노드 5대 + VM 3대)를 전부 /etc/hosts에 넣어서 이름으로 찾게 함
+- name: 호스트 이름
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+    use: systemd
+
+- name: 자기 이름 (127.0.1.1)
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s'
+    line: "127.0.1.1 {{ inventory_hostname }}"
+
+- name: ORBIT 장비 목록 (orbit-net.sh가 쓰던 블록을 이어받음)
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ORBIT"
+    block: |
+      {% for h in groups['all'] if hostvars[h].lan_ip is defined %}
+      {{ hostvars[h].lan_ip }} {{ h }}
+      {% endfor %}

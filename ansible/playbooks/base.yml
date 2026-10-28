@@ -1,0 +1,8 @@
+# 공통 설정: 호스트 이름, /etc/hosts (노드와 VM 모두 이름으로 찾게)
+#   ansible-playbook playbooks/base.yml -K --ask-vault-pass
+#   VM을 만들기 전에는: --limit 'all:!monitoring'
+- name: 공통
+  hosts: all
+  become: true
+  roles:
+    - base
