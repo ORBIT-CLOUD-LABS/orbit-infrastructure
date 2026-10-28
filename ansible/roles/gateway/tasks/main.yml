@@ -1,0 +1,100 @@
+# astra: 내부망 패킷을 와이파이로 내보내는 NAT
+- name: 장치 확인
+  ansible.builtin.include_role:
+    name: network
+    tasks_from: facts.yml
+
+- name: 와이파이 장치가 있어야 NAT 가능
+  ansible.builtin.assert:
+    that: wifi_if | length > 0
+    fail_msg: "{{ inventory_hostname }}: 와이파이 MAC {{ wifi_mac }} 장치를 못 찾음"
+
+- name: 패킷 전달 켜기 (재부팅 후에도 유지)
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-orbit-forward.conf
+    content: "net.ipv4.ip_forward=1\n"
+    mode: "0644"
+  notify: apply sysctl
+
+- name: iptables-persistent 질문 미리 답하기
+  ansible.builtin.debconf:
+    name: iptables-persistent
+    question: "{{ item }}"
+    value: "true"
+    vtype: boolean
+  loop: [iptables-persistent/autosave_v4, iptables-persistent/autosave_v6]
+
+- name: iptables-persistent 설치
+  ansible.builtin.apt:
+    name: iptables-persistent
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: 통과 허용 규칙을 넣을 체인 (Docker가 있으면 DOCKER-USER)
+  ansible.builtin.command: iptables -nL DOCKER-USER
+  register: docker_user
+  changed_when: false
+  failed_when: false
+  check_mode: false     # 읽기만 함. 미리보기에서도 실행
+
+- name: 체인 정하기
+  ansible.builtin.set_fact:
+    fwd_chain: "{{ 'DOCKER-USER' if docker_user.rc == 0 else 'FORWARD' }}"
+
+- name: NAT (내부망에서 나가는 패킷의 출발지를 astra 와이파이 주소로)
+  ansible.builtin.iptables:
+    table: nat
+    chain: POSTROUTING
+    source: "{{ lan_net }}"
+    out_interface: "{{ wifi_if }}"
+    jump: MASQUERADE
+  notify: save iptables
+
+- name: 내부망 → 와이파이 허용
+  ansible.builtin.iptables:
+    chain: "{{ fwd_chain }}"
+    action: insert
+    in_interface: "{{ lan_dev }}"
+    out_interface: "{{ wifi_if }}"
+    source: "{{ lan_net }}"
+    jump: ACCEPT
+  notify: save iptables
+
+- name: 와이파이 → 내부망 응답 허용
+  ansible.builtin.iptables:
+    chain: "{{ fwd_chain }}"
+    action: insert
+    in_interface: "{{ wifi_if }}"
+    out_interface: "{{ lan_dev }}"
+    destination: "{{ lan_net }}"
+    ctstate: [RELATED, ESTABLISHED]
+    jump: ACCEPT
+  notify: save iptables
+
+# 브리지 안의 통신(VM <-> 내부망). Docker가 있으면 br_netfilter 때문에 브리지 패킷도 FORWARD를 거쳐서 막힐 수 있음
+- name: 브리지 안 통신 허용
+  ansible.builtin.iptables:
+    chain: "{{ fwd_chain }}"
+    action: insert
+    in_interface: "{{ lan_bridge }}"
+    out_interface: "{{ lan_bridge }}"
+    jump: ACCEPT
+  when: lan_bridge is defined
+  notify: save iptables
+
+- name: 브리지로 바꾸기 전의 옛 규칙 지우기 (유선 장치 이름 기준)
+  ansible.builtin.iptables:
+    chain: "{{ fwd_chain }}"
+    in_interface: "{{ item.i }}"
+    out_interface: "{{ item.o }}"
+    source: "{{ item.s | default(omit) }}"
+    destination: "{{ item.d | default(omit) }}"
+    ctstate: "{{ item.ct | default(omit) }}"
+    jump: ACCEPT
+    state: absent
+  loop:
+    - { i: "{{ lan_if }}", o: "{{ wifi_if }}", s: "{{ lan_net }}" }
+    - { i: "{{ wifi_if }}", o: "{{ lan_if }}", d: "{{ lan_net }}", ct: [RELATED, ESTABLISHED] }
+  when: lan_bridge is defined
+  notify: save iptables
