@@ -27,6 +27,7 @@
     name: libvirtd
     enabled: true
     state: started
+  when: not ansible_check_mode   # 미리보기에서는 위 설치가 실제로 안 돼서 서비스가 아직 없음
 
 - name: machine.slice 설정 폴더
   ansible.builtin.file:
@@ -38,7 +39,7 @@
   ansible.builtin.copy:
     dest: /etc/systemd/system/machine.slice.d/50-orbit-cpu.conf
     content: |
-      # {{ ansible_managed }}
+      # Ansible managed (roles/libvirt)
       [Slice]
       CPUWeight={{ vm_cpu_weight }}
     mode: "0644"
