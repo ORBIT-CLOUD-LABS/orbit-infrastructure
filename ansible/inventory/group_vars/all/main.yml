@@ -1,0 +1,15 @@
+# 내부망
+lan_net: 10.0.0.0/24
+lan_prefix: 24
+lan_gw: 10.0.0.201          # astra
+
+# 와이파이
+wifi_ssid: rapa_classroom-5
+wifi_gw: 192.168.200.1
+wifi_prefix: 22
+wifi_psk: "{{ vault_wifi_psk }}"   # inventory/group_vars/all/vault.yml (ansible-vault로 암호화)
+
+dns: [8.8.8.8, 1.1.1.1]
+probe_ip: 9.9.9.9           # 장애 감시용. 워커는 항상 게이트웨이를 거치게 고정 경로
+metric_main: 100
+metric_backup: 600
