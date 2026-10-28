@@ -1,3 +1,6 @@
 netplan_file: /etc/netplan/200-orbit.yaml
 netplan_backup_dir: /root/netplan-backup
-revert_after_sec: 180       # 이 시간 안에 확인이 안 끝나면 이전 설정으로 자동 복구
+revert_after_sec: 300       # 이 시간 안에 확인이 안 끝나면 이전 설정으로 자동 복구
+reconnect_timeout: 120      # apply 뒤 다시 접속될 때까지 기다리는 최대 시간
+check_retries: 12           # 확인 ping 재시도 (5초 간격). 와이파이가 다시 붙는 데 20초 넘게 걸림 (polaris)
+# 최악: 접속 대기 120초 + ping 12번 약 100초 = 220초 < 되돌리기 300초

@@ -106,14 +106,14 @@
     - name: 다시 접속될 때까지 대기
       ansible.builtin.wait_for_connection:
         delay: 5
-        timeout: "{{ revert_after_sec - 30 }}"
+        timeout: "{{ reconnect_timeout }}"
 
     - name: 확인 (ping {{ net_checks | join(', ') }})
       ansible.builtin.command: ping -c 2 -W 2 {{ item }}
       loop: "{{ net_checks }}"
       changed_when: false
       register: net_ping
-      retries: 6
+      retries: "{{ check_retries }}"
       delay: 5
       until: net_ping.rc == 0
 
