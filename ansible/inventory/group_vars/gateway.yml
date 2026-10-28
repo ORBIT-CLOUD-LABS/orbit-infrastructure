@@ -1,0 +1,3 @@
+net_role: gateway
+# 적용 후 확인: 내부망 다른 노드(polaris)와 인터넷(와이파이)
+net_checks: ["{{ hostvars[groups['cp'][0]].lan_ip }}", "{{ probe_ip }}"]
