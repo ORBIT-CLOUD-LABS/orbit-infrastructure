@@ -1,0 +1,83 @@
+# astra: KVM, libvirt, VM 만들기
+- name: br0가 있어야 함 (network 플레이북을 astra에 먼저)
+  ansible.builtin.assert:
+    that: vm_bridge in ansible_facts.interfaces
+    fail_msg: "{{ vm_bridge }} 없음. 먼저 ansible-playbook playbooks/network.yml --limit astra"
+
+- name: 가상화 지원 확인 (/dev/kvm)
+  ansible.builtin.stat:
+    path: /dev/kvm
+  register: kvm_dev
+
+- name: /dev/kvm 없으면 멈춤 (BIOS에서 VT-x 켜기)
+  ansible.builtin.assert:
+    that: kvm_dev.stat.exists
+    fail_msg: "/dev/kvm 없음. BIOS에서 Intel VT-x(가상화)를 켜야 함"
+
+- name: KVM, libvirt, 이미지 도구 설치
+  ansible.builtin.apt:
+    name: [qemu-kvm, libvirt-daemon-system, libvirt-clients, virtinst, qemu-utils, cloud-image-utils]
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: libvirtd 켜기
+  ansible.builtin.systemd_service:
+    name: libvirtd
+    enabled: true
+    state: started
+
+- name: machine.slice 설정 폴더
+  ansible.builtin.file:
+    path: /etc/systemd/system/machine.slice.d
+    state: directory
+    mode: "0755"
+
+- name: VM CPU 우선순위 낮추기 (경쟁할 때 nginx, Vault, NAT가 먼저)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/machine.slice.d/50-orbit-cpu.conf
+    content: |
+      # {{ ansible_managed }}
+      [Slice]
+      CPUWeight={{ vm_cpu_weight }}
+    mode: "0644"
+  notify: reload systemd
+
+- name: 폴더
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0711"
+  loop: ["{{ vm_dir }}", "{{ vm_dir }}/base", "{{ vm_dir }}/seed"]
+
+- name: Ubuntu 24.04 클라우드 이미지 받기 (체크섬 확인)
+  ansible.builtin.get_url:
+    url: "{{ vm_image_url }}"
+    dest: "{{ vm_base_image }}"
+    checksum: "sha256:{{ vm_image_sums }}"
+    mode: "0644"
+    force: false     # 이미 있으면 다시 받지 않음
+
+- name: virt-install이 아는 OS 목록
+  ansible.builtin.command: virt-install --osinfo list
+  register: osinfo_list
+  changed_when: false
+  failed_when: false    # 미리보기에서는 아직 설치 전일 수 있음
+  check_mode: false
+
+- name: OS 종류 정하기 (ubuntu24.04를 모르면 linux2022)
+  ansible.builtin.set_fact:
+    vm_os_variant_used: >-
+      {{ vm_os_variant if (osinfo_list.rc == 0 and osinfo_list.stdout | regex_search('(^|[ ,])' ~ (vm_os_variant | regex_escape) ~ '([ ,]|$)', multiline=True))
+         else 'linux2022' }}
+
+- name: Ansible 공개키 읽기
+  ansible.builtin.set_fact:
+    vm_ssh_pubkey: "{{ lookup('file', vm_ssh_pubkey_file) }}"
+
+- name: VM 만들기
+  ansible.builtin.include_tasks: vm.yml
+  loop: "{{ groups['monitoring'] }}"
+  loop_control:
+    loop_var: vm_name

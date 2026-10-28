@@ -1,0 +1,17 @@
+#cloud-config
+# {{ ansible_managed }}
+hostname: {{ vm_name }}
+manage_etc_hosts: false     # /etc/hosts는 base 플레이북이 관리
+users:
+  - name: orbit
+    groups: [sudo]
+    shell: /bin/bash
+    lock_passwd: false
+    passwd: "{{ vm_orbit_password_hash }}"   # sudo 비밀번호 (SSH 비밀번호 로그인은 막음)
+    ssh_authorized_keys:
+      - {{ vm_ssh_pubkey }}
+ssh_pwauth: false
+disable_root: true
+packages: [qemu-guest-agent]
+runcmd:
+  - [systemctl, enable, --now, qemu-guest-agent]

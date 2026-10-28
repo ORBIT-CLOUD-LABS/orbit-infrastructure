@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+# VM 첫 부팅 때 cloud-init이 netplan으로 만듦. 기본 경로는 astra(NAT)
+version: 2
+ethernets:
+  lan:
+    match:
+      macaddress: "{{ vm.vm_mac }}"
+    set-name: enp1s0
+    dhcp4: false
+    addresses: [{{ vm.lan_ip }}/{{ lan_prefix }}]
+    routes:
+      - to: default
+        via: {{ lan_gw }}
+    nameservers:
+      addresses: [{{ dns | join(', ') }}]

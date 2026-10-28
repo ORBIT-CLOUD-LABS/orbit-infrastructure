@@ -1,0 +1,9 @@
+vm_image_url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+vm_image_sums: https://cloud-images.ubuntu.com/noble/current/SHA256SUMS
+vm_dir: /var/lib/libvirt/images/orbit
+vm_base_image: "{{ vm_dir }}/base/noble-server-cloudimg-amd64.img"
+vm_os_variant: ubuntu24.04
+vm_bridge: "{{ lan_bridge }}"
+vm_ssh_pubkey_file: "{{ lookup('env', 'HOME') }}/.ssh/orbit_ansible.pub"   # 실행하는 쪽(astra)의 Ansible 공개키
+vm_orbit_password_hash: "{{ vault_orbit_password_hash }}"
+vm_cpu_weight: 50     # VM 전체 CPU 우선순위 (호스트 기본 100). 경쟁할 때만 호스트가 먼저

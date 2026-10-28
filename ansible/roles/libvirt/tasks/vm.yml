@@ -1,0 +1,74 @@
+# VM 하나 (vm_name). 이미 있으면 만들지 않음. 사양을 바꾸는 건 아직 수동 (virsh)
+- name: 값 {{ vm_name }}
+  ansible.builtin.set_fact:
+    vm: "{{ hostvars[vm_name] }}"
+    vm_disk: "{{ vm_dir }}/{{ vm_name }}.qcow2"
+    vm_seed: "{{ vm_dir }}/seed/{{ vm_name }}"
+
+- name: 이미 있는지 {{ vm_name }}
+  ansible.builtin.command: virsh dominfo {{ vm_name }}
+  register: vm_exists
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: 새로 만들기 {{ vm_name }}
+  when: vm_exists.rc != 0
+  block:
+    - name: cloud-init 폴더 {{ vm_name }}
+      ansible.builtin.file:
+        path: "{{ vm_seed }}"
+        state: directory
+        mode: "0711"
+
+    - name: cloud-init 파일 {{ vm_name }}
+      ansible.builtin.template:
+        src: "{{ item }}.j2"
+        dest: "{{ vm_seed }}/{{ item }}"
+        mode: "0600"
+      loop: [user-data, meta-data, network-config]
+
+    - name: cloud-init 디스크 (seed.iso) {{ vm_name }}
+      ansible.builtin.command: >-
+        cloud-localds -N {{ vm_seed }}/network-config
+        {{ vm_seed }}/seed.iso {{ vm_seed }}/user-data {{ vm_seed }}/meta-data
+      changed_when: true
+
+    - name: seed.iso 권한 (비밀번호 해시가 들어 있음. 시작할 때 libvirt가 소유자를 바꿈)
+      ansible.builtin.file:
+        path: "{{ vm_seed }}/seed.iso"
+        mode: "0600"
+      when: not ansible_check_mode
+
+    - name: 디스크 만들기 (이미지 복사 후 크기 늘리기) {{ vm_name }}
+      ansible.builtin.shell: |
+        set -e
+        qemu-img convert -O qcow2 {{ vm_base_image }} {{ vm_disk }}.tmp
+        qemu-img resize {{ vm_disk }}.tmp {{ vm.vm_disk_gb }}G
+        mv {{ vm_disk }}.tmp {{ vm_disk }}
+      args:
+        creates: "{{ vm_disk }}"
+
+    - name: VM 정의, 시작, 자동 시작 {{ vm_name }}
+      ansible.builtin.command: >-
+        virt-install --import --name {{ vm_name }}
+        --vcpus {{ vm.vm_cpu }} --memory {{ (vm.vm_mem_gb | int) * 1024 }}
+        --cpu host-passthrough
+        --disk path={{ vm_disk }},format=qcow2,bus=virtio
+        --disk path={{ vm_seed }}/seed.iso,device=cdrom
+        --network bridge={{ vm_bridge }},model=virtio,mac={{ vm.vm_mac }}
+        --osinfo {{ vm_os_variant_used }}
+        --graphics none --noautoconsole --autostart
+      changed_when: true
+
+- name: 켜져 있는지 {{ vm_name }}
+  ansible.builtin.command: virsh domstate {{ vm_name }}
+  register: vm_state
+  changed_when: false
+  failed_when: false    # 미리보기에서는 아직 없음
+  check_mode: false
+
+- name: 꺼져 있으면 켜기 {{ vm_name }}
+  ansible.builtin.command: virsh start {{ vm_name }}
+  when: vm_state.rc == 0 and 'running' not in vm_state.stdout
+  changed_when: true
