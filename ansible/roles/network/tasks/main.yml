@@ -50,7 +50,7 @@
 - name: 지금 netplan 백업 (되돌리기용)
   ansible.builtin.shell: |
     rm -rf {{ netplan_backup_dir }}/prev/*
-    cp -a /etc/netplan/. {{ netplan_backup_dir }}/prev/
+    find /etc/netplan -maxdepth 1 -name '*.yaml' -exec cp -a {} {{ netplan_backup_dir }}/prev/ \;
   changed_when: false
 
 - name: 되돌리기 스크립트
