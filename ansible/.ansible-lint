@@ -1,0 +1,4 @@
+# 이름은 한글로 씀
+skip_list:
+  - name[casing]
+  - var-naming[no-role-prefix]
