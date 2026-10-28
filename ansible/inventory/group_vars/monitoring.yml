@@ -1,0 +1,5 @@
+net_role: vm
+vm_host: astra
+retention_days: 7     # 로그, 지표 보관 기간 (스택 설치 role에서 사용)
+# 새로 만든 VM은 astra의 known_hosts에 없음. 처음 보는 키는 받고, 이미 아는 키가 바뀌면 막음
+ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
