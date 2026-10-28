@@ -1,0 +1,136 @@
+- name: 장치 확인
+  ansible.builtin.include_tasks: facts.yml
+
+# 워커: 감시 서비스를 netplan보다 먼저 (옛 서비스가 apply 중에 경로를 되돌리지 않게)
+- name: 장애 전환 감시 스크립트
+  ansible.builtin.template:
+    src: orbit-gw-watch.sh.j2
+    dest: /usr/local/sbin/orbit-gw-watch.sh
+    mode: "0755"
+  when: net_role == 'worker'
+  notify: restart orbit-gw-watch
+
+- name: 장애 전환 감시 서비스
+  ansible.builtin.template:
+    src: orbit-gw-watch.service.j2
+    dest: /etc/systemd/system/orbit-gw-watch.service
+    mode: "0644"
+  when: net_role == 'worker'
+  notify: restart orbit-gw-watch
+
+- name: 감시 서비스 켜기
+  ansible.builtin.systemd_service:
+    name: orbit-gw-watch
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: net_role == 'worker'
+
+- name: 감시 서비스 새 파일로 재시작 (netplan 적용 전)
+  ansible.builtin.meta: flush_handlers
+
+- name: cloud-init 있는지
+  ansible.builtin.stat:
+    path: /etc/cloud/cloud.cfg.d
+  register: cloud_dir
+
+- name: cloud-init이 네트워크를 다시 쓰지 않게
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+    content: "network: {config: disabled}\n"
+    mode: "0644"
+  when: cloud_dir.stat.exists
+
+- name: 백업 폴더
+  ansible.builtin.file:
+    path: "{{ netplan_backup_dir }}/prev"
+    state: directory
+    mode: "0700"
+
+- name: 지금 netplan 백업 (되돌리기용)
+  ansible.builtin.shell: |
+    rm -rf {{ netplan_backup_dir }}/prev/*
+    cp -a /etc/netplan/. {{ netplan_backup_dir }}/prev/
+  changed_when: false
+
+- name: 되돌리기 스크립트
+  ansible.builtin.template:
+    src: orbit-net-revert.sh.j2
+    dest: /usr/local/sbin/orbit-net-revert.sh
+    mode: "0700"
+
+- name: 다른 netplan 파일 찾기
+  ansible.builtin.find:
+    paths: /etc/netplan
+    patterns: "*.yaml"
+    excludes: "{{ netplan_file | basename }}"
+  register: other_netplan
+
+- name: netplan 설정 만들기
+  ansible.builtin.template:
+    src: netplan.yaml.j2
+    dest: "{{ netplan_file }}"
+    mode: "0600"
+  register: netplan_tpl
+
+- name: 미리보기 (--check)에서는 적용 단계를 건너뜀
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }}: netplan이 바뀜. 실제 실행에서 백업, 문법 확인, 적용, ping 확인을 함"
+  when: ansible_check_mode and (netplan_tpl.changed or other_netplan.matched > 0)
+
+- name: 바뀐 게 있으면 안전하게 적용
+  when: (netplan_tpl.changed or other_netplan.matched > 0) and not ansible_check_mode
+  block:
+    - name: 다른 netplan 파일은 백업 폴더로 (우리 파일 하나만 남김)
+      ansible.builtin.command: mv {{ item.path }} {{ netplan_backup_dir }}/prev/
+      changed_when: true
+      loop: "{{ other_netplan.files }}"
+      loop_control: { label: "{{ item.path }}" }
+
+    - name: 문법 확인 (netplan generate)
+      ansible.builtin.command: netplan generate
+      changed_when: false
+
+    - name: 되돌리기 예약 (확인이 끝나면 취소)  # noqa: command-instead-of-module
+      ansible.builtin.shell: |
+        systemctl stop orbit-net-revert.timer 2>/dev/null || true
+        systemctl reset-failed orbit-net-revert.timer orbit-net-revert.service 2>/dev/null || true
+        systemd-run --quiet --unit=orbit-net-revert --on-active={{ revert_after_sec }} /usr/local/sbin/orbit-net-revert.sh
+      changed_when: true
+
+    - name: netplan apply (연결이 잠깐 끊겨도 노드에서 계속 돎)
+      ansible.builtin.command: netplan apply
+      async: 60
+      poll: 0
+
+    - name: 다시 접속될 때까지 대기
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: "{{ revert_after_sec - 30 }}"
+
+    - name: 확인 (ping {{ net_checks | join(', ') }})
+      ansible.builtin.command: ping -c 2 -W 2 {{ item }}
+      loop: "{{ net_checks }}"
+      changed_when: false
+      register: net_ping
+      retries: 6
+      delay: 5
+      until: net_ping.rc == 0
+
+    - name: 확인 끝, 되돌리기 취소
+      ansible.builtin.systemd_service:
+        name: orbit-net-revert.timer
+        state: stopped
+
+  rescue:
+    - name: 실패하면 바로 이전 설정으로
+      ansible.builtin.command: /usr/local/sbin/orbit-net-revert.sh
+      async: 60
+      poll: 0
+      ignore_unreachable: true
+
+    - name: 실패 알림
+      ansible.builtin.fail:
+        msg: >-
+          {{ inventory_hostname }}: 네트워크 적용 실패, 이전 설정으로 되돌림
+          (접속이 끊겼으면 {{ revert_after_sec }}초 안에 자동 복구. 백업: {{ netplan_backup_dir }}/prev)

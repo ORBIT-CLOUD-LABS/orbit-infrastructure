@@ -1,0 +1,22 @@
+# MAC으로 실제 장치 이름을 찾음 (브리지는 제외: br0이 같은 MAC을 가질 수 있음)
+- name: 장치 이름 찾기 (MAC 기준)
+  ansible.builtin.set_fact:
+    lan_if: >-
+      {{ ansible_facts.interfaces | map('replace', '-', '_') | map('extract', ansible_facts)
+         | selectattr('macaddress', 'defined') | rejectattr('type', 'equalto', 'bridge')
+         | selectattr('macaddress', 'equalto', lan_mac | lower)
+         | map(attribute='device') | first | default('') }}
+    wifi_if: >-
+      {{ ansible_facts.interfaces | map('replace', '-', '_') | map('extract', ansible_facts)
+         | selectattr('macaddress', 'defined') | rejectattr('type', 'equalto', 'bridge')
+         | selectattr('macaddress', 'equalto', (wifi_mac | default('-')) | lower)
+         | map(attribute='device') | first | default('') }}
+
+- name: 유선 장치가 있어야 함
+  ansible.builtin.assert:
+    that: lan_if | length > 0
+    fail_msg: "{{ inventory_hostname }}: MAC {{ lan_mac }} 장치를 못 찾음. ip -br link 로 확인"
+
+- name: 내부망 장치 이름 (브리지면 br0)
+  ansible.builtin.set_fact:
+    lan_dev: "{{ lan_bridge | default(lan_if) }}"

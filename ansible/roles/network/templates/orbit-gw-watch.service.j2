@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+[Unit]
+Description=ORBIT gateway failover watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/sbin/orbit-gw-watch.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

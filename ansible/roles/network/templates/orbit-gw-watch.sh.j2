@@ -1,0 +1,27 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# 게이트웨이 주소를 고정하지 않고 매번 PROBE 고정 경로(netplan)에서 읽음
+PROBE={{ probe_ip }}
+METRIC={{ metric_main }}
+LAN_IF={{ lan_if }}
+FAIL_LIMIT=3
+INTERVAL=10
+fail=0
+while true; do
+  GW=$(ip route show "$PROBE" | awk '/via/{print $3; exit}')
+  if [ -z "$GW" ]; then sleep "$INTERVAL"; continue; fi
+  if ping -c 1 -W 2 "$PROBE" >/dev/null 2>&1; then
+    fail=0
+    if ! ip route show default | grep -q "via $GW dev $LAN_IF"; then
+      ip route replace default via "$GW" dev "$LAN_IF" metric "$METRIC"
+      logger -t orbit-gw "게이트웨이($GW) 응답함, 게이트웨이 경로로 복귀"
+    fi
+  else
+    fail=$((fail + 1))
+    if [ "$fail" -ge "$FAIL_LIMIT" ] && ip route show default | grep -q "via $GW dev $LAN_IF"; then
+      ip route del default via "$GW" dev "$LAN_IF" metric "$METRIC"
+      logger -t orbit-gw "게이트웨이($GW) 응답 없음 (${fail}회), 와이파이로 전환"
+    fi
+  fi
+  sleep "$INTERVAL"
+done

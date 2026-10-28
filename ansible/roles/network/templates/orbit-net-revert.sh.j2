@@ -1,0 +1,7 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# 확인이 안 끝나면 systemd 타이머가 실행. 적용 전 netplan으로 되돌림
+rm -f /etc/netplan/*.yaml
+cp -a {{ netplan_backup_dir }}/prev/. /etc/netplan/
+netplan apply
+logger -t orbit-net "확인이 안 끝나서 이전 netplan으로 되돌림 ({{ netplan_backup_dir }}/prev)"

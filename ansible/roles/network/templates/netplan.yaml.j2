@@ -1,0 +1,63 @@
+# {{ ansible_managed }}
+# 노드: {{ inventory_hostname }} ({{ net_role }}). 직접 고치지 말고 인벤토리를 고친 뒤 network 플레이북 실행
+network:
+  version: 2
+  ethernets:
+    orbit-lan:
+      match:
+        macaddress: "{{ lan_mac | lower }}"
+      set-name: {{ lan_if }}
+      dhcp4: false
+{% if lan_bridge is not defined %}
+      addresses: [{{ lan_ip }}/{{ lan_prefix }}]
+      nameservers:
+        addresses: [{{ dns | join(', ') }}]
+{% if net_role == 'worker' %}
+      routes:
+        - to: default
+          via: {{ lan_gw }}
+          metric: {{ metric_main }}
+        - to: {{ probe_ip }}/32
+          via: {{ lan_gw }}
+{% elif net_role == 'cp' %}
+      routes:
+        - to: default
+          via: {{ lan_gw }}
+          metric: {{ metric_backup }}
+{% endif %}
+{% else %}
+  bridges:
+    {{ lan_bridge }}:
+      # VM이 내부망에 직접 붙는 가상 스위치. 유선 IP는 브리지가 가짐
+      interfaces: [orbit-lan]
+      dhcp4: false
+      addresses: [{{ lan_ip }}/{{ lan_prefix }}]
+      nameservers:
+        addresses: [{{ dns | join(', ') }}]
+      parameters:
+        stp: false
+        forward-delay: 0
+{% endif %}
+{% if wifi_if %}
+  wifis:
+    {{ wifi_if }}:
+{% if wifi_ip == 'dhcp' %}
+      dhcp4: true
+      dhcp4-overrides:
+        route-metric: {{ metric_backup }}
+{% else %}
+      dhcp4: false
+      addresses: [{{ wifi_ip }}/{{ wifi_prefix }}]
+      routes:
+        - to: default
+          via: {{ wifi_gw }}
+          metric: {{ metric_backup if net_role == 'worker' else metric_main }}
+      nameservers:
+        addresses: [{{ dns | join(', ') }}]
+{% endif %}
+      access-points:
+        "{{ wifi_ssid }}":
+          auth:
+            key-management: "psk"
+            password: "{{ wifi_psk }}"
+{% endif %}
