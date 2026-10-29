@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+# k3s 에이전트 (worker): {{ inventory_hostname }}
+server: https://{{ k3s_server_ip }}:6443
+token: {{ hostvars[groups['cp'][0]].k3s_token | default('(미리보기에서는 토큰을 모름)') }}
+node-ip: {{ lan_ip }}

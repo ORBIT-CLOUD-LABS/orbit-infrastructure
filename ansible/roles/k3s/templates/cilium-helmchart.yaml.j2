@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+# k3s가 시작할 때 helm-controller가 이 파일을 보고 Cilium을 설치함
+# bootstrap: CNI가 없을 때도 설치 작업이 돌도록 호스트 네트워크로 실행
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: cilium
+  namespace: kube-system
+spec:
+  repo: https://helm.cilium.io/
+  chart: cilium
+  version: {{ cilium_version }}
+  targetNamespace: kube-system
+  bootstrap: true
+  valuesContent: |-
+    ipam:
+      operator:
+        clusterPoolIPv4PodCIDRList:
+          - {{ k3s_pod_cidr }}
+    k8sServiceHost: {{ k3s_server_ip }}
+    k8sServicePort: 6443
+    operator:
+      replicas: 1        # control plane이 한 대라 2개면 하나는 못 뜸
