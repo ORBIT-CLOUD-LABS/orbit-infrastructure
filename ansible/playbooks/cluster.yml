@@ -23,3 +23,4 @@
       ansible.builtin.include_role:
         name: k3s
         tasks_from: verify.yml
+      when: not ansible_check_mode   # 미리보기에서는 k3s가 설치되지 않아 확인할 것이 없음
