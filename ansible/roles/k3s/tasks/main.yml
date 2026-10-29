@@ -65,8 +65,9 @@
       environment:
         INSTALL_K3S_VERSION: "{{ k3s_version }}"
         INSTALL_K3S_EXEC: "{{ k3s_role }}"
-        K3S_URL: "{{ ('https://' ~ k3s_server_ip ~ ':6443') if k3s_role == 'agent' else omit }}"
-        K3S_TOKEN: "{{ hostvars[groups['cp'][0]].k3s_token if k3s_role == 'agent' else omit }}"
+        # environment에는 omit이 안 먹어서 빈 값으로 둠. 설치 스크립트는 K3S_URL이 비어 있으면 서버로 설치함
+        K3S_URL: "{{ ('https://' ~ k3s_server_ip ~ ':6443') if k3s_role == 'agent' else '' }}"
+        K3S_TOKEN: "{{ hostvars[groups['cp'][0]].k3s_token if k3s_role == 'agent' else '' }}"
       changed_when: true
       when: not ansible_check_mode
 
