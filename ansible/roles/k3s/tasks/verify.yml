@@ -1,0 +1,28 @@
+# polaris에서 실행: 노드 4대 Ready, Cilium 정상
+- name: 노드가 전부 Ready가 될 때까지 대기
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get nodes --no-headers
+  register: k3s_nodes
+  changed_when: false
+  retries: "{{ k3s_nodes_ready_retries }}"
+  delay: 10
+  until: >-
+    k3s_nodes.rc == 0 and
+    (k3s_nodes.stdout_lines | length) == (groups['k3s'] | length) and
+    (k3s_nodes.stdout_lines | select('search', ' Ready ') | list | length) == (groups['k3s'] | length)
+
+- name: Cilium 에이전트 (노드마다 하나)
+  ansible.builtin.command: /usr/local/bin/k3s kubectl -n kube-system rollout status ds/cilium --timeout=300s
+  changed_when: false
+
+- name: Cilium operator
+  ansible.builtin.command: /usr/local/bin/k3s kubectl -n kube-system rollout status deploy/cilium-operator --timeout=300s
+  changed_when: false
+
+- name: 결과
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get nodes -o wide
+  register: k3s_nodes_wide
+  changed_when: false
+
+- name: 노드 목록
+  ansible.builtin.debug:
+    var: k3s_nodes_wide.stdout_lines

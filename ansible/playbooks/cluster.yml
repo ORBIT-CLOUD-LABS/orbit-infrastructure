@@ -1,0 +1,26 @@
+# k3s 클러스터: polaris(control plane) → 워커 3대 → 확인
+#   ansible-playbook playbooks/cluster.yml -K --ask-vault-pass
+# 여기까지가 클러스터 구성. 앱, 모니터링 수집기, Argo CD 등은 이 위에 따로
+
+- name: control plane (polaris)
+  hosts: cp
+  become: true
+  roles:
+    - k3s
+
+- name: 워커 (sol, terra, luna)
+  hosts: workers
+  become: true
+  roles:
+    - k3s
+
+- name: 확인
+  hosts: cp
+  become: true
+  gather_facts: false
+  tasks:
+    - name: 노드와 Cilium 확인
+      ansible.builtin.include_role:
+        name: k3s
+        tasks_from: verify.yml
+      when: not ansible_check_mode   # 미리보기에서는 k3s가 설치되지 않아 확인할 것이 없음
