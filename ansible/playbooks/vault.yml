@@ -1,0 +1,22 @@
+# HashiCorp Vault (astra). 초기화와 unseal은 수동
+#   먼저: ansible-playbook playbooks/network.yml --limit astra  (NAT, 규칙 저장 도구)
+#   미리보기: ansible-playbook playbooks/vault.yml -K --ask-vault-pass --check --diff
+#   실행:    ansible-playbook playbooks/vault.yml -K --ask-vault-pass
+# vault.hcl이나 버전이 바뀌면 Vault가 재시작되어 sealed가 됨. unseal할 사람이 있을 때 실행
+
+- name: Vault (astra)
+  hosts: gateway
+  become: true
+  roles:
+    - vault
+
+- name: 확인
+  hosts: gateway
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Vault 상태와 다음 할 일
+      ansible.builtin.include_role:
+        name: vault
+        tasks_from: verify.yml
+      when: not ansible_check_mode   # 미리보기에서는 Vault가 실제로 설치·시작되지 않음

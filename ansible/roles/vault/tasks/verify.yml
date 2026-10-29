@@ -1,0 +1,44 @@
+# astra에서 실행: Vault 상태 확인. 초기화와 unseal은 하지 않고 다음 할 일만 알려 줌
+- name: Vault가 응답할 때까지 대기
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ hvault_port }}"
+    timeout: 60
+
+# 종료 코드: 0 unsealed, 2 sealed(초기화 전 포함), 1 오류
+- name: Vault 상태
+  ansible.builtin.command: vault status -format=json
+  environment:
+    VAULT_ADDR: "https://127.0.0.1:{{ hvault_port }}"
+    VAULT_CACERT: "{{ hvault_tls_dir }}/vault-ca.crt"
+  register: hvault_status
+  changed_when: false
+  failed_when: hvault_status.rc not in [0, 2]
+
+- name: 상태 읽기
+  ansible.builtin.set_fact:
+    hvault_state: "{{ hvault_status.stdout | from_json }}"
+
+# 패키지만 바뀌고 재시작이 안 되면 이전 버전이 계속 돌고 있음
+- name: 실행 중인 버전과 저장소
+  ansible.builtin.assert:
+    that:
+      - hvault_state.version == hvault_version
+      - hvault_state.storage_type == 'raft'
+    fail_msg: "실행 중: {{ hvault_state.version }} / {{ hvault_state.storage_type }}. 기대: {{ hvault_version }} / raft"
+
+# init, unseal 모두 같은 셸에서 아래 환경변수를 먼저 설정해야 자체 CA를 신뢰함
+- name: 다음 할 일
+  ansible.builtin.debug:
+    msg: >-
+      {{ hvault_env + ['vault operator init -key-shares=5 -key-threshold=2',
+                       '(초기화 전. 한 번만 실행. 키가 화면에 나오므로 기록이 남는 터미널은 피함)']
+         if not hvault_state.initialized else
+         hvault_env + ['vault operator unseal',
+                       '(sealed. 키 보관자 2명이 각자 실행. 진행 ' ~ hvault_state.progress ~ '/' ~ hvault_state.t ~ ')']
+         if hvault_state.sealed else
+         ['unsealed. 정상'] }}
+  vars:
+    hvault_env:
+      - "export VAULT_ADDR=https://127.0.0.1:{{ hvault_port }}"
+      - "export VAULT_CACERT={{ hvault_tls_dir }}/vault-ca.crt"

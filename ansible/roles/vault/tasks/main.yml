@@ -48,7 +48,7 @@
         mode: "{{ item.mode }}"
       loop:
         - { path: "{{ hvault_data_dir }}", owner: vault, mode: "0700" }
-        - { path: "{{ hvault_tls_dir }}", owner: root, mode: "0750" }
+        - { path: "{{ hvault_tls_dir }}", owner: root, mode: "0755" }   # vault-ca.crt는 공개용. 개인키는 파일 권한으로 막음
 
     # 내부 CA. 팀원 클라이언트에는 vault-ca.crt만 나눠 줌
     - name: CA 개인키
