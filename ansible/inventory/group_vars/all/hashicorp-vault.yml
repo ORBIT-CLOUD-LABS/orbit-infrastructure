@@ -1,0 +1,25 @@
+# HashiCorp Vault (astra)와 SSH CA 공통 값
+# ansible-vault 비밀값(vault_*)과 헷갈리지 않게 hvault_로 씀
+hvault_version: 2.2.1                        # 버전 고정
+hvault_pkg_revision: 1                       # apt 패키지 리비전. 설치는 vault=2.2.1-1
+hvault_host: "{{ groups['gateway'][0] }}"     # astra
+hvault_ip: "{{ hostvars[hvault_host].lan_ip }}"
+hvault_port: 8200                            # 8201(Raft)은 127.0.0.1에만
+hvault_addr: "https://{{ hvault_ip }}:{{ hvault_port }}"
+hvault_allowed_ifaces:                       # 8200을 받는 인터페이스. 나머지는 차단
+  - lo
+  - "{{ hostvars[hvault_host].lan_bridge }}"   # br0
+  - tailscale0
+
+# SSH CA
+hvault_ssh_mount: ssh-client-signer
+hvault_ssh_role: orbit
+hvault_ssh_user: orbit                       # 인증서는 이 계정에만
+hvault_ssh_cert_ttl: 8h
+hvault_ssh_cert_max_ttl: 8h
+
+# 로그인 (GitHub orbit 팀). 탈퇴 후 새 접속은 최대 토큰 24h + 인증서 8h
+hvault_github_org: ORBIT-CLOUD-LABS
+hvault_github_team: orbit
+hvault_token_ttl: 8h
+hvault_token_max_ttl: 24h
