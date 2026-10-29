@@ -1,0 +1,130 @@
+# astra: Vault 설치, TLS 인증서, 설정. 초기화와 unseal은 수동
+- name: 모듈에 필요한 파이썬 패키지 (apt 저장소, TLS 인증서)
+  ansible.builtin.apt:
+    name: [python3-debian, python3-cryptography]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: HashiCorp apt 저장소
+  ansible.builtin.deb822_repository:
+    name: hashicorp
+    types: deb
+    uris: "{{ hvault_repo_url }}"
+    suites: "{{ ansible_facts.distribution_release }}"
+    components: main
+    signed_by: "{{ hvault_repo_url }}/gpg"
+
+- name: Vault 설치 {{ hvault_version }}
+  ansible.builtin.apt:
+    name: "vault={{ hvault_version }}-{{ hvault_pkg_revision }}"
+    state: present
+    update_cache: true
+    allow_change_held_packages: true   # 버전을 바꿀 때만 hold를 넘어 설치함
+  notify: restart vault                # 패키지는 서비스를 재시작하지 않아서, 실행 중인 Vault가 이전 바이너리로 남음
+
+- name: apt upgrade로 버전이 바뀌지 않게 고정
+  ansible.builtin.dpkg_selections:
+    name: vault
+    selection: hold
+
+- name: 설치됐는지 (미리보기에서 처음이면 아직 없음)
+  ansible.builtin.stat:
+    path: /usr/bin/vault
+  register: hvault_bin
+
+- name: 인증서, 설정, 서비스
+  when: hvault_bin.stat.exists   # 미리보기 첫 실행에서는 vault 계정과 폴더가 아직 없음
+  block:
+    - name: 폴더
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: vault
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "{{ hvault_data_dir }}", owner: vault, mode: "0700" }
+        - { path: "{{ hvault_tls_dir }}", owner: root, mode: "0750" }
+
+    # 내부 CA. 팀원 클라이언트에는 vault-ca.crt만 나눠 줌
+    - name: CA 개인키
+      community.crypto.openssl_privatekey:
+        path: "{{ hvault_tls_dir }}/vault-ca.key"
+        type: ECC
+        curve: secp384r1
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: CA 인증서 요청
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: "{{ hvault_tls_dir }}/vault-ca.key"
+        common_name: ORBIT Vault CA
+        use_common_name_for_san: false
+        basic_constraints: ["CA:TRUE", "pathlen:0"]
+        basic_constraints_critical: true
+        key_usage: [keyCertSign, cRLSign]
+        key_usage_critical: true
+      register: hvault_ca_csr
+      changed_when: false
+
+    - name: CA 인증서
+      community.crypto.x509_certificate:
+        path: "{{ hvault_tls_dir }}/vault-ca.crt"
+        csr_content: "{{ hvault_ca_csr.csr }}"
+        privatekey_path: "{{ hvault_tls_dir }}/vault-ca.key"
+        provider: selfsigned
+        selfsigned_not_after: "+{{ hvault_tls_ca_days }}d"
+        owner: root
+        group: vault
+        mode: "0644"
+
+    - name: 서버 개인키
+      community.crypto.openssl_privatekey:
+        path: "{{ hvault_tls_dir }}/vault.key"
+        type: ECC
+        curve: secp256r1
+        owner: root
+        group: vault
+        mode: "0640"
+      notify: reload vault
+
+    - name: 서버 인증서 요청
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: "{{ hvault_tls_dir }}/vault.key"
+        common_name: "{{ inventory_hostname }}"
+        subject_alt_name: "{{ hvault_tls_sans }}"
+        key_usage: [digitalSignature, keyAgreement]
+        extended_key_usage: [serverAuth]
+      register: hvault_csr
+      changed_when: false
+
+    - name: 서버 인증서 (SAN이 바뀌면 다시 발급)
+      community.crypto.x509_certificate:
+        path: "{{ hvault_tls_dir }}/vault.crt"
+        csr_content: "{{ hvault_csr.csr }}"
+        provider: ownca
+        ownca_path: "{{ hvault_tls_dir }}/vault-ca.crt"
+        ownca_privatekey_path: "{{ hvault_tls_dir }}/vault-ca.key"
+        ownca_not_after: "+{{ hvault_tls_cert_days }}d"
+        owner: root
+        group: vault
+        mode: "0644"
+      notify: reload vault
+
+    - name: Vault 설정
+      ansible.builtin.template:
+        src: vault.hcl.j2
+        dest: "{{ hvault_config_dir }}/vault.hcl"
+        owner: root
+        group: vault
+        mode: "0640"
+      notify: restart vault
+
+    - name: Vault 서비스 켜기
+      ansible.builtin.systemd_service:
+        name: vault
+        enabled: true
+        state: started
+      when: not ansible_check_mode

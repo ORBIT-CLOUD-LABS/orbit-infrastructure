@@ -1,0 +1,10 @@
+hvault_repo_url: https://apt.releases.hashicorp.com
+hvault_config_dir: /etc/vault.d
+hvault_data_dir: /opt/vault/data          # Raft. astra NVMe
+hvault_tls_dir: /opt/vault/tls            # 패키지가 만드는 tls.crt/tls.key와 겹치지 않게 vault-* 이름으로 씀
+hvault_cluster_addr: 127.0.0.1:8201       # 단일 노드라 밖으로 열 필요 없음
+hvault_tls_ca_days: 3650
+hvault_tls_cert_days: 825
+hvault_tls_sans: >-
+  {{ ['DNS:' ~ inventory_hostname, 'DNS:localhost', 'IP:127.0.0.1', 'IP:' ~ lan_ip]
+     + (['IP:' ~ tailscale_ip] if tailscale_ip is defined else []) }}

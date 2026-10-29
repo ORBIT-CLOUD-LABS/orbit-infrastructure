@@ -1,0 +1,13 @@
+# 재시작하면 Vault가 sealed가 됨. 다시 unseal해야 함
+- name: restart vault
+  ansible.builtin.systemd_service:
+    name: vault
+    state: restarted
+  when: not ansible_check_mode   # 미리보기 첫 실행에서는 vault 서비스가 아직 없음
+
+# 인증서만 바뀌면 reload(SIGHUP)로 다시 읽음. seal되지 않음
+- name: reload vault
+  ansible.builtin.systemd_service:
+    name: vault
+    state: reloaded
+  when: not ansible_check_mode

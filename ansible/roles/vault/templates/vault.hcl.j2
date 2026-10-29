@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+# Vault 서버 (astra). 초기화와 unseal은 수동
+ui            = false
+disable_mlock = true     # Raft는 mlock을 끄도록 권장 (메모리 맵 파일을 씀)
+api_addr      = "{{ hvault_addr }}"
+cluster_addr  = "https://{{ hvault_cluster_addr }}"
+
+storage "raft" {
+  path    = "{{ hvault_data_dir }}"
+  node_id = "{{ inventory_hostname }}"
+}
+
+# 모든 IPv4 주소에서 받고, 받을 인터페이스는 방화벽에서 제한함 (tailscale0은 부팅 때 늦게 생김)
+listener "tcp" {
+  address         = "0.0.0.0:{{ hvault_port }}"
+  cluster_address = "{{ hvault_cluster_addr }}"
+  tls_cert_file   = "{{ hvault_tls_dir }}/vault.crt"
+  tls_key_file    = "{{ hvault_tls_dir }}/vault.key"
+  tls_min_version = "tls12"
+}
