@@ -1,0 +1,34 @@
+# polaris(cp) 사전 확인: etcd가 NVMe에 저장되는지, 커널이 Cilium(eBPF)을 지원하는지
+- name: 데이터 폴더가 따로 붙어 있는지 (NVMe)
+  ansible.builtin.command: findmnt -n -o SOURCE {{ k3s_data_mount }}
+  register: k3s_mount
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: NVMe가 안 붙어 있으면 멈춤 (etcd가 eMMC에 쌓이는 걸 막음)
+  ansible.builtin.assert:
+    that: k3s_mount.rc == 0
+    fail_msg: "{{ k3s_data_mount }}가 따로 마운트되어 있지 않음. polaris NVMe 설정 확인 ([[1 polaris OS 설치]] 8번)"
+
+- name: 커널 설정 읽기
+  ansible.builtin.shell: |
+    set -o pipefail
+    (zcat /proc/config.gz 2>/dev/null || cat /boot/config-$(uname -r)) | grep -E '^CONFIG_({{ k3s_kernel_opts | join("|") }})='
+  args:
+    executable: /bin/bash
+  register: k3s_kconfig
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not k3s_skip_bpf_check
+
+- name: Cilium에 필요한 커널 기능 확인
+  ansible.builtin.assert:
+    that: >-
+      ('CONFIG_' ~ item ~ '=y') in k3s_kconfig.stdout_lines or
+      ('CONFIG_' ~ item ~ '=m') in k3s_kconfig.stdout_lines
+    fail_msg: "커널에 CONFIG_{{ item }}가 없음. Cilium이 안 뜰 수 있음 ([[1 클러스터 구성 결정]] Q&A)"
+    quiet: true
+  loop: "{{ k3s_kernel_opts }}"
+  when: not k3s_skip_bpf_check
