@@ -5,6 +5,11 @@
     state: restarted
   when: not ansible_check_mode   # 미리보기 첫 실행에서는 vault 서비스가 아직 없음
 
+# 재부팅 뒤에도 유지 (gateway role의 save iptables와 같은 명령)
+- name: save vault firewall
+  ansible.builtin.command: netfilter-persistent save
+  changed_when: true
+
 # 인증서만 바뀌면 reload(SIGHUP)로 다시 읽음. seal되지 않음
 - name: reload vault
   ansible.builtin.systemd_service:

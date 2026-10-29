@@ -1,4 +1,7 @@
 # astra: Vault 설치, TLS 인증서, 설정. 초기화와 unseal은 수동
+- name: 방화벽 (Vault가 뜨기 전에 8200을 막아 둠)
+  ansible.builtin.include_tasks: firewall.yml
+
 - name: 모듈에 필요한 파이썬 패키지 (apt 저장소, TLS 인증서)
   ansible.builtin.apt:
     name: [python3-debian, python3-cryptography]

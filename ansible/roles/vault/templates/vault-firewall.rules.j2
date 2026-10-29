@@ -1,0 +1,11 @@
+*filter
+:ORBIT-VAULT - [0:0]
+-F ORBIT-VAULT
+{% for rule in hvault_fw_chain[1:] %}
+{{ rule }}
+{% endfor %}
+{% for rule in hvault_fw_input_now if rule == hvault_fw_jump %}
+{{ hvault_fw_jump | regex_replace('^-A ', '-D ') }}
+{% endfor %}
+{{ hvault_fw_jump | regex_replace('^-A INPUT ', '-I INPUT 1 ') }}
+COMMIT
