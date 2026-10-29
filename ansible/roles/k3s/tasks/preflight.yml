@@ -32,3 +32,35 @@
     quiet: true
   loop: "{{ k3s_kernel_opts }}"
   when: not k3s_skip_bpf_check
+
+# polaris 커널은 RT_GROUP_SCHED=y라서 실시간 프로세스(multipathd)가 있으면 cpu cgroup이 안 켜지고 파드가 못 뜸
+- name: multipathd 끄기 (NVMe 한 장이라 필요 없음)
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop:
+    - multipathd.socket
+    - multipathd.service
+
+- name: cpu cgroup이 켜져 있는지
+  ansible.builtin.command: cat /sys/fs/cgroup/cgroup.subtree_control
+  register: k3s_cgroup
+  changed_when: false
+  check_mode: false
+
+- name: cpu cgroup이 꺼져 있으면 재부팅 (multipathd가 없는 상태로 systemd가 다시 켬)
+  ansible.builtin.reboot:
+  when: "'cpu' not in k3s_cgroup.stdout.split()"
+
+- name: 재부팅 뒤 다시 확인
+  ansible.builtin.command: cat /sys/fs/cgroup/cgroup.subtree_control
+  register: k3s_cgroup
+  changed_when: false
+  check_mode: false
+
+- name: cpu cgroup이 없으면 멈춤
+  ansible.builtin.assert:
+    that: "'cpu' in k3s_cgroup.stdout.split() or ansible_check_mode"
+    fail_msg: "cpu cgroup이 꺼져 있음. polaris에서 실시간(RT) 프로세스가 남아 있는지 확인"
