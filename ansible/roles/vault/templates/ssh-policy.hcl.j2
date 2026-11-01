@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+# SSH 인증서 서명만. 역할({{ hvault_ssh_role }})이 계정과 유효기간을 제한함
+path "{{ hvault_ssh_mount }}/sign/{{ hvault_ssh_role }}" {
+  capabilities = ["update"]
+}

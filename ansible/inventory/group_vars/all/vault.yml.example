@@ -2,3 +2,6 @@
 vault_wifi_psk: "<와이파이 비밀번호>"
 # VM의 orbit 계정 sudo 비밀번호 해시. 노드와 같은 비밀번호로: openssl passwd -6
 vault_orbit_password_hash: "$6$..."
+# HashiCorp Vault 비상 계정(userpass) 비밀번호. 계정을 처음 만들 때만 씀
+vault_breakglass1_password: "<비상 계정 1 비밀번호>"
+vault_breakglass2_password: "<비상 계정 2 비밀번호>"

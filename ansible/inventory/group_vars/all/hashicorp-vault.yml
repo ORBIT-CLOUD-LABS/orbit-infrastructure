@@ -23,3 +23,9 @@ hvault_github_org: ORBIT-CLOUD-LABS
 hvault_github_team: orbit
 hvault_token_ttl: 8h
 hvault_token_max_ttl: 24h
+
+# 인터넷(GitHub)이 안 될 때 쓰는 비상 계정. SSH 서명만. 비밀번호는 vault.yml (ansible-vault)
+hvault_breakglass_users: [breakglass1, breakglass2]
+hvault_breakglass_passwords:
+  breakglass1: "{{ vault_breakglass1_password }}"
+  breakglass2: "{{ vault_breakglass2_password }}"

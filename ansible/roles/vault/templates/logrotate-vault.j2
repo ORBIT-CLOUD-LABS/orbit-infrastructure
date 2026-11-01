@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# 기록하지 못하면 Vault가 요청을 거부함. logrotate.timer가 하루 한 번 돌 때만 크기(maxsize)도 봄
+# 감사 로그는 요청이 있을 때만 쌓여 하루 사이 디스크를 채울 양은 아님. 수시로 제한하려면 전용 타이머가 필요
+{{ hvault_audit_log }} {
+    daily
+    maxsize {{ hvault_audit_maxsize }}
+    rotate {{ hvault_audit_keep }}
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0600 vault vault
+    postrotate
+        systemctl reload vault >/dev/null 2>&1 || true
+    endscript
+}

@@ -3,6 +3,11 @@
 #   미리보기: ansible-playbook playbooks/vault.yml -K --ask-vault-pass --check --diff
 #   실행:    ansible-playbook playbooks/vault.yml -K --ask-vault-pass
 # vault.hcl이나 버전이 바뀌면 Vault가 재시작되어 sealed가 됨. unseal할 사람이 있을 때 실행
+#
+# Vault 안의 설정(감사 로그, SSH CA, 정책, 로그인)은 root token이 있을 때만 함
+#   read -rs VAULT_TOKEN && export VAULT_TOKEN   # 화면과 history에 남지 않게 입력
+#   ansible-playbook playbooks/vault.yml -K --ask-vault-pass
+#   unset VAULT_TOKEN
 
 - name: Vault (astra)
   hosts: gateway
@@ -20,3 +25,13 @@
         name: vault
         tasks_from: verify.yml
       when: not ansible_check_mode   # 미리보기에서는 Vault가 실제로 설치·시작되지 않음
+
+- name: Vault 안의 설정 (root token이 있을 때만)
+  hosts: gateway
+  gather_facts: false
+  tasks:
+    - name: 감사 로그, SSH CA, 정책, 로그인
+      ansible.builtin.include_role:
+        name: vault
+        tasks_from: configure.yml
+      when: lookup('ansible.builtin.env', 'VAULT_TOKEN') | length > 0

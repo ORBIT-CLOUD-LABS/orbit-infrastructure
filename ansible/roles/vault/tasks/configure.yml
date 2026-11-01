@@ -1,0 +1,209 @@
+# Vault 안의 설정: 감사 로그, SSH CA, 정책, 로그인 방식. root token(VAULT_TOKEN)이 있을 때만 실행
+# 지금 값을 읽어 원하는 값과 다를 때만 씀. SSH CA 키는 없을 때만 만들고 다시 만들지 않음
+# uri는 미리보기에서 실행되지 않아서, 읽기는 항상 하고 바뀔 항목만 따로 보여 줌
+# Vault는 유효기간을 초 단위 숫자로 돌려줘서, 비교할 수 있게 초로 바꿔 둠 (8h → 28800)
+- name: 설정에 쓸 값
+  ansible.builtin.set_fact:
+    hvault_api: "https://127.0.0.1:{{ hvault_port }}/v1"
+    hvault_ssh_cert_ttl_s: "{{ (hvault_ssh_cert_ttl[:-1] | int) * hvault_unit[hvault_ssh_cert_ttl[-1]] }}"
+    hvault_ssh_cert_max_ttl_s: "{{ (hvault_ssh_cert_max_ttl[:-1] | int) * hvault_unit[hvault_ssh_cert_max_ttl[-1]] }}"
+    hvault_token_ttl_s: "{{ (hvault_token_ttl[:-1] | int) * hvault_unit[hvault_token_ttl[-1]] }}"
+    hvault_token_max_ttl_s: "{{ (hvault_token_max_ttl[:-1] | int) * hvault_unit[hvault_token_max_ttl[-1]] }}"
+  vars:
+    hvault_unit: { s: 1, m: 60, h: 3600 }
+
+- name: Vault API 호출 (토큰은 출력에 남기지 않음)
+  module_defaults:
+    ansible.builtin.uri:
+      headers:
+        X-Vault-Token: "{{ lookup('ansible.builtin.env', 'VAULT_TOKEN') }}"
+      ca_path: "{{ hvault_tls_dir }}/vault-ca.crt"
+      body_format: json
+  block:
+    - name: unseal 상태와 토큰 확인
+      ansible.builtin.uri:
+        url: "{{ hvault_api }}/auth/token/lookup-self"
+        status_code: [200, 403, 503]
+      register: hvault_self
+      check_mode: false
+      no_log: true
+
+    - name: unseal 상태이고 토큰이 맞아야 함
+      ansible.builtin.assert:
+        that: hvault_self.status == 200
+        fail_msg: "{{ 'Vault가 sealed 상태. 먼저 unseal' if hvault_self.status == 503 else 'VAULT_TOKEN이 맞지 않음 (403)' }}"
+
+    # id: 항목 이름, read: 읽을 경로, write: 쓸 경로(없으면 read)
+    # exists_key: 이 키가 있으면 됨 (있는데 종류나 경로가 다르면 멈춤). 없으면 body가 지금 값에 다 들어 있으면 됨
+    # 없음은 404로 판단. 400은 missing_400 메시지일 때만 없음으로 봄
+    - name: 원하는 설정
+      ansible.builtin.set_fact:
+        hvault_cfg:
+          - id: audit
+            name: 감사 로그 장치
+            read: sys/audit
+            exists_key: file/
+            write: sys/audit/file
+            method: PUT
+            body: { type: file, options: { file_path: "{{ hvault_audit_log }}", mode: "0600" } }
+          - id: ssh_mount
+            name: SSH 엔진
+            read: sys/mounts
+            exists_key: "{{ hvault_ssh_mount }}/"
+            write: "sys/mounts/{{ hvault_ssh_mount }}"
+            body: { type: ssh }
+          - id: ssh_ca
+            name: SSH CA 키 (없을 때만 만듦)
+            read: "{{ hvault_ssh_mount }}/config/ca"
+            exists_key: public_key
+            missing_400: "keys haven't been configured yet"
+            body: { generate_signing_key: true, key_type: ed25519 }
+          - id: ssh_role
+            name: SSH 역할
+            read: "{{ hvault_ssh_mount }}/roles/{{ hvault_ssh_role }}"
+            body:
+              key_type: ca
+              allow_user_certificates: true
+              allowed_users: "{{ hvault_ssh_user }}"
+              default_user: "{{ hvault_ssh_user }}"
+              allowed_extensions: permit-pty
+              default_extensions: { permit-pty: "" }
+              ttl: "{{ hvault_ssh_cert_ttl_s }}"
+              max_ttl: "{{ hvault_ssh_cert_max_ttl_s }}"
+              # 서버가 정함 (github-<아이디>, userpass-<이름>). Vault 형식이라 공백 없이 써야 함
+              key_id_format: !unsafe "{{token_display_name}}"   # noqa: jinja[spacing]
+              allow_user_key_ids: false                          # 요청자가 인증서 ID를 못 바꿈
+          - id: ssh_policy
+            name: SSH 서명 정책
+            read: "sys/policies/acl/{{ hvault_ssh_policy }}"
+            body: { policy: "{{ lookup('ansible.builtin.template', 'ssh-policy.hcl.j2') }}" }
+          - id: github_mount
+            name: GitHub 로그인 켜기
+            read: sys/auth
+            exists_key: github/
+            write: sys/auth/github
+            body: { type: github }
+          - id: github_config
+            name: GitHub 조직과 토큰 유효기간
+            read: auth/github/config
+            body:
+              organization: "{{ hvault_github_org }}"
+              token_ttl: "{{ hvault_token_ttl_s }}"
+              token_max_ttl: "{{ hvault_token_max_ttl_s }}"
+          - id: github_team
+            name: GitHub 팀 → 정책
+            read: "auth/github/map/teams/{{ hvault_github_team }}"
+            body: { value: "{{ hvault_ssh_policy }}" }
+          - id: userpass_mount
+            name: userpass 로그인 켜기 (비상용)
+            read: sys/auth
+            exists_key: userpass/
+            write: sys/auth/userpass
+            body: { type: userpass }
+
+    # 비밀번호는 만들 때만 넣음. 바꾸려면 Vault에서 계정을 지우고 다시 실행
+    - name: 비상 계정 ({{ hvault_breakglass_users | join(', ') }})
+      ansible.builtin.set_fact:
+        hvault_cfg: >-
+          {{ hvault_cfg + [{
+               'id': 'user_' ~ item,
+               'name': '비상 계정 ' ~ item,
+               'read': 'auth/userpass/users/' ~ item,
+               'body': { 'token_policies': [hvault_ssh_policy],
+                         'token_ttl': hvault_token_ttl_s | int,
+                         'token_max_ttl': hvault_token_max_ttl_s | int },
+               'create_body': { 'password': hvault_breakglass_passwords[item] } }] }}
+      loop: "{{ hvault_breakglass_users }}"
+      no_log: true
+
+    - name: 지금 설정 읽기
+      ansible.builtin.uri:
+        url: "{{ hvault_api }}/{{ item.read }}"
+        status_code: [200, 400, 404]
+      loop: "{{ hvault_cfg }}"
+      register: hvault_cfg_now
+      check_mode: false
+      no_log: true
+
+    # 아래 검사가 실패할 때 내용을 보여 줄 수 있게, 토큰과 비밀번호를 뺀 결과만 남김
+    - name: 읽은 결과 정리
+      ansible.builtin.set_fact:
+        hvault_seen: >-
+          {{ (hvault_seen | default([])) + [{
+               'id': item.item.id,
+               'name': item.item.name,
+               'status': item.status,
+               'errors': (item.json.errors | default([])) if item.json is defined else [],
+               'data': (item.json.data | default({}, true)) if item.json is defined else {},
+               'cfg': item.item | dict2items | rejectattr('key', 'eq', 'create_body') | items2dict }] }}
+      loop: "{{ hvault_cfg_now.results }}"
+      no_log: true
+
+    - name: 400은 예상한 "설정 없음"일 때만 허용
+      ansible.builtin.assert:
+        that: >-
+          item.status != 400 or
+          (item.cfg.missing_400 is defined and item.cfg.missing_400 in (item.errors | join(' ')))
+        fail_msg: "{{ item.name }}: 예상하지 못한 400 응답 {{ item.errors }}. 자동으로 만들지 않음"
+        quiet: true
+      loop: "{{ hvault_seen }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    # 같은 경로에 다른 종류(엔진·로그인)나 다른 감사 로그 경로가 있으면, 덮어쓰지 않고 멈춤
+    - name: 이미 있는 장치·엔진·로그인이 원하는 것인지
+      ansible.builtin.assert:
+        that:
+          - item.data[item.cfg.exists_key].type == item.cfg.body.type
+          - >-
+            item.cfg.body.options is not defined or
+            item.data[item.cfg.exists_key].options.file_path == item.cfg.body.options.file_path
+        fail_msg: >-
+          {{ item.name }}: 이미 다른 설정으로 있음
+          ({{ item.data[item.cfg.exists_key].type }} {{ item.data[item.cfg.exists_key].options | default({}) }}).
+          자동으로 바꾸지 않으니 확인 후 정리
+        quiet: true
+      when: >-
+        item.cfg.exists_key is defined and item.cfg.body.type is defined and
+        item.status == 200 and item.cfg.exists_key in item.data
+      loop: "{{ hvault_seen }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    # 읽기가 404 또는 허용된 400이거나, 지금 값이 원하는 값과 다르면 바꿀 목록에 넣음
+    # 템플릿으로 만든 숫자는 문자열이 되므로("28800"), 원하는 키만 문자열로 바꿔 비교함
+    - name: 바꿀 설정 고르기
+      ansible.builtin.set_fact:
+        hvault_todo: "{{ (hvault_todo | default([])) + [item.id] }}"
+        hvault_create: "{{ (hvault_create | default([])) + ([item.id] if item.status != 200 else []) }}"
+      when: >-
+        item.status != 200 or
+        ((item.cfg.exists_key not in item.data) if item.cfg.exists_key is defined
+         else ((item.cfg.body.values() | map('string') | list)
+               != (item.cfg.body.keys() | map('extract', hvault_have) | map('string') | list)))
+      vars:
+        hvault_have: "{{ dict(item.cfg.body.keys() | zip_longest([], fillvalue='')) | combine(item.data) }}"   # 없는 키는 빈 값
+      loop: "{{ hvault_seen }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    # CA 키를 다시 만들면 모든 노드의 신뢰가 깨짐. 404로 만드는 건 SSH 엔진을 이번에 새로 만들 때뿐
+    - name: SSH CA 키는 엔진이 새로 생길 때나 "keys haven't been configured yet"일 때만 만듦
+      ansible.builtin.assert:
+        that: >-
+          'ssh_ca' not in (hvault_todo | default([])) or
+          (hvault_seen | selectattr('id', 'eq', 'ssh_ca') | first).status == 400 or
+          'ssh_mount' in (hvault_todo | default([]))
+        fail_msg: "SSH CA 키를 읽을 수 없는데 SSH 엔진은 이미 있음. 자동으로 만들지 않음"
+
+    - name: 바뀔 설정
+      ansible.builtin.debug:
+        msg: "{{ hvault_seen | selectattr('id', 'in', hvault_todo | default([])) | map(attribute='name') | list }}"
+      changed_when: hvault_todo | default([]) | length > 0
+
+    - name: 설정 쓰기
+      ansible.builtin.uri:
+        url: "{{ hvault_api }}/{{ item.write | default(item.read) }}"
+        method: "{{ item.method | default('POST') }}"
+        body: "{{ item.body | combine(item.create_body | default({}) if item.id in (hvault_create | default([])) else {}) }}"
+        status_code: [200, 204]
+      loop: "{{ hvault_cfg | selectattr('id', 'in', hvault_todo | default([])) | list }}"
+      changed_when: true
+      no_log: true
