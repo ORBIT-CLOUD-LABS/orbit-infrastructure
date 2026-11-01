@@ -9,6 +9,13 @@
     update_cache: true
     cache_valid_time: 3600
 
+# 수동으로 추가한 옛 형식 파일이 남아 있으면 서명 키 경로가 달라 apt update가 실패함 (Conflicting values set for option Signed-By)
+# 같은 저장소라 terraform 등은 아래 새 파일에서 계속 받음. legacy terraform_runner role과 같은 형식
+- name: 옛 형식 HashiCorp 저장소 파일 지우기
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/hashicorp.list
+    state: absent
+
 - name: HashiCorp apt 저장소
   ansible.builtin.deb822_repository:
     name: hashicorp
