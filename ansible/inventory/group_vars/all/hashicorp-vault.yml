@@ -6,6 +6,7 @@ hvault_host: "{{ groups['gateway'][0] }}"     # astra
 hvault_ip: "{{ hostvars[hvault_host].lan_ip }}"
 hvault_port: 8200                            # 8201(Raft)은 127.0.0.1에만
 hvault_addr: "https://{{ hvault_ip }}:{{ hvault_port }}"
+hvault_tls_dir: /opt/vault/tls               # astra. vault-ca.crt로 Vault 인증서를 검증. 패키지의 tls.crt/tls.key와 겹치지 않게 vault-* 이름
 hvault_allowed_ifaces:                       # 8200을 받는 인터페이스. 나머지는 차단
   - lo
   - "{{ hostvars[hvault_host].lan_bridge }}"   # br0

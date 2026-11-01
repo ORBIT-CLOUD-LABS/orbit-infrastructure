@@ -1,0 +1,2 @@
+ssh_ca_keys_file: /etc/ssh/trusted-user-ca-keys.pem
+ssh_ca_dropin: /etc/ssh/sshd_config.d/10-orbit-ssh-ca.conf   # sshd는 처음 나온 값을 씀. 다른 조각(50-, 60-, 99-)보다 앞

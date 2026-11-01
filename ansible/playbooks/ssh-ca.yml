@@ -1,0 +1,12 @@
+# 노드와 VM이 Vault SSH CA가 서명한 인증서로 로그인을 받게 함. 기존 키(authorized_keys)는 그대로
+#   먼저: ansible-playbook playbooks/vault.yml  (Vault와 SSH CA)
+#   미리보기: ansible-playbook playbooks/ssh-ca.yml -K --ask-vault-pass --check --diff --limit sol
+#   한 대:   ansible-playbook playbooks/ssh-ca.yml -K --ask-vault-pass --limit sol
+#   확인 후 전체: ansible-playbook playbooks/ssh-ca.yml -K --ask-vault-pass
+
+- name: SSH CA 신뢰
+  hosts: all
+  become: true
+  serial: 1       # 한 대씩. 실패하면 거기서 멈춤
+  roles:
+    - ssh_ca

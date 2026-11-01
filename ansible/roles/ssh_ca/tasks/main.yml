@@ -1,0 +1,103 @@
+# Vault SSH CA가 서명한 사용자 인증서를 받게 함. 기존 authorized_keys는 건드리지 않음 (Vault가 멈췄을 때 비상 경로)
+# CA 공개키는 Ansible이 astra에서 Vault에 물어봄. 노드는 Vault에 접속하지 않음
+- name: Vault SSH CA 공개키 (astra에서 읽음, 인증 없이 열려 있는 경로)
+  ansible.builtin.uri:
+    url: "{{ hvault_addr }}/v1/{{ hvault_ssh_mount }}/public_key"
+    ca_path: "{{ hvault_tls_dir }}/vault-ca.crt"
+    return_content: true
+  register: ssh_ca_pubkey
+  delegate_to: "{{ hvault_host }}"
+  become: false
+  check_mode: false
+
+- name: 공개키 모양 확인 (한 줄짜리 SSH 공개키)
+  ansible.builtin.assert:
+    that: ssh_ca_pubkey.content | trim is match('^ssh-(ed25519|rsa|ecdsa-[a-z0-9-]+) [A-Za-z0-9+/=]+$')
+    fail_msg: "Vault에서 받은 CA 공개키가 이상함: {{ ssh_ca_pubkey.content | truncate(80) }}"
+    quiet: true
+
+# 검증에 실패하면 이 상태로 되돌림 (없던 파일은 지우고, 있던 파일은 원래 내용으로)
+# 있는지는 stat으로 정함. 있는 파일을 못 읽으면 아무것도 바꾸기 전에 멈춤 (못 읽은 파일을 없던 파일로 보고 지우지 않게)
+- name: 바꾸기 전에 파일이 있는지
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: ["{{ ssh_ca_keys_file }}", "{{ ssh_ca_dropin }}"]
+  register: ssh_ca_exists
+
+- name: 있던 파일 내용
+  ansible.builtin.slurp:
+    src: "{{ item.item }}"
+  loop: "{{ ssh_ca_exists.results }}"
+  loop_control: { label: "{{ item.item }}" }
+  when: item.stat.exists
+  register: ssh_ca_before
+  check_mode: false
+
+# 파일을 쓰고, reload 전에 검증. 실패하면 reload 없이 되돌려서 실행 중인 sshd는 그대로
+- name: sshd 설정
+  block:
+    - name: CA 공개키 파일
+      ansible.builtin.copy:
+        content: "{{ ssh_ca_pubkey.content | trim }}\n"
+        dest: "{{ ssh_ca_keys_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload ssh
+
+    - name: sshd 설정 조각
+      ansible.builtin.template:
+        src: orbit-ssh-ca.conf.j2
+        dest: "{{ ssh_ca_dropin }}"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload ssh
+
+    - name: 전체 sshd 설정 검사
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+      when: not ansible_check_mode   # 미리보기에서는 위 파일이 실제로 안 바뀜
+
+    # 다른 조각이 먼저 같은 설정을 하면 여기서 드러남 (sshd는 처음 나온 값을 씀)
+    - name: sshd가 쓸 값 읽기
+      ansible.builtin.command: /usr/sbin/sshd -T
+      register: ssh_ca_effective
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: TrustedUserCAKeys가 이 파일인지
+      ansible.builtin.assert:
+        that: ('trustedusercakeys ' ~ ssh_ca_keys_file) in ssh_ca_effective.stdout_lines
+        fail_msg: "sshd가 다른 TrustedUserCAKeys를 씀: {{ ssh_ca_effective.stdout_lines | select('match', 'trustedusercakeys') | list }}"
+        quiet: true
+      when: not ansible_check_mode
+  rescue:
+    # ssh_ca_before의 항목마다 item.item이 stat 결과, item.item.item이 경로
+    - name: 실패. 있던 파일은 원래 내용으로
+      ansible.builtin.copy:
+        content: "{{ item.content | b64decode }}"
+        dest: "{{ item.item.item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ ssh_ca_before.results }}"
+      loop_control: { label: "{{ item.item.item }}" }
+      when: item.item.stat.exists
+
+    - name: 실패. 없던 파일은 지우기
+      ansible.builtin.file:
+        path: "{{ item.item.item }}"
+        state: absent
+      loop: "{{ ssh_ca_before.results }}"
+      loop_control: { label: "{{ item.item.item }}" }
+      when: not item.item.stat.exists
+
+    - name: 멈춤
+      ansible.builtin.fail:
+        msg: >-
+          {{ ansible_failed_task.name }} 실패: {{ ansible_failed_result.stderr | default(ansible_failed_result.msg) | default('') | trim }}.
+          두 파일을 바꾸기 전 상태로 되돌렸고 sshd는 reload하지 않았음. sudo sshd -t로 확인
+
+- name: 검증을 통과했으면 지금 reload
+  ansible.builtin.meta: flush_handlers

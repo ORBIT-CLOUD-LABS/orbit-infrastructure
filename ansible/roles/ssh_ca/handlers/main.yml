@@ -1,0 +1,6 @@
+# ssh는 소켓으로 켜지는 방식이라 꺼져 있을 수 있음. 켜져 있을 때만 reload (reload 전에 sshd -t로 검사함)
+# systemd 모듈의 reloaded는 꺼져 있으면 서비스를 켜서 ssh.socket과 부딪칠 수 있음. 그래서 systemctl을 직접 씀
+# 이미 연결된 세션은 끊기지 않음
+- name: reload ssh
+  ansible.builtin.command: systemctl try-reload-or-restart ssh.service   # noqa: command-instead-of-module
+  changed_when: true
