@@ -34,19 +34,24 @@
     suites: "{{ ansible_facts.distribution_release }}"
     components: main
     signed_by: "{{ hvault_repo_url }}/gpg"
+  register: hvault_repo
 
-- name: Vault 설치 {{ hvault_version }}
-  ansible.builtin.apt:
-    name: "vault={{ hvault_version }}-{{ hvault_pkg_revision }}"
-    state: present
-    update_cache: true
-    allow_change_held_packages: true   # 버전을 바꿀 때만 hold를 넘어 설치함
-  notify: restart vault                # 패키지는 서비스를 재시작하지 않아서, 실행 중인 Vault가 이전 바이너리로 남음
+# 미리보기에서 저장소를 처음 등록하면 실제로는 등록되지 않아 apt가 vault 패키지를 못 찾음
+- name: 설치와 버전 고정
+  when: not (ansible_check_mode and hvault_repo is changed)
+  block:
+    - name: Vault 설치 {{ hvault_version }}
+      ansible.builtin.apt:
+        name: "vault={{ hvault_version }}-{{ hvault_pkg_revision }}"
+        state: present
+        update_cache: true
+        allow_change_held_packages: true   # 버전을 바꿀 때만 hold를 넘어 설치함
+      notify: restart vault                # 패키지는 서비스를 재시작하지 않아서, 실행 중인 Vault가 이전 바이너리로 남음
 
-- name: apt upgrade로 버전이 바뀌지 않게 고정
-  ansible.builtin.dpkg_selections:
-    name: vault
-    selection: hold
+    - name: apt upgrade로 버전이 바뀌지 않게 고정
+      ansible.builtin.dpkg_selections:
+        name: vault
+        selection: hold
 
 - name: 설치됐는지 (미리보기에서 처음이면 아직 없음)
   ansible.builtin.stat:
