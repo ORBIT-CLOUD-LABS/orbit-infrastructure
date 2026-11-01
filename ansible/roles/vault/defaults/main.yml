@@ -8,6 +8,9 @@ hvault_audit_log: /var/log/vault/audit.log
 hvault_audit_maxsize: 100M
 hvault_audit_keep: 14
 hvault_ssh_policy: ssh-orbit              # SSH 인증서 서명만 허용
+# Vault 2.x는 generate-root에 인증이 필요함. root token이 없을 때 관리자 권한을 되찾으려면
+# -e hvault_allow_generate_root=true로 잠시 켬 (재시작되어 sealed). API에 닿는 누구나 절차를 시작할 수 있어서 평소에는 끔
+hvault_allow_generate_root: false
 hvault_tls_sans: >-
   {{ ['DNS:' ~ inventory_hostname, 'DNS:localhost', 'IP:127.0.0.1', 'IP:' ~ lan_ip]
      + (['IP:' ~ tailscale_ip] if tailscale_ip is defined else []) }}

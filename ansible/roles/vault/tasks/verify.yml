@@ -27,6 +27,18 @@
       - hvault_state.storage_type == 'raft'
     fail_msg: "실행 중: {{ hvault_state.version }} / {{ hvault_state.storage_type }}. 기대: {{ hvault_version }} / raft"
 
+# 설정 파일만 있고 재시작이 안 됐으면 여기서 드러남
+- name: 실행 중인 Vault의 swap 제한
+  ansible.builtin.command: cat /sys/fs/cgroup/system.slice/vault.service/memory.swap.max
+  register: hvault_swap_max
+  changed_when: false
+
+- name: swap을 쓰지 않는지
+  ansible.builtin.assert:
+    that: hvault_swap_max.stdout == '0'
+    fail_msg: "Vault의 memory.swap.max가 {{ hvault_swap_max.stdout }}. vault.service.d/10-orbit-noswap.conf 적용 후 재시작이 필요함"
+    quiet: true
+
 # init, unseal 모두 같은 셸에서 아래 환경변수를 먼저 설정해야 자체 CA를 신뢰함
 - name: 다음 할 일
   ansible.builtin.debug:

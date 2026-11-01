@@ -4,6 +4,11 @@ ui            = false
 disable_mlock = true     # Raft는 mlock을 끄도록 권장 (메모리 맵 파일을 씀)
 api_addr      = "{{ hvault_addr }}"
 cluster_addr  = "https://{{ hvault_cluster_addr }}"
+{% if hvault_allow_generate_root | bool %}
+
+# 임시로 켬: 토큰 없이 unseal 키 정족수로 root를 다시 만들 수 있게 함. 작업이 끝나면 끔 (docs/vault.md)
+enable_unauthenticated_access = ["generate-root"]
+{% endif %}
 
 storage "raft" {
   path    = "{{ hvault_data_dir }}"

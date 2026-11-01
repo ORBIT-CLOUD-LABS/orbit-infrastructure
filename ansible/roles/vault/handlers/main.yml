@@ -1,8 +1,10 @@
 # 재시작하면 Vault가 sealed가 됨. 다시 unseal해야 함
+# systemd 설정(vault.service.d)이 바뀌었을 수도 있어서 다시 읽고 재시작
 - name: restart vault
   ansible.builtin.systemd_service:
     name: vault
     state: restarted
+    daemon_reload: true
   when: not ansible_check_mode   # 미리보기 첫 실행에서는 vault 서비스가 아직 없음
 
 # 재부팅 뒤에도 유지 (gateway role의 save iptables와 같은 명령)

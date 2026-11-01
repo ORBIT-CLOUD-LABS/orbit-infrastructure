@@ -166,6 +166,28 @@
         mode: "0640"
       notify: restart vault
 
+    # disable_mlock이라 Vault 메모리(복호화된 키 포함)가 swap으로 디스크에 쓰일 수 있음
+    # 시스템 swap은 VM이 쓰도록 두고, Vault 프로세스만 swap을 못 쓰게 함 (cgroup v2)
+    - name: systemd 설정 폴더
+      ansible.builtin.file:
+        path: /etc/systemd/system/vault.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Vault는 swap을 쓰지 않음
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/vault.service.d/10-orbit-noswap.conf
+        content: |
+          # Ansible managed (roles/vault)
+          [Service]
+          MemorySwapMax=0
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart vault
+
     - name: Vault 서비스 켜기
       ansible.builtin.systemd_service:
         name: vault
