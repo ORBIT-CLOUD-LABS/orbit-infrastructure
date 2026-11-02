@@ -1,0 +1,12 @@
+# 현재는 1번 작업의 입력 검증만 수행. 원격 접속·계정·sudo·Vault 변경 없음
+# ansible-playbook playbooks/personal-accounts.yml --ask-vault-pass --check
+- name: 개인 계정 설정 확인
+  hosts: all
+  gather_facts: false
+  strategy: linear
+  tasks:
+    - name: 전체 팀원과 접근 대상 검증
+      ansible.builtin.import_role:
+        name: personal_accounts
+        tasks_from: validate.yml
+      run_once: true   # noqa: run-once[task] -- linear로 전체 입력을 한 번만 검사

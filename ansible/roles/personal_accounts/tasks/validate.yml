@@ -1,0 +1,81 @@
+# 1번 작업에서는 입력만 검사. 모든 검사를 통과한 뒤에만 후속 구현에서 계정·권한을 변경함
+- name: 개인 계정 목록 형식
+  ansible.builtin.assert:
+    that: personal_accounts | type_debug == 'list'
+    fail_msg: personal_accounts는 목록이어야 함
+    quiet: true
+
+- name: 팀원 필수 항목과 형식
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      - item.github is defined and item.github is string
+      - item.username is defined and item.username is string
+      - item.uid is defined and item.uid is integer
+      - item.access is defined and item.access | type_debug == 'list'
+      - item.keys() | difference(['github', 'username', 'uid', 'access']) | length == 0
+    fail_msg: 팀원에는 github·username·uid·access만 정의해야 함
+    quiet: true
+  loop: "{{ personal_accounts }}"
+  loop_control:
+    label: "{{ item.username | default('계정명 없음') }}"
+
+- name: 전체 팀원 식별자 중복 검사
+  ansible.builtin.assert:
+    that:
+      - personal_accounts | map(attribute='github') | map('lower') | unique | length == personal_accounts | length
+      - personal_accounts | map(attribute='username') | unique | length == personal_accounts | length
+      - personal_accounts | map(attribute='uid') | unique | length == personal_accounts | length
+    fail_msg: GitHub 아이디·Linux 계정명·UID가 중복됨
+    quiet: true
+
+- name: 팀원 이름과 UID 범위 확인
+  ansible.builtin.assert:
+    that:
+      - item.github is match('^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$')
+      - item.github | length <= 39
+      - item.username is match('^[a-z][a-z0-9_]{0,31}$')
+      - item.username not in ['root', 'orbit', 'nobody', 'vault', 'ubuntu', 'admin', 'daemon', 'bin', 'sys']
+      - item.access | length > 0
+      - item.uid >= 2000 and item.uid <= 2999
+    fail_msg: GitHub·계정명 형식, 예약 계정명, UID 범위(2000~2999) 또는 빈 접근 대상을 확인
+    quiet: true
+  loop: "{{ personal_accounts }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+- name: 호스트 접근 항목 형식
+  ansible.builtin.assert:
+    that:
+      - item.1 is mapping
+      - item.1.host is defined and item.1.host is string
+      - item.1.sudo is defined and item.1.sudo is string
+      - item.1.sudo_auth is defined and item.1.sudo_auth is string
+      - item.1.sudo_commands is defined and item.1.sudo_commands | type_debug == 'list'
+      - item.1.keys() | difference(['host', 'sudo', 'sudo_auth', 'sudo_commands']) | length == 0
+    fail_msg: 접근 항목에는 host·sudo·sudo_auth·sudo_commands를 명시해야 함
+    quiet: true
+  loop: "{{ personal_accounts | subelements('access') }}"
+  loop_control:
+    label: "{{ item.0.username }} / {{ item.1.host | default('호스트 없음') }}"
+
+# sudoers 구분자·패턴·주석 시작 문자·ASCII 제어문자를 금지. 실제 명령의 권한 확대 가능성은 2번 구현에서 별도 검토
+- name: 인벤토리 대상과 sudo 권한 확인
+  ansible.builtin.assert:
+    that:
+      - item.1.host in groups['all']
+      - item.0.access | map(attribute='host') | unique | length == item.0.access | length
+      - item.1.sudo in ['none', 'limited', 'full']
+      - (item.1.sudo == 'none') == (item.1.sudo_auth == 'none')
+      - item.1.sudo_auth in ['none', 'password', 'nopasswd']
+      - (item.1.sudo == 'limited') == (item.1.sudo_commands | length > 0)
+      - item.1.sudo_commands | select('string') | list | length == item.1.sudo_commands | length
+      - item.1.sudo_commands | select('match', personal_accounts_sudo_command_pattern) | list | length == item.1.sudo_commands | length
+    fail_msg: 대상 호스트·중복 또는 sudo 권한이 미정이거나 잘못됨
+    quiet: true
+  vars:
+    # YAML 단일 인용 문자열로 보존해 Jinja 표현식 안의 역슬래시 재해석을 피함
+    personal_accounts_sudo_command_pattern: '^/[^\x00-\x1f\x7f,:=\\*?\[\]#]+\Z'
+  loop: "{{ personal_accounts | subelements('access') }}"
+  loop_control:
+    label: "{{ item.0.username }} / {{ item.1.host }}"
