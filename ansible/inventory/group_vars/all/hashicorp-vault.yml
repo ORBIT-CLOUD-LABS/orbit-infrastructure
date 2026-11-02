@@ -25,6 +25,23 @@ hvault_github_team: orbit
 hvault_token_ttl: 8h
 hvault_token_max_ttl: 24h
 
+# 앱 비밀값 (KV v2). k3s 앱은 External Secrets Operator가 읽음 (orbit-gitops)
+hvault_kv_mount: secret
+hvault_kv_prefix: orbit                      # 앱별 경로: secret/orbit/<앱 이름>
+hvault_kv_read_policy: eso-orbit             # 읽기만. ESO에 줌
+hvault_kv_write_policy: orbit-secrets-write  # 쓰기. GitHub orbit 팀에 SSH 정책과 함께 줌
+
+# Kubernetes 인증. ESO가 자기 ServiceAccount 토큰으로 로그인하고, Vault가 k3s API로 진위를 확인
+hvault_k8s_mount: kubernetes
+hvault_k8s_host: "https://{{ hostvars[groups['cp'][0]].lan_ip }}:6443"   # polaris. k3s_server_ip와 같은 값 (그 변수는 k3s 그룹에만 있음)
+hvault_k8s_ca_file: /var/lib/rancher/k3s/server/tls/server-ca.crt     # polaris. API 서버 인증서를 서명한 k3s-server-ca
+hvault_eso_role: eso
+hvault_eso_namespace: external-secrets
+hvault_eso_service_account: external-secrets
+hvault_eso_audience: https://kubernetes.default.svc.cluster.local  # k3s 기본 API audience. ESO TokenRequest도 같은 값 사용
+hvault_eso_token_ttl: 1h
+hvault_eso_token_max_ttl: 1h                 # 갱신을 포함한 최대 수명. ESO는 재로그인으로 새 토큰 발급
+
 # 인터넷(GitHub)이 안 될 때 쓰는 비상 계정. SSH 서명만. 비밀번호는 vault.yml (ansible-vault)
 hvault_breakglass_users: [breakglass1, breakglass2]
 hvault_breakglass_passwords:
