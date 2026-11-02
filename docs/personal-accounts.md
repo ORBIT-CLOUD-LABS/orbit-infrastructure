@@ -180,6 +180,9 @@ Wazuh 에이전트·수집·디코더 설정과 대시보드 검색 방법은 �
 | 날짜 | 작업 | 대상 (사람 / 호스트) | 결과 | 확인한 사람 | 비고 |
 | --- | --- | --- | --- | --- | --- |
 | YYYY-MM-DD | 전환 / 권한 변경 / 회수 | `<계정명>` / `sol` | 검증 표 전부 통과, Wazuh 로그인·sudo 확인 | `<GitHub 아이디>` | |
+| 2026-11-02 | Vault 개인 항목 적용 | 명단 5명 / astra Vault | 미리보기에서 개인 역할·정책·사용자 매핑 15개만 추가 대상, 삭제 목록 비어 있음. 적용 15개, 재실행 `바뀔 설정 []` | `jyvnee` | 브랜치 `task/15-personal-accounts-vault-ssh` `8f213ed`에서 적용 |
+| 2026-11-02 | 개인 계정 적용 | 명단 5명 / `sol` | 사전 검사 통과, 계정·그룹(UID=GID 2001~2005)·홈(`0700`)·sudoers·principal·SSH 조각 생성, 재실행 `changed=0`. 자동화(`orbit_ansible`) 접속 유지 | `jyvnee` | |
+| 2026-11-02 | 전환 검증 | `jyvnee` / `sol` | 실제 GitHub PAT로 setup 완료(인증서 `github-jyvnee`, principal `jyvnee`). 개인 인증서 로그인, 비밀번호 sudo 성공. 거부 확인: `hyn128@sol`, 인증서 없는 키, 개인 계정 없는 `luna`, 다른 사람 역할(`personal-hyn128`) 서명 403, 비밀번호 없는 sudo. `orbit@astra` 대체 경로 유지 | `jyvnee` | 호스트 로그에 `Accepted publickey for jyvnee from 100.115.101.78 ... ID github-jyvnee`와 sudo `jyvnee : TTY=pts/1 ...` 확인. Wazuh 수집은 미확인(담당 저장소 미정). 다른 팀원 4명은 setup 전 |
 
 ## 구현 검증 범위
 
