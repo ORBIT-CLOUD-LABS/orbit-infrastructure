@@ -1,7 +1,7 @@
 # Vault, SSH CA와 앱 비밀값
 
 구현: [#7](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/7).
-KV·Kubernetes 인증: [#13](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/13). 아래 구성은 코드의 목표 상태이며, 운영 적용·실제 k3s 인증 검증 완료를 뜻하지 않는다.
+KV·Kubernetes 인증: [#13](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/13). 2026-11-02 astra에 적용하고 적용 후 미리보기에서 추가 변경 없음(`changed=0`)을 확인했다. 실제 k3s 로그인·권한 거부와 GitHub 조회·쓰기·부분 수정 및 SSH 서명을 검증했다. 시험 리소스 정리 완료는 별도 확인이 필요하며 root token 폐기는 운영자 요청으로 보류 중이다.
 이 문서에는 이름과 절차만 기록한다. unseal 키, 토큰, 비밀번호, GitHub PAT 값은 Git·Issue·PR·문서·채팅 어디에도 남기지 않는다.
 
 ## 구성
@@ -69,7 +69,7 @@ VAULT_TOKEN=$(vault login -token-only -method=github)
 export VAULT_TOKEN
 ```
 
-PAT는 프롬프트에 입력한다. 새 로그인 토큰에 `ssh-orbit`, `orbit-secrets-write`가 있는지 `vault token lookup -field=policies`로 확인한다. 비밀값은 인자·history에 쓰지 말고 보호된 JSON 파일로 입력한다. 다음은 `orbit-server`를 처음 만들 때 세 키를 숨김 입력하는 예다 (Python 3 필요).
+PAT는 프롬프트에 입력한다. 새 로그인 토큰에 `ssh-orbit`, `orbit-secrets-write`가 있는지 `vault token lookup -format=json | jq '.data.policies'`로 확인한다. 비밀값은 인자·history에 쓰지 말고 보호된 JSON 파일로 입력한다. 다음은 `orbit-server`를 처음 만들 때 세 키를 숨김 입력하는 예다 (Python 3 필요).
 
 ```bash
 umask 077
@@ -209,7 +209,9 @@ unset ESO_TOKEN ESO_ACCESSOR ORBIT_TEST_PATH
 
 검증·정리가 끝나면 [관리자 권한](#관리자-권한) 절차대로 root를 폐기하고, 임시 generate-root 허용 설정을 켰다면 다시 끄고 재시작 후 unseal까지 마친다. 운영 결과에는 성공·실패와 변경 항목만 남기고 토큰·비밀값은 남기지 않는다.
 
-- [ ] astra 적용·실제 k3s 로그인·GitHub 권한·시험 리소스 정리·root 폐기까지 완료한 뒤, 문서 상단의 목표 상태 안내를 실제 검증 일자와 결과로 갱신한다.
+- [x] astra 적용·실제 k3s 로그인·GitHub 권한 검증 결과를 문서 상단에 기록했다.
+- [ ] 시험 리소스 정리 완료를 확인한다.
+- [ ] 운영자가 보류한 root token 폐기 후 문서 상태를 갱신한다.
 
 ESO Helm Application, TokenReview RBAC, Vault CA ConfigMap, ClusterSecretStore와 앱별 ExternalSecret은 orbit-gitops에서 Argo CD 배포 후 진행한다. 생성 Secret 이름을 Deployment의 `envFrom`과 맞춘다.
 
