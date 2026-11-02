@@ -1,0 +1,3 @@
+# {{ ansible_managed }} (roles/ssh_ca)
+# Vault SSH CA가 서명한 인증서로 로그인. 인증서의 계정(principal)이 로그인 계정과 같아야 함
+TrustedUserCAKeys {{ ssh_ca_keys_file }}

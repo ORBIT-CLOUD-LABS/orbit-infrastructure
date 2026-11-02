@@ -1,0 +1,196 @@
+# astra: Vault 설치, TLS 인증서, 설정. 초기화와 unseal은 수동
+- name: 방화벽 (Vault가 뜨기 전에 8200을 막아 둠)
+  ansible.builtin.include_tasks: firewall.yml
+
+- name: 모듈에 필요한 파이썬 패키지 (apt 저장소, TLS 인증서)
+  ansible.builtin.apt:
+    name: [python3-debian, python3-cryptography]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# 같은 저장소가 다른 파일에도 있으면 서명 키 경로가 달라 apt update가 실패함 (Conflicting values set for option Signed-By)
+# 남이 만든 파일일 수 있어서 지우지 않고 멈춤
+- name: 다른 파일에 등록된 HashiCorp 저장소 찾기
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: ["*.list", "*.sources"]
+    excludes: hashicorp.sources   # 아래 task가 관리하는 파일
+    contains: '.*apt\.releases\.hashicorp\.com'   # 줄 맨 앞부터 맞춰 보므로 .*로 시작
+  register: hvault_repo_dup
+
+- name: 있으면 멈춤
+  ansible.builtin.assert:
+    that: hvault_repo_dup.matched == 0
+    fail_msg: >-
+      HashiCorp 저장소가 다른 파일에도 있음: {{ hvault_repo_dup.files | map(attribute='path') | join(', ') }}.
+      이 role은 hashicorp.sources로 관리함. 그 파일로 설치한 패키지(terraform 등)도 같은 저장소라 계속 받을 수 있으니, 확인 후 지우고 다시 실행
+
+- name: HashiCorp apt 저장소
+  ansible.builtin.deb822_repository:
+    name: hashicorp
+    types: deb
+    uris: "{{ hvault_repo_url }}"
+    suites: "{{ ansible_facts.distribution_release }}"
+    components: main
+    signed_by: "{{ hvault_repo_url }}/gpg"
+  register: hvault_repo
+
+# 미리보기에서 저장소를 처음 등록하면 실제로는 등록되지 않아 apt가 vault 패키지를 못 찾음
+- name: 설치와 버전 고정
+  when: not (ansible_check_mode and hvault_repo is changed)
+  block:
+    - name: Vault 설치 {{ hvault_version }}
+      ansible.builtin.apt:
+        name: "vault={{ hvault_version }}-{{ hvault_pkg_revision }}"
+        state: present
+        update_cache: true
+        allow_change_held_packages: true   # 버전을 바꿀 때만 hold를 넘어 설치함
+      notify: restart vault                # 패키지는 서비스를 재시작하지 않아서, 실행 중인 Vault가 이전 바이너리로 남음
+
+    - name: apt upgrade로 버전이 바뀌지 않게 고정
+      ansible.builtin.dpkg_selections:
+        name: vault
+        selection: hold
+
+- name: 설치됐는지 (미리보기에서 처음이면 아직 없음)
+  ansible.builtin.stat:
+    path: /usr/bin/vault
+  register: hvault_bin
+
+- name: 인증서, 설정, 서비스
+  when: hvault_bin.stat.exists   # 미리보기 첫 실행에서는 vault 계정과 폴더가 아직 없음
+  block:
+    - name: 폴더
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: vault
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "{{ hvault_data_dir }}", owner: vault, mode: "0700" }
+        - { path: "{{ hvault_tls_dir }}", owner: root, mode: "0755" }   # vault-ca.crt는 공개용. 개인키는 파일 권한으로 막음
+        - { path: "{{ hvault_audit_log | dirname }}", owner: vault, mode: "0750" }
+
+    # 감사 로그 장치는 Vault 안에서 켬 (configure.yml). 회전 후 reload(SIGHUP)해야 새 파일에 씀
+    - name: 감사 로그 회전
+      ansible.builtin.template:
+        src: logrotate-vault.j2
+        dest: /etc/logrotate.d/vault
+        owner: root
+        group: root
+        mode: "0644"
+
+    # 내부 CA. 팀원 클라이언트에는 vault-ca.crt만 나눠 줌
+    - name: CA 개인키
+      community.crypto.openssl_privatekey:
+        path: "{{ hvault_tls_dir }}/vault-ca.key"
+        type: ECC
+        curve: secp384r1
+        owner: root
+        group: root
+        mode: "0600"
+      register: hvault_ca_key
+
+    # 미리보기에서 개인키를 새로 만드는 경우는 키 파일이 실제로 없어서, 그 키로 만드는 CSR과 인증서는 건너뜀
+    - name: CA 인증서 요청
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: "{{ hvault_tls_dir }}/vault-ca.key"
+        common_name: ORBIT Vault CA
+        use_common_name_for_san: false
+        basic_constraints: ["CA:TRUE", "pathlen:0"]
+        basic_constraints_critical: true
+        key_usage: [keyCertSign, cRLSign]
+        key_usage_critical: true
+      register: hvault_ca_csr
+      changed_when: false
+      check_mode: false   # community.crypto 2.x는 미리보기에서 CSR을 안 만들어 다음 task가 실패함. 파일은 쓰지 않음
+      when: not (ansible_check_mode and hvault_ca_key is changed)
+
+    - name: CA 인증서
+      community.crypto.x509_certificate:
+        path: "{{ hvault_tls_dir }}/vault-ca.crt"
+        csr_content: "{{ hvault_ca_csr.csr }}"
+        privatekey_path: "{{ hvault_tls_dir }}/vault-ca.key"
+        provider: selfsigned
+        selfsigned_not_after: "+{{ hvault_tls_ca_days }}d"
+        owner: root
+        group: vault
+        mode: "0644"
+      when: not (ansible_check_mode and hvault_ca_key is changed)
+
+    - name: 서버 개인키
+      community.crypto.openssl_privatekey:
+        path: "{{ hvault_tls_dir }}/vault.key"
+        type: ECC
+        curve: secp256r1
+        owner: root
+        group: vault
+        mode: "0640"
+      register: hvault_key
+      notify: reload vault
+
+    - name: 서버 인증서 요청
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: "{{ hvault_tls_dir }}/vault.key"
+        common_name: "{{ inventory_hostname }}"
+        subject_alt_name: "{{ hvault_tls_sans }}"
+        key_usage: [digitalSignature, keyAgreement]
+        extended_key_usage: [serverAuth]
+      register: hvault_csr
+      changed_when: false
+      check_mode: false   # 위와 같음
+      when: not (ansible_check_mode and (hvault_key is changed or hvault_ca_key is changed))
+
+    - name: 서버 인증서 (SAN이 바뀌면 다시 발급)
+      community.crypto.x509_certificate:
+        path: "{{ hvault_tls_dir }}/vault.crt"
+        csr_content: "{{ hvault_csr.csr }}"
+        provider: ownca
+        ownca_path: "{{ hvault_tls_dir }}/vault-ca.crt"
+        ownca_privatekey_path: "{{ hvault_tls_dir }}/vault-ca.key"
+        ownca_not_after: "+{{ hvault_tls_cert_days }}d"
+        owner: root
+        group: vault
+        mode: "0644"
+      when: not (ansible_check_mode and (hvault_key is changed or hvault_ca_key is changed))
+      notify: reload vault
+
+    - name: Vault 설정
+      ansible.builtin.template:
+        src: vault.hcl.j2
+        dest: "{{ hvault_config_dir }}/vault.hcl"
+        owner: root
+        group: vault
+        mode: "0640"
+      notify: restart vault
+
+    # disable_mlock이라 Vault 메모리(복호화된 키 포함)가 swap으로 디스크에 쓰일 수 있음
+    # 시스템 swap은 VM이 쓰도록 두고, Vault 프로세스만 swap을 못 쓰게 함 (cgroup v2)
+    - name: systemd 설정 폴더
+      ansible.builtin.file:
+        path: /etc/systemd/system/vault.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Vault는 swap을 쓰지 않음
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/vault.service.d/10-orbit-noswap.conf
+        content: |
+          # Ansible managed (roles/vault)
+          [Service]
+          MemorySwapMax=0
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart vault
+
+    - name: Vault 서비스 켜기
+      ansible.builtin.systemd_service:
+        name: vault
+        enabled: true
+        state: started
+      when: not ansible_check_mode

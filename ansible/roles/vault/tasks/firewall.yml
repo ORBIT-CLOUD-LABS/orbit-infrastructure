@@ -1,0 +1,70 @@
+# astra: Vault 포트(8200)는 허용한 인터페이스에서만 받음
+# INPUT 기본 정책이 ACCEPT라서 허용만 넣으면 와이파이에서도 열려 있음. 전용 체인에서 허용 후 나머지는 버림
+# 규칙을 하나씩 넣으면 위치와 지운 항목이 교정되지 않아서, 전체를 비교하고 다르면 한 번에 바꿈
+- name: 규칙 저장 도구가 있어야 함 (gateway role이 설치)
+  ansible.builtin.stat:
+    path: /usr/sbin/netfilter-persistent
+  register: hvault_nfp
+
+- name: 없으면 멈춤
+  ansible.builtin.assert:
+    that: hvault_nfp.stat.exists
+    fail_msg: "netfilter-persistent 없음. 먼저 ansible-playbook playbooks/network.yml --limit astra"
+
+- name: 원하는 규칙 (iptables -S 형식)
+  ansible.builtin.set_fact:
+    hvault_fw_chain: >-
+      {{ ['-N ORBIT-VAULT']
+         + (hvault_allowed_ifaces | map('regex_replace', '^', '-A ORBIT-VAULT -i ') | map('regex_replace', '$', ' -j ACCEPT') | list)
+         + ['-A ORBIT-VAULT -j DROP'] }}
+    hvault_fw_jump: "-A INPUT -p tcp -m tcp --dport {{ hvault_port }} -j ORBIT-VAULT"
+
+- name: 지금 규칙 읽기
+  ansible.builtin.command: iptables -S
+  register: hvault_fw_now
+  changed_when: false
+  check_mode: false
+
+- name: 지금 규칙 나누기
+  ansible.builtin.set_fact:
+    hvault_fw_chain_now: "{{ hvault_fw_now.stdout_lines | select('match', '-(N|A) ORBIT-VAULT( |$)') | list }}"
+    hvault_fw_input_now: "{{ hvault_fw_now.stdout_lines | select('match', '-A INPUT ') | list }}"
+
+# 체인 내용이 다르거나, 8200 연결이 INPUT 맨 앞에 하나만 있지 않으면 교체
+- name: 바꿔야 하는지
+  ansible.builtin.set_fact:
+    hvault_fw_needs_change: >-
+      {{ hvault_fw_chain_now != hvault_fw_chain or
+         (hvault_fw_input_now | first | default('')) != hvault_fw_jump or
+         (hvault_fw_input_now | select('equalto', hvault_fw_jump) | list | length) != 1 }}
+
+# command는 미리보기에서 건너뛰어서, 바뀔 예정인지와 적용할 내용을 따로 보여 줌
+- name: 미리보기 (바뀔 규칙)
+  ansible.builtin.debug:
+    msg: "{{ lookup('ansible.builtin.template', 'vault-firewall.rules.j2').splitlines() }}"
+  when: ansible_check_mode and hvault_fw_needs_change
+  changed_when: true
+
+# iptables-restore는 한 번에 적용해서, 바꾸는 사이에 8200이 열리는 순간이 없음
+- name: 다르면 한 번에 바꾸기
+  ansible.builtin.command:
+    cmd: iptables-restore --noflush
+    stdin: "{{ lookup('ansible.builtin.template', 'vault-firewall.rules.j2') }}"
+  when: hvault_fw_needs_change
+  changed_when: true
+  notify: save vault firewall
+
+- name: 다시 읽기
+  ansible.builtin.command: iptables -S
+  register: hvault_fw_after
+  changed_when: false
+  when: not ansible_check_mode
+
+# Tailscale이 재시작하면 ts-input을 맨 앞에 다시 넣음. ts-input은 tailscale0만 받아서 그 사이에도 안전하고, 다시 실행하면 교정됨
+- name: 원하는 모양인지 확인
+  ansible.builtin.assert:
+    that:
+      - (hvault_fw_after.stdout_lines | select('match', '-(N|A) ORBIT-VAULT( |$)') | list) == hvault_fw_chain
+      - (hvault_fw_after.stdout_lines | select('match', '-A INPUT ') | first) == hvault_fw_jump
+    fail_msg: "Vault 방화벽 규칙이 원하는 모양이 아님. sudo iptables -S INPUT; sudo iptables -S ORBIT-VAULT 확인"
+  when: not ansible_check_mode
