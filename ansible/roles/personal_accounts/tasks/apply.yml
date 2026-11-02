@@ -1,0 +1,201 @@
+- name: 관리 기록과 인증서 principal 폴더
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ personal_accounts_state_dir }}", mode: "0700" }
+    - { path: "{{ personal_accounts_principals_dir }}", mode: "0755" }
+
+# 생성 중 실패해도 다음 실행에서 이 role이 시작한 계정임을 확인할 수 있음
+- name: 신규 관리 기록 (계정·그룹 생성 전에 기록)
+  ansible.builtin.copy:
+    content: "{{ {'manager': 'orbit-personal-accounts', 'username': item.username, 'uid': item.uid, 'gid': item.uid} | to_nice_json }}\n"
+    dest: "{{ personal_accounts_state_dir }}/{{ item.username }}.json"
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+  loop: "{{ personal_accounts_here }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+- name: 개인 그룹 (GID는 UID와 동일)
+  ansible.builtin.group:
+    name: "{{ item.username }}"
+    gid: "{{ item.uid }}"
+    state: present
+  loop: "{{ personal_accounts_here }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+- name: 개인 계정 (초기 비밀번호만 설정, 보조 그룹은 비움)
+  ansible.builtin.user:
+    name: "{{ item.username }}"
+    uid: "{{ item.uid }}"
+    group: "{{ item.username }}"
+    groups: ""
+    append: false
+    home: "/home/{{ item.username }}"
+    shell: /bin/bash
+    create_home: true
+    password: "{{ personal_accounts_password_hashes.get(item.username, '*') if item.grant.sudo_auth == 'password' else '*' }}"
+    update_password: on_create
+    state: present
+  loop: "{{ personal_accounts_here }}"
+  no_log: true
+
+- name: 개인 홈 접근 제한 (하위 파일은 변경하지 않음)
+  ansible.builtin.file:
+    path: "/home/{{ item.username }}"
+    state: directory
+    owner: "{{ item.username }}"
+    group: "{{ item.username }}"
+    mode: "0700"
+  loop: "{{ personal_accounts_here }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+- name: 허용된 개인 sudo 규칙
+  ansible.builtin.template:
+    src: sudoers.j2
+    dest: "/etc/sudoers.d/90-orbit-personal-{{ item.username }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+  when: item.grant.sudo != 'none'
+  loop: "{{ personal_accounts_here }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+- name: 명단에서 빠졌거나 이 호스트에서 허용하지 않는 개인 sudo 규칙 제거
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/90-orbit-personal-{{ item }}"
+    state: absent
+  vars:
+    allowed_sudo_users: "{{ personal_accounts_here | rejectattr('grant.sudo', 'equalto', 'none') | map(attribute='username') | list }}"
+  when: item not in allowed_sudo_users
+  loop: "{{ personal_accounts_ssh_users }}"
+
+- name: 호스트별 인증서 principal (명단에서 빠진 관리 계정도 빈 파일로 거부)
+  ansible.builtin.copy:
+    content: "{{ (item ~ '\n') if item in (personal_accounts_here | map(attribute='username') | list) else '' }}"
+    dest: "{{ personal_accounts_principals_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ personal_accounts_ssh_users }}"
+
+- name: 기존 SSH 조각 확인
+  ansible.builtin.stat:
+    path: "{{ personal_accounts_ssh_dropin }}"
+  register: personal_accounts_dropin_stat
+
+- name: 기존 SSH 조각 백업 (메모리)
+  ansible.builtin.slurp:
+    src: "{{ personal_accounts_ssh_dropin }}"
+  when: personal_accounts_dropin_stat.stat.exists
+  register: personal_accounts_dropin_before
+
+- name: 개인 SSH 설정 적용과 검사
+  block:
+    - name: 개인 계정 SSH 설정
+      ansible.builtin.template:
+        src: ssh.conf.j2
+        dest: "{{ personal_accounts_ssh_dropin }}"
+        owner: root
+        group: root
+        mode: "0600"
+      notify: reload personal account ssh
+
+    - name: 전체 SSH 설정 문법 검사
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+
+    - name: 개인 계정의 실제 SSH 설정 읽기
+      ansible.builtin.command:
+        argv: [/usr/sbin/sshd, -T, -C, "user={{ item }},host=localhost,addr=127.0.0.1"]
+      changed_when: false
+      loop: "{{ personal_accounts_ssh_users }}"
+      loop_control:
+        label: "{{ item }}"
+      register: personal_accounts_sshd_effective
+
+    - name: 인증서 전용 설정이 실제로 적용되는지 확인
+      ansible.builtin.assert:
+        that:
+          - "'authenticationmethods publickey' in item.stdout_lines"
+          - "'pubkeyauthentication yes' in item.stdout_lines"
+          - "'passwordauthentication no' in item.stdout_lines"
+          - "'kbdinteractiveauthentication no' in item.stdout_lines"
+          - "'authorizedkeysfile none' in item.stdout_lines"
+          - "'authorizedkeyscommand none' in item.stdout_lines"
+          - "'authorizedprincipalscommand none' in item.stdout_lines"
+          - "('authorizedprincipalsfile ' ~ personal_accounts_principals_dir ~ '/%u') in item.stdout_lines"
+        fail_msg: 개인 계정 SSH 설정이 다른 설정에 가려짐. 조각을 되돌리고 중단
+        quiet: true
+      loop: "{{ personal_accounts_sshd_effective.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+  rescue:
+    - name: 기존 SSH 조각 복원
+      ansible.builtin.copy:
+        content: "{{ personal_accounts_dropin_before.content | b64decode }}"
+        dest: "{{ personal_accounts_ssh_dropin }}"
+        owner: root
+        group: root
+        mode: "{{ personal_accounts_dropin_stat.stat.mode }}"
+      when: personal_accounts_dropin_stat.stat.exists
+
+    - name: 없던 SSH 조각 제거
+      ansible.builtin.file:
+        path: "{{ personal_accounts_ssh_dropin }}"
+        state: absent
+      when: not personal_accounts_dropin_stat.stat.exists
+
+    - name: 변경된 SSH 설정을 reload하지 않고 중단
+      ansible.builtin.fail:
+        msg: SSH 검사 실패. 조각은 복원했으나 생성된 계정·그룹·권한은 남아 있음. 기존 관리 세션으로 확인
+
+- name: 전체 sudo 설정 최종 검사
+  ansible.builtin.command: /usr/sbin/visudo -cf /etc/sudoers
+  changed_when: false
+
+- name: 비밀번호 없이 sudo가 허용되는 다른 규칙이 없는지 확인
+  ansible.builtin.command:
+    argv: [/usr/sbin/runuser, -u, "{{ item.username }}", --, /usr/bin/sudo, -n, -k, /usr/bin/true]
+  register: personal_accounts_sudo_probe
+  changed_when: false
+  failed_when: personal_accounts_sudo_probe.rc != 1
+  when: item.grant.sudo_auth == 'password'
+  loop: "{{ personal_accounts_here }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+- name: 개인별 sudo 유효 규칙 읽기
+  ansible.builtin.command:
+    argv: [/usr/bin/sudo, -l, -U, "{{ item.username }}"]
+  changed_when: false
+  when: item.grant.sudo_auth == 'password'
+  loop: "{{ personal_accounts_here }}"
+  loop_control:
+    label: "{{ item.username }}"
+  register: personal_accounts_sudo_effective
+
+- name: 다른 명령의 비밀번호 면제 규칙도 없어야 함
+  ansible.builtin.assert:
+    that:
+      - "'NOPASSWD:' not in item.stdout"
+      - "'!authenticate' not in item.stdout"
+    fail_msg: 다른 sudo 규칙이 개인 비밀번호 인증을 우회함. 기존 관리 세션에서 규칙을 확인
+    quiet: true
+  when: not (item.skipped | default(false))
+  loop: "{{ personal_accounts_sudo_effective.results }}"
+  loop_control:
+    label: "{{ item.item.username }}"
+
+- name: 검사를 통과한 변경만 SSH에 반영
+  ansible.builtin.meta: flush_handlers

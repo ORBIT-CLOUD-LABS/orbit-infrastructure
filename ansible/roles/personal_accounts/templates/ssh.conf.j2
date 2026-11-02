@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# 개인 계정에만 적용. 공용 orbit·자동화·비상 접속 설정은 건드리지 않음
+Match User {{ personal_accounts_ssh_users | join(',') }}
+    AuthenticationMethods publickey
+    PubkeyAuthentication yes
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    AuthorizedKeysFile none
+    AuthorizedKeysCommand none
+    AuthorizedPrincipalsCommand none
+    AuthorizedPrincipalsFile {{ personal_accounts_principals_dir }}/%u
+Match all

@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+# 그룹 sudo 권한 대신 개인 규칙으로 관리. password는 명시적으로 PASSWD
+{% if item.grant.sudo_auth == 'password' %}
+Defaults:{{ item.username }} authenticate, !rootpw, !targetpw, !runaspw
+{% endif %}
+{{ item.username }} ALL=(ALL:ALL) {{ 'PASSWD' if item.grant.sudo_auth == 'password' else 'NOPASSWD' }}: {{ 'ALL' if item.grant.sudo == 'full' else item.grant.sudo_commands | join(', ') }}

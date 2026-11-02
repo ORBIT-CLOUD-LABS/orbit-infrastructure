@@ -1,6 +1,6 @@
 # 개인 SSH 계정. GitHub 아이디·Linux 계정명·UID는 각각 중복 불가
 # 개인 UID 예약 범위는 2000~2999. 아래 값은 배정안이며 실제 8대의 충돌 검사는 2번 적용 전에 필수
-# 자동화용 orbit·비상 계정과 앱 비밀값 정책은 별도 관리. 실제 계정 변경은 2번 작업에서 구현
+# 개인 그룹 GID = UID. 자동화용 orbit·비상 계정과 앱 비밀값 정책은 별도 관리
 # 현재 팀원 모두 8대에 접속하고 sudo 비밀번호를 요구하는 전체 관리자 권한을 사용
 # 새 호스트는 자동 허용하지 않음. 아래에 개별 인벤토리 호스트명을 명시적으로 추가
 personal_accounts_shared_access:
@@ -42,10 +42,9 @@ personal_accounts:
 #     sudo_auth: none                # none일 때만 none. limited·full은 password / nopasswd 중 명시
 #     sudo_commands: []              # limited일 때만 절대 경로 명령 목록. 실제 허용 명령은 별도 검토
 #
-# 2번 착수 전 필수:
-# - getent passwd/group으로 모든 대상의 기존 계정·UID·홈 소유권 충돌 확인. 충돌 시 자동 UID 변경·계정 인수 없이 중단
-# - orbit의 실제 UID와 개인 UID가 겹치지 않는지 확인 (astra orbit은 현재 1000, 다른 호스트는 별도 확인)
-# - 개인별 sudo 비밀번호의 초기 설정·안전한 전달·본인 변경·재설정 방법 확정
+# 적용 전 role이 getent passwd/group으로 기존 이름·UID·GID·홈 소유권 충돌을 검사하고, 충돌 시 변경 없이 중단
+# 담당자가 개인별 임시 sudo 비밀번호를 준비하고 해시만 암호화 vault.yml에 저장한 뒤 본인에게 안전하게 전달
+# 본인은 개인 인증서 접속 준비 후 각 호스트에서 passwd로 변경. 분실 시 관리자가 해당 호스트에서 passwd <계정명>
 # - SSH는 인증서, sudo는 개인 비밀번호로 인증. 비밀번호 준비 실패를 이유로 nopasswd로 자동 전환하지 않음
 # 비밀번호·해시는 이 파일에 쓰지 않음
-# 빈 personal_accounts는 계정 생성·접근 회수를 뜻하지 않음. 기존 계정·홈을 목록 제거만으로 삭제하지 않음
+# 명단에서 빠진 관리 계정은 SSH principal·이 role의 sudo 권한을 회수. 빈 목록도 동일. 계정·홈·관리 기록은 보존

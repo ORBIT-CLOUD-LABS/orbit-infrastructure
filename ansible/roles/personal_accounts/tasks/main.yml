@@ -1,0 +1,21 @@
+# 단독 role 호출에서도 검증을 우회하지 않음. 플레이북은 모든 호스트의 preflight를 먼저 수행
+- name: 개인 계정 입력 검증
+  ansible.builtin.import_tasks: validate.yml
+
+- name: 이 호스트의 기존 상태 재검사
+  ansible.builtin.import_tasks: preflight.yml
+
+- name: 미리보기 (계정·비밀번호·권한은 변경하지 않음)
+  ansible.builtin.debug:
+    msg:
+      신규_계정: "{{ personal_accounts_here | map(attribute='username') | difference(ansible_facts.getent_passwd.keys() | list) }}"
+      허용_계정: "{{ personal_accounts_here | map(attribute='username') | list }}"
+      인증서_로그인_거부: "{{ personal_accounts_ssh_users | difference(personal_accounts_here | map(attribute='username') | list) }}"
+      안내: 조회 검사와 대상 목록만 표시. changed=0이 실제 적용 시 무변경을 뜻하지 않음. 기존 비밀번호·홈 데이터는 유지
+  when: ansible_check_mode
+
+- name: 검증을 통과한 계정과 권한 적용
+  ansible.builtin.include_tasks: apply.yml
+  when:
+    - not ansible_check_mode
+    - personal_accounts_ssh_users | length > 0
