@@ -53,7 +53,7 @@ ansible-playbook playbooks/personal-accounts.yml -K --ask-vault-pass --limit sol
 | 서명 정책 | `ssh-personal-hyn128` | `ssh-client-signer/sign/personal-hyn128`의 update만 |
 | GitHub 사용자 매핑 | `auth/github/map/users/hyn128` | `ssh-personal-hyn128` 연결 |
 
-이름 prefix는 `hashicorp-vault.yml`의 `hvault_ssh_personal_role_prefix`, `hvault_ssh_personal_policy_prefix`로 정한다. 현재 5명에 대해 개인 항목 15개를 추가한다. 본인 역할에 다른 principal·host 인증서·빈 principal의 무제한 인증서·과도한 TTL을 요청할 수 없으며, 인증서 key ID도 서버가 정한다. 다른 개인 역할의 서명·역할 설정 변경은 개인 정책에 없다.
+이름 prefix는 `hashicorp-vault.yml`의 `hvault_ssh_personal_role_prefix`, `hvault_ssh_personal_policy_prefix`로 정한다. 정리 단계가 이 prefix로 시작하는 항목을 지우므로, 공용·내장 역할과 정책(`orbit`, `ssh-orbit`, `eso-orbit`, `orbit-secrets-write`, `root`, `default`, `default-ceiling`)이 prefix로 시작하면 Vault를 읽기 전에 멈춘다. 현재 5명에 대해 개인 항목 15개를 추가한다. 본인 역할에 다른 principal·host 인증서·빈 principal의 무제한 인증서·과도한 TTL을 요청할 수 없으며, 인증서 key ID도 서버가 정한다. 다른 개인 역할의 서명·역할 설정 변경은 개인 정책에 없다.
 
 기존 개인 역할이 OTP 등 다른 방식이거나, 명단에 있는 사람의 GitHub 사용자 매핑에 예상하지 않은 정책이 있으면 모든 쓰기 전에 중단한다. 그 매핑에 수동으로 넣은 정책을 조용히 지우거나 역할 방식을 자동 전환하지 않는다. 이 prefix의 역할·정책은 이 코드가 관리하므로, 수동 변경은 재실행하면 원하는 값으로 돌아가고 명단에 없는 항목은 삭제된다(아래 "명단에서 빠진 사람").
 
@@ -187,16 +187,20 @@ Wazuh 에이전트·수집·디코더 설정과 대시보드 검색 방법은 �
 | 2026-11-03 | 개인 계정 적용·전환 검증 | 명단 5명 / `terra`, `luna`, `efk`, `lgtm`, `polaris` | 호스트마다 미리보기(5명 신규·허용) → 적용(`changed=9`) → 재실행 `changed=0`. `jyvnee` 개인 인증서 로그인 성공, `hyn128@<호스트>`·인증서 없는 키·비밀번호 없는 sudo 거부, 자동화(`orbit_ansible`) 접속 유지. VM(`efk`, `lgtm`)은 astra 경유(`-J`)로 확인. 호스트 키는 Tailscale·astra 내부망 지문을 대조해 등록 | `jyvnee` | 비밀번호 sudo 성공은 `sol`에서만 확인. `polaris`는 k3s `active` 확인 |
 | 2026-11-03 | 문제 발견·조치 | `polaris` | `/etc`가 `775`(그룹 쓰기)라 sshd `StrictModes`가 principal 파일을 거부(`bad ownership or modes for directory /etc`). `orbit`은 영향 없음. 관리 세션에서 `sudo chmod g-w /etc`로 `755`로 고친 뒤 개인 로그인 성공. 같은 문제를 적용 전에 멈추도록 사전 검사 추가 | `jyvnee` | 원래 이미지 설정으로 추정. astra·wazuh·sol은 `755` |
 
-## 구현 검증 범위
+## 개발 시험 범위
+
+아래는 운영 적용 전에 격리 환경에서 한 시험이다. 운영 적용·확인 결과는 위 [전환·회수 기록](#전환회수-기록)을 따른다.
 
 Ubuntu 24.04 컨테이너의 Ansible Core 2.16.3에서 가짜 계정·비밀번호·CA로 생성·일반 재실행 무변경, 사용자 변경 비밀번호 보존, 준비 누락·UID/GID·이름·홈 충돌 시 중단을 시험했다. 서로 다른 두 인벤토리 대상을 같은 격리 환경에 연결해, 한 대상의 준비 실패가 생성 단계 전체를 막는 것도 확인했다.
 
 컨테이너의 실제 sshd에 접속해 본인 인증서 성공, 다른 principal·일반 공개키 거부, 호스트 권한 회수 후 로그인·sudo 거부, 공용 orbit 접속 유지, 제한 sudo 명령과 SSH 조각 복원을 확인했다. 외부 NOPASSWD 규칙은 중단한다. 관리 기록이 있는 계정 한 명 또는 전체 명단을 제거하면 새 SSH 로그인·이 role의 sudo 권한이 회수되며 계정·홈은 보존된다.
 
-컨테이너에는 systemd가 없어 테스트용 서비스 반영 명령으로 sshd에 HUP을 보냈다. 실제 호스트의 systemd·PAM·sudo 정책과 운영 CA·Vault 개인 역할을 조합한 검증은 아직 하지 않았다. 운영 서버·VM에 실제 계정을 생성하거나 비밀번호를 설정한 결과가 아니다.
+컨테이너에는 systemd가 없어 테스트용 서비스 반영 명령으로 sshd에 HUP을 보냈다. 실제 호스트의 systemd·PAM·sudo 정책과 운영 CA·Vault 개인 역할을 조합한 확인은 운영 적용 때 했다(기록 표).
 
 Vault 개인 SSH 설정은 Vault 2.2.1 dev 환경을 사용해 로컬 Ansible Core 2.21.5와 astra 2.16.3에서 검증했다. 5명 모두 본인 principal만 서명되며, 다른 개인 역할·root·공용 orbit 발급은 개인 정책만으로 거부된다. 호스트 인증서·TTL 초과·포트 포워딩 확장 요청도 거부된다. 팀 정책을 합친 토큰은 전환 목적대로 공용 orbit 서명을 계속 허용한다. 미리보기 무쓰기, 반복 실행 무변경, 역할 변경 복구, 예상 밖 사용자 매핑·OTP 역할 충돌 시 중단, CA 보존도 확인했다.
 
 명단에서 빠진 항목 정리는 Vault 2.2.1 dev 컨테이너에서 정리 단계만 따로 실행해 시험했다. 미리보기 무쓰기, 명단 밖 매핑·정책·역할 삭제와 명단·공용 항목 유지, 재실행 무변경, 섞인 매핑에서 쓰기 전 중단, 명단 전체 비우기, 엔진·GitHub 로그인이 없는 Vault, 출력에 토큰이 남지 않음을 확인했다.
 
-이 시험의 사용자 토큰은 dev root가 해당 정책으로 발급한 대체 토큰이다. 개인별 실제 GitHub PAT 로그인에서 사용자 매핑이 붙는지와 운영 호스트의 최종 접속은 아직 검증하지 않았다. astra에서도 운영 Vault와 별개인 임시 dev 프로세스·임시 CA만 사용했고 시험 후 종료했다.
+이 시험의 사용자 토큰은 dev root가 해당 정책으로 발급한 대체 토큰이다. astra에서도 운영 Vault와 별개인 임시 dev 프로세스·임시 CA만 사용했고 시험 후 종료했다. 실제 GitHub PAT 로그인에서 사용자 매핑이 붙는 것과 운영 호스트 접속은 운영 적용 때 `jyvnee`로 확인했다(기록 표). 다른 팀원의 PAT 로그인은 각자 setup할 때 확인한다.
+
+개인 prefix 검사는 로컬에서 따로 시험했다. 기본값과 공용 이름에 걸리지 않는 prefix는 통과하고, 정책 prefix `ssh-`(`ssh-orbit`), `orbit-`, `eso-`, `default-`(`default-ceiling`)와 형식 오류는 Vault를 읽기 전에 멈춘다. 명단이 비어도 검사한다.
