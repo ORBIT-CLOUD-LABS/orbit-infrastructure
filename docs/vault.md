@@ -33,7 +33,42 @@ astra에서 실행한다 (`ansible_connection: local`).
 - SSH CA 키는 없을 때만 만들고 다시 만들지 않는다. 같은 경로에 다른 종류의 엔진·감사 장치가 있으면 덮어쓰지 않고 멈춘다.
 - 비상 계정 비밀번호는 `inventory/group_vars/all/vault.yml`(ansible-vault)의 `vault_breakglass1_password`, `vault_breakglass2_password`. 계정을 처음 만들 때만 쓰인다.
 
-## 팀원 준비
+## 팀원 접속 (자동 갱신, macOS)
+
+Vault CLI 없이 쓸 수 있다. 한 번 설정하면 평소처럼 `ssh orbit@10.0.0.202`만 하면 되고, 인증서가 없거나 만료 10분 전이면 ssh 직전에 자동으로 새로 받는다.
+
+준비:
+
+- GitHub `ORBIT-CLOUD-LABS`의 `orbit` 팀에 들어가 있어야 한다.
+- GitHub PAT (classic): scope는 `read:org` 하나만, 만료는 짧게.
+- `jq` (macOS 15부터 기본 포함. 없으면 `brew install jq`), Tailscale 연결.
+
+```bash
+scripts/orbit-ssh-setup.sh             # 처음 한 번. 다시 실행해도 됨
+scripts/orbit-ssh-setup.sh --reset-pat # PAT 만료 등으로 바꿀 때
+```
+
+설정 스크립트가 하는 일:
+
+| 항목 | 위치 |
+| --- | --- |
+| 갱신 스크립트 (`scripts/orbit-ssh-refresh.sh` 복사본) | `~/.orbit/refresh-cert.sh` |
+| Vault CA 인증서. 없으면 astra에서 scp. astra에 접속할 수 없는 새 팀원은 다른 팀원에게 받아 이 위치에 둔다 | `~/.orbit/vault-ca.crt` |
+| SSH 키. 없을 때만 만듦 | `~/.ssh/id_ed25519` |
+| GitHub PAT | macOS 키체인 `orbit-github-pat` |
+| Vault 토큰 (`0600`, 기본 8시간) | `~/.orbit/vault-token` |
+| `Match host ... exec ...` 블록 (내부망, 와이파이, 노드 Tailscale 주소와 이름). 맨 뒤에 붙이고, 이전 파일은 `config.orbit-bak`. 노드나 Tailscale 주소가 바뀌면 스크립트의 `MATCH_HOSTS`를 고치고 다시 실행 | `~/.ssh/config` |
+
+- 갱신 순서: 인증서가 충분히 남았으면 아무것도 안 함 → 저장된 Vault 토큰이 살아 있으면 그걸로 서명 → 아니면 키체인의 PAT로 GitHub 로그인 후 서명.
+- 갱신에 실패해도(Vault sealed, Tailscale 꺼짐, PAT 만료) 경고만 내고 ssh는 기존 키(`authorized_keys`)로 접속을 계속 시도한다. Vault에 연결되지 않으면 1분 동안은 다시 시도하지 않는다.
+- 인증서로 들어갔는지 확인: `ssh -v orbit@10.0.0.202 true 2>&1 | grep 'Server accepts key'` → `ED25519-CERT`면 인증서.
+- 자동 갱신을 끄려면 `~/.ssh/config`에서 `orbit-vault-ssh` 표시 사이의 블록을 지운다.
+
+## 수동으로 인증서 받기 (Vault CLI)
+
+자동 갱신을 쓰지 않거나 macOS가 아니면 이 방법을 쓴다. GitHub `ORBIT-CLOUD-LABS`의 `orbit` 팀에 들어가 있어야 하고, Tailscale에 연결되어 있어야 한다. Windows는 [아래](#windows-powershell)를 따른다.
+
+### macOS, Linux
 
 1. Vault CLI 설치 (HashiCorp 공식 배포본).
 2. CA 인증서 받기: `mkdir -p ~/.orbit && scp orbit@100.94.67.18:/opt/vault/tls/vault-ca.crt ~/.orbit/vault-ca.crt`
@@ -45,14 +80,44 @@ astra에서 실행한다 (`ansible_connection: local`).
    ```
 4. GitHub PAT (classic) 만들기: scope는 `read:org` 하나만, 만료는 짧게. 비밀번호 관리자에 보관한다.
 
-## 인증서 받아 접속하기
-
 ```bash
 vault login -method=github          # PAT 입력. 토큰은 ~/.vault-token에 저장됨
 vault write -field=signed_key ssh-client-signer/sign/orbit \
   public_key=@$HOME/.ssh/id_ed25519.pub > ~/.ssh/id_ed25519-cert.pub
 ssh orbit@10.0.0.202
 ```
+
+### Windows (PowerShell)
+
+Windows 10/11에 기본으로 있는 OpenSSH 클라이언트를 쓴다 (VS Code Remote-SSH도 같은 ssh를 씀). 아래 명령은 Windows에서 직접 실행해 확인하지 않았다. 처음 따라 하는 사람이 결과를 확인해 고친다.
+
+1. Vault CLI 설치: `winget install Hashicorp.Vault` (ID가 다르면 `winget search hashicorp`로 확인). winget이 없으면 [releases.hashicorp.com/vault](https://releases.hashicorp.com/vault/)에서 `windows_amd64` zip을 받아 `vault.exe`를 PATH에 있는 폴더에 둔다. 새 PowerShell 창에서 `vault version`으로 확인.
+2. CA 인증서와 SSH 키
+   ```powershell
+   New-Item -ItemType Directory -Force "$HOME\.orbit", "$HOME\.ssh" | Out-Null
+   scp orbit@100.94.67.18:/opt/vault/tls/vault-ca.crt "$HOME\.orbit\vault-ca.crt"
+   if (-not (Test-Path "$HOME\.ssh\id_ed25519")) { ssh-keygen -t ed25519 -f "$HOME\.ssh\id_ed25519" }
+   ```
+   astra에 아직 접속할 수 없으면 `vault-ca.crt`를 다른 팀원에게 받아 `$HOME\.orbit\`에 둔다.
+3. 환경 변수 (사용자 환경 변수로 저장. 새 PowerShell 창부터 적용)
+   ```powershell
+   [Environment]::SetEnvironmentVariable("VAULT_ADDR", "https://100.94.67.18:8200", "User")
+   [Environment]::SetEnvironmentVariable("VAULT_CACERT", "$HOME\.orbit\vault-ca.crt", "User")
+   ```
+4. GitHub PAT (classic) 만들기: scope는 `read:org` 하나만, 만료는 짧게. 비밀번호 관리자에 보관한다.
+
+```powershell
+vault login -method=github          # PAT 입력. 토큰은 $HOME\.vault-token에 저장됨
+$cert = vault write -field=signed_key ssh-client-signer/sign/orbit "public_key=@$HOME\.ssh\id_ed25519.pub"
+[IO.File]::WriteAllText("$HOME\.ssh\id_ed25519-cert.pub", (($cert -join "").Trim() + "`n"))
+ssh orbit@10.0.0.202
+```
+
+- 인증서 파일을 `>`나 `Out-File`로 저장하지 않는다. Windows PowerShell 5.1은 UTF-16으로 저장해서 ssh가 인증서를 읽지 못한다. 위처럼 `WriteAllText`(BOM 없는 UTF-8)로 저장한다.
+- 인증서로 들어갔는지 확인: `ssh -v orbit@10.0.0.202 exit 2>&1 | Select-String "Server accepts key"` → `ED25519-CERT`면 인증서.
+- 인증서 내용 확인: `ssh-keygen -L -f "$HOME\.ssh\id_ed25519-cert.pub"` (`Key ID`, `Valid` 줄).
+
+### 공통
 
 - 개인키 옆에 `-cert.pub`로 저장하면 ssh가 알아서 함께 쓴다.
 - 인증서는 8시간 뒤 만료된다. 새 접속에는 다시 발급받는다. 이미 연결된 세션은 끊기지 않는다.
