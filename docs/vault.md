@@ -333,7 +333,7 @@ vault operator unseal               # 키를 인자로 쓰지 않음 (history에
 
 ## 권한 회수
 
-- GitHub `orbit` 팀에서 빼면 팀 정책(`ssh-orbit`, `orbit-secrets-write`)이 새 로그인 토큰에서 빠진다. 하지만 GitHub 로그인은 조직 멤버이면 되고 개인 SSH 정책은 사용자 매핑으로 붙으므로, 팀 탈퇴만으로 개인 인증서 발급이 막히지는 않는다. 개인 명단에서 지우고 Vault·개인 계정 플레이북을 모두 적용한다([명단에서 빠진 사람](personal-accounts.md#명단에서-빠진-사람)). 이미 받은 Vault 토큰은 최대 24시간, 이미 받은 인증서는 최대 8시간 동안 쓸 수 있다.
+- GitHub `orbit` 팀에서 빼면 팀 정책(`ssh-orbit`, `orbit-secrets-write`)이 새 로그인 토큰에서 빠진다. 하지만 GitHub 로그인은 조직 멤버이면 되고 개인 SSH 정책은 사용자 매핑으로 붙으므로, 팀 탈퇴만으로 개인 인증서 발급이 막히지는 않는다. 개인 명단에서 지우고 Vault·개인 계정 플레이북을 모두 적용한다. 전체 순서는 [탈퇴·접근 회수](personal-accounts.md#온보딩권한-변경탈퇴)를 따른다. 이미 받은 Vault 토큰은 최대 24시간, 이미 받은 인증서는 최대 8시간 동안 쓸 수 있다.
 - 바로 막아야 하면 관리자 권한으로 GitHub 로그인 토큰을 모두 폐기한다 (전원 다시 로그인): `vault token revoke -mode=path auth/github/login`
 - 열려 있는 SSH 세션은 자동으로 끊기지 않는다. 노드 로그에서 `ID github-<아이디>`의 sshd PID를 찾아 종료한다.
 - 비상 계정 비밀번호 변경: 관리자 권한으로 `vault delete auth/userpass/users/<이름>` 후 `vault.yml` 값을 바꾸고 `vault.yml` 플레이북을 다시 실행한다.
