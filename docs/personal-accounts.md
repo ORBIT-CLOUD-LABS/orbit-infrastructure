@@ -1,6 +1,6 @@
 # 개인 Linux 계정과 호스트별 권한
 
-개인 계정 role은 계정·홈·개인 그룹·개인 sudo 규칙과 인증서 전용 SSH 설정을 관리한다. Vault 역할·GitHub 매핑은 별도의 Vault 플레이북으로 적용하며, 팀원 자동 설정·갱신 스크립트의 개인 계정 전환은 후속 작업이다. Linux 계정 role 적용만으로 개인 인증서가 발급되지는 않는다.
+개인 계정 role은 계정·홈·개인 그룹·개인 sudo 규칙과 인증서 전용 SSH 설정을 관리한다. Vault 역할·GitHub 매핑은 별도의 Vault 플레이북으로 적용하고, 팀원 인증서 자동 설정·갱신은 `scripts/orbit-ssh-setup.sh`가 맡는다([Vault 문서의 팀원 접속](vault.md#팀원-접속-자동-갱신-macos)). Linux 계정 role 적용만으로 개인 인증서가 발급되지는 않는다.
 
 ## 초기 비밀번호
 
@@ -58,7 +58,7 @@ ansible-playbook playbooks/personal-accounts.yml -K --ask-vault-pass --limit sol
 
 **전환 중에는 팀의 `ssh-orbit`과 `orbit-secrets-write`를 유지한다.** GitHub 사용자 정책은 팀 정책에 추가된다. 따라서 개인 로그인 토큰에는 본인 개인 역할 권한과 기존 공용 orbit 발급·앱 비밀값 권한이 함께 있을 수 있다. 다른 개인 역할까지 허용하는 것은 아니다. 공용 orbit 발급 제거는 개인 계정·접속 도구 검증이 끝난 후 별도 단계에서 진행한다. [Vault GitHub 사용자 매핑](https://developer.hashicorp.com/vault/api-docs/auth/github#map-github-users).
 
-astra에서 root 등 관리자 토큰을 준비하고, [Vault 운영 문서](vault.md)의 미리보기 → 적용 → 재실행 절차를 따른다. 개인 Linux 계정과 호스트별 principal 설정을 먼저 준비해야 실제 개인 계정으로 로그인할 수 있다. 예를 들어 개인 인증서는 GitHub로 새 로그인한 뒤 `vault write -field=signed_key ssh-client-signer/sign/personal-hyn128 public_key=@<본인 공개키 파일>`로 받는다. 다른 사람의 역할을 지정하지 않는다. 팀원 스크립트는 아직 개인 역할로 전환하지 않았으므로 이번 단계에서 자동 설정을 다시 실행해도 개인 계정 전환이 완료되지는 않는다.
+astra에서 root 등 관리자 토큰을 준비하고, [Vault 운영 문서](vault.md)의 미리보기 → 적용 → 재실행 절차를 따른다. 개인 Linux 계정과 호스트별 principal 설정을 먼저 준비해야 실제 개인 계정으로 로그인할 수 있다. 예를 들어 개인 인증서는 GitHub로 새 로그인한 뒤 `vault write -field=signed_key ssh-client-signer/sign/personal-hyn128 public_key=@<본인 공개키 파일>`로 받는다. 다른 사람의 역할을 지정하지 않는다. macOS 자동 설정(`scripts/orbit-ssh-setup.sh`)은 토큰의 개인 정책에서 계정명을 알아내 이 역할로 서명하며, 개인 정책이 없으면 기존 설정을 바꾸지 않고 멈춘다.
 
 ### 명단에서 빠진 사람
 
