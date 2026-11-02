@@ -1,6 +1,7 @@
-# Vault와 SSH CA
+# Vault, SSH CA와 앱 비밀값
 
 구현: [#7](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/7).
+KV·Kubernetes 인증: [#13](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/13). 아래 구성은 코드의 목표 상태이며, 운영 적용·실제 k3s 인증 검증 완료를 뜻하지 않는다.
 이 문서에는 이름과 절차만 기록한다. unseal 키, 토큰, 비밀번호, GitHub PAT 값은 Git·Issue·PR·문서·채팅 어디에도 남기지 않는다.
 
 ## 구성
@@ -18,6 +19,9 @@
 | 인증서 | `orbit` 계정만, 최대 8시간, 인증서 ID는 서버가 정함 (`github-<아이디>`, `userpass-<이름>`) |
 | 로그인 | GitHub (`ORBIT-CLOUD-LABS`의 `orbit` 팀), 비상용 userpass `breakglass1`, `breakglass2`. 토큰 기본 8시간, 최대 24시간 |
 | 노드 | 인벤토리 전체(노드 5대, VM 3대)가 `/etc/ssh/trusted-user-ca-keys.pem`을 신뢰 (`sshd_config.d/10-orbit-ssh-ca.conf`). 기존 `authorized_keys`는 그대로 |
+| 앱 비밀값 | KV v2 `secret/`, 앱 경로 `orbit/<앱 이름>`. 원본은 Vault에서 관리하고 ESO 연동 후 Kubernetes Secret으로 복제 |
+| Kubernetes 인증 | `auth/kubernetes`, API `https://10.0.0.200:6443`, 별도 reviewer JWT 없이 로그인 JWT로 TokenReview |
+| ESO 역할 | `eso`: `external-secrets/external-secrets`만 허용, `eso-orbit` 정책, 토큰 기본·최대 수명 1시간 |
 
 ## 플레이북
 
@@ -32,6 +36,182 @@ astra에서 실행한다 (`ansible_connection: local`).
 - **버전(`hvault_version`)이나 `vault.hcl`이 바뀌면 Vault가 재시작되어 sealed가 된다.** unseal할 사람 2명이 있을 때 실행한다.
 - SSH CA 키는 없을 때만 만들고 다시 만들지 않는다. 같은 경로에 다른 종류의 엔진·감사 장치가 있으면 덮어쓰지 않고 멈춘다.
 - 비상 계정 비밀번호는 `inventory/group_vars/all/vault.yml`(ansible-vault)의 `vault_breakglass1_password`, `vault_breakglass2_password`. 계정을 처음 만들 때만 쓰인다.
+- 관리자 토큰으로 실행하면 미리보기에서도 polaris에 SSH·sudo로 접속해 k3s CA를 읽는다. 읽기 실패 시 Vault 내부 설정을 쓰기 전에 멈춘다.
+- `secret/`은 `type=kv`, `options.version=2`여야 한다. KV v1·다른 엔진이나 같은 경로의 다른 인증 방식은 자동 전환하지 않는다. 기존 별도 reviewer JWT가 있어도 중단한다.
+
+## 앱 비밀값 경로와 권한
+
+| 구분 | 값 |
+| --- | --- |
+| CLI 경로 | `vault kv put -mount=secret orbit/<앱 이름> ...` |
+| Vault ACL·API 경로 | `secret/data/orbit/<앱 이름>` |
+| ESO Store | `path: secret`, `version: v2` |
+| ExternalSecret | `remoteRef.key: orbit/<앱 이름>`, `property: <키 이름>` |
+
+| 주체 | 정책 | 허용 범위 |
+| --- | --- | --- |
+| GitHub `orbit` 팀 | `ssh-orbit`, `orbit-secrets-write` | 기존 SSH 서명 + `secret/data/orbit/*` 조회·생성·전체 교체·부분 수정 |
+| ESO SA | `eso-orbit` | `secret/data/orbit/*` 읽기만. 앱별 격리가 아닌 orbit 앱 공용 권한 |
+| 비상 userpass 계정 | `ssh-orbit` | SSH 서명만 |
+| 임시 root | `root` | 엔진·인증·정책 관리와 검증·정리. 완료 후 폐기 |
+
+쓰기 정책은 `create`, `read`, `update`, `patch`를 허용하며 목록·삭제·SSH 서명 권한은 없다. SSH 서명은 별도 `ssh-orbit` 정책으로 허용한다. 이 정책들은 VM의 파일 권한이나 sudo 권한을 바꾸지 않는다. 현재는 orbit 팀원 전원이 모든 orbit 앱의 비밀값을 읽고 바꿀 수 있다.
+
+### 값 넣기·바꾸기
+
+Vault CLI가 있는 macOS/Linux의 Bash에서 실행한다. 먼저 위의 접속 환경 변수(`VAULT_ADDR`, `VAULT_CACERT`)를 설정한다. root를 사용하는 운영 검증 터미널과 별도 터미널을 사용한다.
+
+```bash
+set +x
+set -o pipefail
+unset VAULT_TOKEN
+VAULT_TOKEN=$(vault login -token-only -method=github)
+export VAULT_TOKEN
+```
+
+PAT는 프롬프트에 입력한다. 새 로그인 토큰에 `ssh-orbit`, `orbit-secrets-write`가 있는지 `vault token lookup -field=policies`로 확인한다. 비밀값은 인자·history에 쓰지 말고 보호된 JSON 파일로 입력한다. 다음은 `orbit-server`를 처음 만들 때 세 키를 숨김 입력하는 예다 (Python 3 필요).
+
+```bash
+umask 077
+ORBIT_SECRET_FILE=$(mktemp)
+python3 - "$ORBIT_SECRET_FILE" <<'PY'
+import getpass, json, sys
+values = {key: getpass.getpass(key + ': ')
+          for key in ('DB_PASSWORD', 'ENROLLMENT_KEY', 'ADMIN_TOKEN')}
+with open(sys.argv[1], 'w') as output:
+    json.dump(values, output)
+PY
+# Python 입력이 성공한 경우에만 실행한다.
+vault kv put -mount=secret orbit/orbit-server @"$ORBIT_SECRET_FILE"
+rm -f "$ORBIT_SECRET_FILE"
+unset ORBIT_SECRET_FILE
+```
+
+실패·중단 시에도 임시 파일은 삭제한다. 실제 앱이 요구하는 키 목록에 맞춰 입력한다. **`kv put`은 전체 교체이므로 변경하지 않는 키도 모두 다시 넣어야 한다.** 생략한 키는 새 버전에서 사라진다. 기존 값의 일부만 바꿀 때는 아래처럼 `kv patch`를 사용한다. 입력한 키만 갱신하고 다른 키는 유지한다. 존재하지 않는 경로에는 먼저 `put`으로 초기 값을 생성해야 한다.
+
+```bash
+read -rsp '새 ADMIN_TOKEN: ' ORBIT_ADMIN_TOKEN; printf '\n'
+printf '%s' "$ORBIT_ADMIN_TOKEN" | vault kv patch -method=patch -mount=secret orbit/orbit-server ADMIN_TOKEN=-
+unset ORBIT_ADMIN_TOKEN
+```
+
+기존 값 확인이 필요하면 `vault kv get -mount=secret orbit/orbit-server`를 사용한다. 실제 비밀값이 화면에 나오므로 화면 공유·터미널 녹화·출력 저장을 피한다. 여러 사람이 동시에 같은 키를 수정하지 않도록 조율한다.
+
+ESO 설치 후에는 동기화 주기 또는 강제 동기화로 반영하며, `envFrom` 환경 변수는 파드 재시작 후 새 값을 읽는다. 기존 Secret이 있는 상태에서 Vault가 멈추면 동기화는 실패하지만 앱은 기존 값을 사용한다. Secret이 없거나 클러스터를 재구축했다면 Vault 복구·unseal 전에는 재생성할 수 없다.
+
+입력 작업이 끝나면 `vault token revoke -self && unset VAULT_TOKEN`으로 해당 GitHub 토큰을 폐기한다. [KV put 공식 문서](https://developer.hashicorp.com/vault/docs/commands/kv/put).
+
+## KV·Kubernetes 인증 운영 적용과 검증
+
+이 절차는 astra의 Bash에서, 저장소 `ansible/` 디렉터리를 기준으로 실행한다. Vault CLI·kubectl·jq, polaris SSH·sudo 권한, `~/.kube/orbit-k3s.yaml`이 필요하다. kubeconfig는 k3s 플레이북이 astra 실행 사용자에게 `0600`으로 저장한 관리자 자격 증명이며 Git에 넣지 않는다. Argo CD·ESO 설치 전에도 임시 SA로 검증할 수 있다.
+
+### 설정 출처와 적용
+
+- API 주소는 `inventory/hosts.yml`의 첫 `cp` 호스트(polaris)의 `lan_ip`와 포트 6443으로 만든다.
+- k3s CA는 그 호스트의 `/var/lib/rancher/k3s/server/tls/server-ca.crt`에서 읽는다. Git에 복사하지 않는다. 클러스터 재생성 후 CA가 바뀌면 플레이북 재실행으로 갱신한다.
+- `hvault_eso_audience`는 `https://kubernetes.default.svc.cluster.local`이다. ESO TokenRequest에도 같은 값을 사용해야 하며 실제 k3s API가 허용하는지 아래 로그인으로 검증한다.
+- Vault는 `disable_local_ca_jwt=true`이고 별도 reviewer JWT를 저장하지 않는다. 따라서 로그인하는 SA에 `system:auth-delegator` 권한이 필요하다. [Vault Kubernetes 인증 API](https://developer.hashicorp.com/vault/api-docs/auth/kubernetes).
+
+먼저 `set +x`와 `set -o pipefail`을 실행한다. 파이프 앞의 토큰 발급 실패도 성공으로 처리하지 않게 한다.
+
+1. [관리자 권한](#관리자-권한) 절차로 임시 root를 준비한다. 최초 root가 아직 유효하면 그것을 사용한다. `set +x`로 셸 추적을 끄고 root는 `VAULT_TOKEN`에 숨김 입력한다.
+2. 변경 전 GitHub 팀 매핑을 `vault read -field=value auth/github/map/teams/orbit`로 기록한다. 실패 시 이 매핑으로 되돌릴 수 있게 한다.
+3. 다음 미리보기 → 적용 → 재실행을 수행한다. polaris CA 조회가 성공하고 예상한 항목만 변경되는지 본다. 재실행은 바뀔 설정 목록 `[]`와 `설정 쓰기` 생략을 확인한다. 전체 플레이북의 다른 작업이 아니라 Vault 내부 설정의 무변경을 확인한다.
+
+```bash
+export VAULT_ADDR=https://127.0.0.1:8200
+export VAULT_CACERT=/opt/vault/tls/vault-ca.crt
+ansible-playbook playbooks/vault.yml -K --ask-vault-pass --check --diff
+ansible-playbook playbooks/vault.yml -K --ask-vault-pass
+ansible-playbook playbooks/vault.yml -K --ask-vault-pass
+```
+
+위 명령은 최초 root가 유효하고 `hvault_allow_generate_root=false`인 현재 절차 기준이다. 이때 `-e hvault_allow_generate_root=true`를 추가하지 않는다. 꺼진 설정을 켜면 Vault가 재시작되어 sealed가 된다. 최초 root가 없어서 [관리자 권한](#관리자-권한)의 generate-root 절차로 임시 root를 만든 경우에만, 허용 설정을 켜고 unseal을 마친 뒤 세 명령 모두에 `-e hvault_allow_generate_root=true`를 붙여 설정을 유지한다.
+
+검증 실패 시 root는 유지하고 원인을 해결한 뒤 재검증한다. SSH 발급이 막히면 `vault write auth/github/map/teams/orbit value=<변경 전 매핑>`으로 복구하고 코드도 맞춘다.
+
+### 실제 k3s 로그인·권한 검증
+
+아래 리소스가 모두 없는지 먼저 확인한다. 이미 있으면 생성·삭제를 진행하지 말고 소유자와 정리 범위를 확인한다. 특히 ESO 설치 후에는 기존 `external-secrets` namespace나 SA를 삭제하면 안 된다.
+
+```bash
+export KUBECONFIG="$HOME/.kube/orbit-k3s.yaml"
+kubectl get namespace external-secrets vault-auth-check
+kubectl get clusterrolebinding orbit-vault-auth-check
+# 모두 NotFound일 때만 아래 생성 진행
+kubectl create namespace external-secrets
+kubectl create namespace vault-auth-check
+kubectl -n external-secrets create serviceaccount external-secrets
+kubectl -n external-secrets create serviceaccount vault-auth-denied
+kubectl -n vault-auth-check create serviceaccount external-secrets
+kubectl create clusterrolebinding orbit-vault-auth-check \
+  --clusterrole=system:auth-delegator \
+  --serviceaccount=external-secrets:external-secrets \
+  --serviceaccount=external-secrets:vault-auth-denied \
+  --serviceaccount=vault-auth-check:external-secrets
+```
+
+거부 시험용 SA에도 TokenReview 권한을 줘야 단순한 API 권한 부족이 아닌 Vault 역할의 이름·namespace 제한을 검증할 수 있다. 다음은 root가 `VAULT_TOKEN`에 남아 있는 같은 터미널에서 실행한다. 시험 경로는 충돌하지 않는 이름을 만들고 가짜 값만 쓴다.
+
+```bash
+ORBIT_TEST_PATH="orbit/vault-auth-check-$(date +%s)-$$"
+vault kv put -mount=secret "$ORBIT_TEST_PATH" CHECK=dev-only-fake-value KEEP=unchanged
+ESO_LOGIN=$(kubectl -n external-secrets create token external-secrets \
+  --audience=https://kubernetes.default.svc.cluster.local --duration=10m | \
+  vault write -format=json auth/kubernetes/login role=eso jwt=-)
+# 로그인 명령이 성공한 경우에만 진행. 출력에는 토큰이 있으므로 echo하지 않음
+ESO_TOKEN=$(printf '%s' "$ESO_LOGIN" | jq -er '.auth.client_token')
+ESO_ACCESSOR=$(printf '%s' "$ESO_LOGIN" | jq -er '.auth.accessor')
+unset ESO_LOGIN
+VAULT_TOKEN="$ESO_TOKEN" vault kv get -mount=secret -field=CHECK "$ORBIT_TEST_PATH"
+# 위는 dev-only-fake-value. 아래 둘은 반드시 403 permission denied
+VAULT_TOKEN="$ESO_TOKEN" vault kv get -mount=secret "outside-$ORBIT_TEST_PATH"
+VAULT_TOKEN="$ESO_TOKEN" vault kv put -mount=secret "$ORBIT_TEST_PATH" CHECK=denied
+```
+
+다음 두 로그인도 각각 실패해야 한다. 실패 원인은 SA 이름 또는 namespace 불일치여야 하며 TLS·네트워크·audience·TokenReview 권한 오류로 대신 통과 처리하지 않는다. 성공해 버리면 즉시 시험을 멈추고 역할 설정을 확인한다.
+
+```bash
+kubectl -n external-secrets create token vault-auth-denied \
+  --audience=https://kubernetes.default.svc.cluster.local --duration=10m | \
+  vault write auth/kubernetes/login role=eso jwt=- >/dev/null
+kubectl -n vault-auth-check create token external-secrets \
+  --audience=https://kubernetes.default.svc.cluster.local --duration=10m | \
+  vault write auth/kubernetes/login role=eso jwt=- >/dev/null
+```
+
+### GitHub 재로그인·정리와 root 폐기
+
+별도 터미널에서 위의 GitHub 새 로그인 방법으로 토큰을 받는다. 시험 경로 이름(`ORBIT_TEST_PATH`, 비밀값 아님)을 전달받아 아래를 실행한다. 모두 가짜 시험 값이며, 생성·전체 교체·읽기·부분 수정 권한과 다른 키 보존을 확인한다.
+
+```bash
+vault kv put -mount=secret "$ORBIT_TEST_PATH" CHECK=github-fake-value KEEP=unchanged
+vault kv patch -method=patch -mount=secret "$ORBIT_TEST_PATH" CHECK=github-patched-value
+vault kv get -mount=secret -field=CHECK "$ORBIT_TEST_PATH"  # github-patched-value
+vault kv get -mount=secret -field=KEEP "$ORBIT_TEST_PATH"   # unchanged
+```
+
+같은 토큰으로 기존 [SSH 인증서 발급 절차](#macos-linux)도 성공해야 한다. root 터미널에서도 ESO 토큰으로 `CHECK`, `KEEP`를 읽어 같은지 확인한다. GitHub 검증 토큰은 그 별도 터미널에서 폐기한다.
+
+root 터미널에서는 성공 여부와 무관하게 이번에 만든 시험 리소스를 정리한다. 아래 namespace 삭제는 앞에서 새로 만든 빈 namespace에만 해당한다.
+
+```bash
+vault token revoke -accessor "$ESO_ACCESSOR"
+vault kv metadata delete -mount=secret "$ORBIT_TEST_PATH"
+kubectl delete clusterrolebinding orbit-vault-auth-check
+kubectl -n external-secrets delete serviceaccount external-secrets vault-auth-denied
+kubectl -n vault-auth-check delete serviceaccount external-secrets
+kubectl delete namespace external-secrets vault-auth-check
+unset ESO_TOKEN ESO_ACCESSOR ORBIT_TEST_PATH
+```
+
+`metadata delete`는 시험 경로의 모든 버전을 제거한다. 앱 경로에는 실행하지 않는다. SA 삭제로 시험용 Kubernetes 토큰을 무효화하며, Vault 토큰은 accessor로 따로 폐기한다. 중간 실패로 변수가 비어 있으면 해당 생성 단계와 리소스부터 확인한다. 예상과 달리 거부 시험 로그인이 성공했다면 root로 `vault token revoke -mode=path auth/kubernetes/login`도 실행한다 (이 경로로 발급된 토큰 전체 폐기이므로 운영 ESO 설치 전 시험에만 사용).
+
+검증·정리가 끝나면 [관리자 권한](#관리자-권한) 절차대로 root를 폐기하고, 임시 generate-root 허용 설정을 켰다면 다시 끄고 재시작 후 unseal까지 마친다. 운영 결과에는 성공·실패와 변경 항목만 남기고 토큰·비밀값은 남기지 않는다.
+
+- [ ] astra 적용·실제 k3s 로그인·GitHub 권한·시험 리소스 정리·root 폐기까지 완료한 뒤, 문서 상단의 목표 상태 안내를 실제 검증 일자와 결과로 갱신한다.
+
+ESO Helm Application, TokenReview RBAC, Vault CA ConfigMap, ClusterSecretStore와 앱별 ExternalSecret은 orbit-gitops에서 Argo CD 배포 후 진행한다. 생성 Secret 이름을 Deployment의 `envFrom`과 맞춘다.
 
 ## 팀원 접속 (자동 갱신, macOS)
 
