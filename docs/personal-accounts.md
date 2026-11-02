@@ -13,6 +13,7 @@
 ## 사전 검사와 소유권
 
 - 개인 그룹의 GID는 UID와 동일하다. 모든 선택 호스트의 입력·계정·UID·GID·홈·비밀번호 준비·기존 SSH CA·sudo 설정을 먼저 조회하고 검사한다. 하나라도 실패하면 생성 단계로 넘어가지 않는다.
+- principal 파일 경로의 상위 디렉터리(`/`, `/etc`, `/etc/ssh`)가 root 소유이고 그룹·기타 쓰기 권한이 없어야 한다. sshd `StrictModes`가 이 조건이 맞지 않으면 principal 파일을 읽지 않고 개인 인증서를 거부하기 때문이다. 이 문제는 `sshd -T -C`로는 드러나지 않고 로그인 때 `bad ownership or modes for directory`로만 나타나므로 사전 검사에서 멈춘다. 권한은 자동으로 고치지 않는다.
 - root 전용 `/var/lib/orbit/personal-accounts/<계정명>.json`이 관리 기록이다. 기록 없이 같은 계정명·그룹명이 있으면 UID가 같아도 인수하지 않는다. 다른 이름의 UID/GID 충돌, 기존 홈 소유권 불일치도 자동 수정하지 않는다.
 - 계정 생성 중 실패한 뒤에도 안전하게 재실행할 수 있도록 생성 의도를 먼저 기록한다. 이 파일을 손으로 추가해 기존 계정을 인수하지 않는다.
 - 이 role이 관리하는 개인 계정은 보조 그룹을 비우고 개별 sudoers 파일로 권한을 준다. 별도의 그룹 접근 권한이 필요하면 모델을 먼저 확장한다.
@@ -183,6 +184,8 @@ Wazuh 에이전트·수집·디코더 설정과 대시보드 검색 방법은 �
 | 2026-11-02 | Vault 개인 항목 적용 | 명단 5명 / astra Vault | 미리보기에서 개인 역할·정책·사용자 매핑 15개만 추가 대상, 삭제 목록 비어 있음. 적용 15개, 재실행 `바뀔 설정 []` | `jyvnee` | 브랜치 `task/15-personal-accounts-vault-ssh` `8f213ed`에서 적용 |
 | 2026-11-02 | 개인 계정 적용 | 명단 5명 / `sol` | 사전 검사 통과, 계정·그룹(UID=GID 2001~2005)·홈(`0700`)·sudoers·principal·SSH 조각 생성, 재실행 `changed=0`. 자동화(`orbit_ansible`) 접속 유지 | `jyvnee` | |
 | 2026-11-02 | 전환 검증 | `jyvnee` / `sol` | 실제 GitHub PAT로 setup 완료(인증서 `github-jyvnee`, principal `jyvnee`). 개인 인증서 로그인, 비밀번호 sudo 성공. 거부 확인: `hyn128@sol`, 인증서 없는 키, 개인 계정 없는 `luna`, 다른 사람 역할(`personal-hyn128`) 서명 403, 비밀번호 없는 sudo. `orbit@astra` 대체 경로 유지 | `jyvnee` | 호스트 로그에 `Accepted publickey for jyvnee from 100.115.101.78 ... ID github-jyvnee`와 sudo `jyvnee : TTY=pts/1 ...` 확인. Wazuh 수집은 미확인(담당 저장소 미정). 다른 팀원 4명은 setup 전 |
+| 2026-11-03 | 개인 계정 적용·전환 검증 | 명단 5명 / `terra`, `luna`, `efk`, `lgtm`, `polaris` | 호스트마다 미리보기(5명 신규·허용) → 적용(`changed=9`) → 재실행 `changed=0`. `jyvnee` 개인 인증서 로그인 성공, `hyn128@<호스트>`·인증서 없는 키·비밀번호 없는 sudo 거부, 자동화(`orbit_ansible`) 접속 유지. VM(`efk`, `lgtm`)은 astra 경유(`-J`)로 확인. 호스트 키는 Tailscale·astra 내부망 지문을 대조해 등록 | `jyvnee` | 비밀번호 sudo 성공은 `sol`에서만 확인. `polaris`는 k3s `active` 확인 |
+| 2026-11-03 | 문제 발견·조치 | `polaris` | `/etc`가 `775`(그룹 쓰기)라 sshd `StrictModes`가 principal 파일을 거부(`bad ownership or modes for directory /etc`). `orbit`은 영향 없음. 관리 세션에서 `sudo chmod g-w /etc`로 `755`로 고친 뒤 개인 로그인 성공. 같은 문제를 적용 전에 멈추도록 사전 검사 추가 | `jyvnee` | 원래 이미지 설정으로 추정. astra·wazuh·sol은 `755` |
 
 ## 구현 검증 범위
 

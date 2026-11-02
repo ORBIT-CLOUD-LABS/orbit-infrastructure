@@ -241,6 +241,9 @@
     fail_msg: 기존 TrustedUserCAKeys 파일이 없거나 root 소유 공개키 파일이 아님
     quiet: true
 
+- name: principal 파일 경로가 sshd StrictModes를 통과해야 함
+  ansible.builtin.import_tasks: strictmodes.yml
+
 - name: 기존 sudo 설정 검사
   ansible.builtin.command: /usr/sbin/visudo -cf /etc/sudoers
   changed_when: false
