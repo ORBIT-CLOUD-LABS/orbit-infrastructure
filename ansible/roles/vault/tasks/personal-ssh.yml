@@ -1,0 +1,51 @@
+# hvault_cfg에 개인별 항목을 추가. 비상 비밀번호를 추가하기 전에 실행함
+- name: 개인 SSH 역할과 정책 이름 검사
+  ansible.builtin.assert:
+    that:
+      - hvault_ssh_personal_role_prefix is match('^[a-z][a-z0-9-]*-$')
+      - hvault_ssh_personal_policy_prefix is match('^[a-z][a-z0-9-]*-$')
+      - (hvault_ssh_personal_role_prefix ~ item.username) != hvault_ssh_role
+      - (hvault_ssh_personal_policy_prefix ~ item.username) not in [hvault_ssh_policy, hvault_kv_read_policy, hvault_kv_write_policy, 'root', 'default']
+    fail_msg: 개인 SSH 역할·정책 이름이 기존 공용 자원과 겹치거나 잘못됨
+    quiet: true
+  loop: "{{ personal_accounts }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+- name: 개인 SSH 역할·정책·GitHub 사용자 매핑
+  ansible.builtin.set_fact:
+    hvault_cfg: >-
+      {{ hvault_cfg + [
+           {'id': 'personal_role_' ~ item.username,
+            'name': '개인 SSH 역할 (' ~ item.username ~ ')',
+            'read': hvault_ssh_mount ~ '/roles/' ~ hvault_ssh_personal_role_prefix ~ item.username,
+            'body': hvault_personal_role_body},
+           {'id': 'personal_policy_' ~ item.username,
+            'name': '개인 SSH 서명 정책 (' ~ item.username ~ ')',
+            'read': 'sys/policies/acl/' ~ hvault_ssh_personal_policy_prefix ~ item.username,
+            'body': {'policy': lookup('ansible.builtin.template', 'ssh-personal-policy.hcl.j2')}},
+           {'id': 'personal_github_' ~ item.username,
+            'name': 'GitHub 사용자 → 개인 SSH 정책 (' ~ item.github ~ ')',
+            'read': 'auth/github/map/users/' ~ (item.github | lower),
+            'body': {'value': hvault_ssh_personal_policy_prefix ~ item.username}}
+         ] }}
+  vars:
+    hvault_personal_role_body:
+      key_type: ca
+      allow_user_certificates: true
+      allow_host_certificates: false
+      allow_empty_principals: false
+      allowed_users: "{{ item.username }}"
+      allowed_users_template: false
+      default_user: "{{ item.username }}"
+      default_user_template: false
+      allowed_extensions: permit-pty
+      default_extensions: { permit-pty: "" }
+      default_extensions_template: false
+      ttl: "{{ hvault_ssh_cert_ttl_s }}"
+      max_ttl: "{{ hvault_ssh_cert_max_ttl_s }}"
+      key_id_format: !unsafe "{{token_display_name}}"   # noqa: jinja[spacing]
+      allow_user_key_ids: false
+  loop: "{{ personal_accounts }}"
+  loop_control:
+    label: "{{ item.github }} → {{ item.username }}"

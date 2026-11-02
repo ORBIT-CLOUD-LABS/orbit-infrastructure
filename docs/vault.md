@@ -51,6 +51,7 @@ astra에서 실행한다 (`ansible_connection: local`).
 | 주체 | 정책 | 허용 범위 |
 | --- | --- | --- |
 | GitHub `orbit` 팀 | `ssh-orbit`, `orbit-secrets-write` | 기존 SSH 서명 + `secret/data/orbit/*` 조회·생성·전체 교체·부분 수정 |
+| GitHub 사용자 (개인 명단) | `ssh-personal-<계정명>` | 본인 역할 `ssh-client-signer/sign/personal-<계정명>`의 서명만. 팀 정책에 더해짐. 명단에서 빠지면 Vault 플레이북이 삭제 ([개인 계정 문서](personal-accounts.md#vault-개인-ssh-역할정책)) |
 | ESO SA | `eso-orbit` | `secret/data/orbit/*` 읽기만. 앱별 격리가 아닌 orbit 앱 공용 권한 |
 | 비상 userpass 계정 | `ssh-orbit` | SSH 서명만 |
 | 임시 root | `root` | 엔진·인증·정책 관리와 검증·정리. 완료 후 폐기 |

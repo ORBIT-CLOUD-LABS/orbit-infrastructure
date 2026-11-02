@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+# GitHub {{ item.github }} -> Linux {{ item.username }}. 본인 역할의 서명만 허용
+path "{{ hvault_ssh_mount }}/sign/{{ hvault_ssh_personal_role_prefix }}{{ item.username }}" {
+  capabilities = ["update"]
+}
