@@ -10,6 +10,6 @@ wifi_prefix: 22
 wifi_psk: "{{ vault_wifi_psk }}"   # inventory/group_vars/all/vault.yml (ansible-vault로 암호화)
 
 dns: [8.8.8.8, 1.1.1.1]
-probe_ip: 9.9.9.9           # 장애 감시용. 워커는 항상 게이트웨이를 거치게 고정 경로
+probe_ip: 1.0.0.1 # 장애 감시용. 워커는 항상 게이트웨이를 거치게 고정 경로
 metric_main: 100
 metric_backup: 600
