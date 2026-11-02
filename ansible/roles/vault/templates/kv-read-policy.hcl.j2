@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+# orbit 앱 공용 읽기. metadata 목록 조회와 쓰기는 허용하지 않음
+path "{{ hvault_kv_mount }}/data/{{ hvault_kv_prefix }}/*" {
+  capabilities = ["read"]
+}

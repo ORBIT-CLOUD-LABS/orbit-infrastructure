@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+# 앱 비밀값 생성·전체 교체만. 읽기·부분 수정·삭제·SSH 서명은 허용하지 않음
+path "{{ hvault_kv_mount }}/data/{{ hvault_kv_prefix }}/*" {
+  capabilities = ["create", "update"]
+}

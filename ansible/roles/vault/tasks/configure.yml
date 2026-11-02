@@ -34,7 +34,7 @@
         fail_msg: "{{ 'Vault가 sealed 상태. 먼저 unseal' if hvault_self.status == 503 else 'VAULT_TOKEN이 맞지 않음 (403)' }}"
 
     # id: 항목 이름, read: 읽을 경로, write: 쓸 경로(없으면 read)
-    # exists_key: 이 키가 있으면 됨 (있는데 종류나 경로가 다르면 멈춤). 없으면 body가 지금 값에 다 들어 있으면 됨
+    # exists_key: 이 키가 있으면 됨 (종류·경로·KV 버전이 다르면 멈춤). 없으면 body가 지금 값에 다 들어 있으면 됨
     # 없음은 404로 판단. 400은 missing_400 메시지일 때만 없음으로 봄
     - name: 원하는 설정
       ansible.builtin.set_fact:
@@ -77,6 +77,20 @@
             name: SSH 서명 정책
             read: "sys/policies/acl/{{ hvault_ssh_policy }}"
             body: { policy: "{{ lookup('ansible.builtin.template', 'ssh-policy.hcl.j2') }}" }
+          - id: kv_mount
+            name: 앱 비밀값 KV v2 엔진
+            read: sys/mounts
+            exists_key: "{{ hvault_kv_mount }}/"
+            write: "sys/mounts/{{ hvault_kv_mount }}"
+            body: { type: kv, options: { version: "2" } }
+          - id: kv_read_policy
+            name: 앱 비밀값 읽기 정책 (ESO)
+            read: "sys/policies/acl/{{ hvault_kv_read_policy }}"
+            body: { policy: "{{ lookup('ansible.builtin.template', 'kv-read-policy.hcl.j2') }}" }
+          - id: kv_write_policy
+            name: 앱 비밀값 쓰기 정책 (GitHub 팀)
+            read: "sys/policies/acl/{{ hvault_kv_write_policy }}"
+            body: { policy: "{{ lookup('ansible.builtin.template', 'kv-write-policy.hcl.j2') }}" }
           - id: github_mount
             name: GitHub 로그인 켜기
             read: sys/auth
@@ -93,7 +107,7 @@
           - id: github_team
             name: GitHub 팀 → 정책
             read: "auth/github/map/teams/{{ hvault_github_team }}"
-            body: { value: "{{ hvault_ssh_policy }}" }
+            body: { value: "{{ hvault_ssh_policy }},{{ hvault_kv_write_policy }}" }
           - id: userpass_mount
             name: userpass 로그인 켜기 (비상용)
             read: sys/auth
@@ -149,14 +163,17 @@
       loop: "{{ hvault_seen }}"
       loop_control: { label: "{{ item.name }}" }
 
-    # 같은 경로에 다른 종류(엔진·로그인)나 다른 감사 로그 경로가 있으면, 덮어쓰지 않고 멈춤
+    # 같은 경로에 다른 종류·KV 버전이나 다른 감사 로그 경로가 있으면, 덮어쓰지 않고 멈춤
     - name: 이미 있는 장치·엔진·로그인이 원하는 것인지
       ansible.builtin.assert:
         that:
           - item.data[item.cfg.exists_key].type == item.cfg.body.type
           - >-
-            item.cfg.body.options is not defined or
+            item.cfg.body.options is not defined or item.cfg.body.options.file_path is not defined or
             item.data[item.cfg.exists_key].options.file_path == item.cfg.body.options.file_path
+          - >-
+            item.cfg.body.options is not defined or item.cfg.body.options.version is not defined or
+            (item.data[item.cfg.exists_key].options | default({}, true)).get('version', '') == item.cfg.body.options.version
         fail_msg: >-
           {{ item.name }}: 이미 다른 설정으로 있음
           ({{ item.data[item.cfg.exists_key].type }} {{ item.data[item.cfg.exists_key].options | default({}) }}).
