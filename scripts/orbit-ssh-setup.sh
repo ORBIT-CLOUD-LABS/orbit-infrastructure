@@ -17,8 +17,10 @@ ORBIT_DIR=$HOME/.orbit
 KEY=$HOME/.ssh/id_ed25519
 ASTRA=100.94.67.18
 # 자동 갱신을 켤 주소와 이름. 내부망(노드, VM), 와이파이, Tailscale 주소(tailscale status 기준), Tailscale 이름(MagicDNS)
+# 자동 갱신을 켤 주소와 이름. 내부망(노드, VM), 와이파이, Tailscale 주소(예비 경로), 노드 이름(*.orbit-labs.space, Cloudflare DNS)
 # 노드가 바뀌거나 Tailscale 주소가 바뀌면 여기를 고치고 팀원이 이 스크립트를 다시 실행함
 MATCH_HOSTS="10.0.0.20?,192.168.200.20?,$ASTRA,100.122.168.54,100.104.39.87,100.94.74.17,100.87.222.23,astra,polaris,sol,terra,luna,efk,lgtm,wazuh"
+MATCH_HOSTS="10.0.0.20?,192.168.200.20?,100.94.67.18,100.122.168.54,100.104.39.87,100.94.74.17,100.87.222.23,*.orbit-labs.space"
 PAT_SERVICE=orbit-github-pat
 SSH_CONFIG=$HOME/.ssh/config
 BEGIN='# >>> orbit-vault-ssh (orbit-infrastructure/scripts/orbit-ssh-setup.sh가 관리) >>>'
