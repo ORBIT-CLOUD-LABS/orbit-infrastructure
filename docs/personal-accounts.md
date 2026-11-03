@@ -41,7 +41,7 @@ ansible-playbook playbooks/personal-accounts.yml -K --ask-vault-pass --limit sol
 - 공용 `orbit`, 기존 자동화·비상 접근과 Vault 정책은 변경하지 않는다. 공용 접근 회수는 개인 계정 전환 검증 이후의 별도 작업이다.
 - sudoers 조각은 `visudo` 검사를 통과한 내용만 쓴다. `PASSWD`로 본인 비밀번호를 요구하고, 비밀번호 없는 `sudo true`가 성공하거나 `sudo -l`에 다른 비밀번호 면제 규칙이 있으면 중단한다. 실제 암호를 넣는 sudo 성공 검증과 limited 명령의 권한 확대 검토는 별도로 수행한다.
 - SSH 조각을 쓴 뒤 전체 문법과 사용자별 `sshd -T -C`를 검사하고 통과한 경우만 서비스에 반영한다. 검사 실패 시 이 role의 SSH 조각을 복원하고 중단한다. 이미 만든 계정·그룹·sudo 규칙은 남으므로 기존 관리 세션에서 원인을 확인한다.
-- 실제 환경 확인 항목은 [검증](#검증)과 [로그와 Wazuh 확인](#로그와-wazuh-확인)을 따른다.
+- 실제 환경 확인 항목은 [검증](#검증)과 [로그 확인](#로그-확인)을 따른다.
 
 ## Vault 개인 SSH 역할·정책
 
@@ -76,7 +76,7 @@ Linux 쪽 회수(principal 비우기, sudoers 제거)는 개인 계정 플레이
 
 공용 `orbit` 접속에서 개인 계정으로 옮기는 순서다. 한 명·한 호스트에서 끝까지 검증한 뒤 넓힌다. 모든 단계에서 기존 관리 세션(`orbit`)을 하나 열어 둔 채, 새 터미널로 시험한다.
 
-1. **사전 결정 확인.** 명단(GitHub 아이디·계정명·UID), 사람별 접속 호스트, sudo 범위, Wazuh 수집 담당 저장소가 이슈에서 확정됐는지 확인한다. `inventory/group_vars/all/personal-accounts.yml`이 그 결정과 같아야 한다.
+1. **사전 결정 확인.** 명단(GitHub 아이디·계정명·UID), 사람별 접속 호스트, sudo 범위가 이슈에서 확정됐는지 확인한다. `inventory/group_vars/all/personal-accounts.yml`이 그 결정과 같아야 한다.
 2. **초기 비밀번호 해시 준비.** [초기 비밀번호](#초기-비밀번호) 절차대로 암호화 `vault.yml`에 넣는다. 플레이북은 호스트 단위로 적용되어 그 호스트에 명단 전원의 계정을 만들므로, 전원의 해시가 있어야 사전 검사를 통과한다.
 3. **Vault 적용.** astra에서 관리자 토큰으로 [Vault 운영 문서](vault.md#설정-출처와-적용)의 미리보기 → 적용 → 재실행을 한다. 미리보기에서 개인 항목(사람마다 역할·정책·사용자 매핑)이 추가되고 `삭제할 개인 SSH 항목`이 모두 빈 목록인지 본다.
 4. **첫 대상 한 대.** 호스트 한 대(예: `sol`)와 먼저 시험할 사람 한 명을 정한다. [적용](#적용)의 `--limit sol` 미리보기 → 적용 → 재실행을 한다. 이때 `sol`에는 명단 전원의 계정이 만들어지지만, 각자 setup을 하기 전에는 아무도 개인 인증서로 로그인하지 않는다.
@@ -105,9 +105,7 @@ Linux 쪽 회수(principal 비우기, sudoers 제거)는 개인 계정 플레이
 
 수동 서명 시험은 [수동 발급](vault.md#수동으로-인증서-받기-vault-cli)처럼 GitHub로 로그인한 Vault CLI에서 한다. 이 토큰은 끝나면 `vault token revoke -self`로 폐기한다.
 
-## 로그와 Wazuh 확인
-
-### 호스트 로그
+## 로그 확인
 
 검증한 접속과 sudo가 호스트 로그에 사람 단위로 남는지 먼저 본다. `orbit`이 `adm` 그룹이 아니면 sudo로 본다.
 
@@ -120,22 +118,6 @@ journalctl _COMM=sudo --since '-30 min' | grep '<나>'
 
 - SSH 성공 줄은 `Accepted publickey for <나> from <IP> port ... ED25519-CERT ID github-<아이디> (serial ...) CA ...` 형태다.
 - 개인 계정 플레이북은 실행할 때마다 비밀번호 없는 sudo가 거부되는지 검사한다. 그래서 각 개인 계정 이름으로 `TTY=unknown ; ... COMMAND=/usr/bin/true`와 `a password is required` 줄이 남는다. 실제 사용이 아니므로, 플레이북을 실행한 시각과 명령으로 구분한다.
-
-### Wazuh
-
-Wazuh 에이전트·수집·디코더 설정과 대시보드 검색 방법은 이 저장소가 아니라 Wazuh 담당 저장소에서 관리한다. 담당 저장소와 확인 담당자는 이슈의 사전 결정 항목이며, 정해지면 아래에 링크한다.
-
-- Wazuh 담당 저장소·문서: (사전 결정 후 링크)
-
-[검증](#검증)에서 만든 실제 시험 이벤트로 다음을 확인하고 [기록](#전환회수-기록)에 남긴다.
-
-- [ ] SSH 로그인 성공: 계정명, 호스트, 시간, 출발지 IP가 보인다.
-- [ ] sudo 실행: 실행한 사람(개인 계정명), 호스트, 시간이 보인다.
-- [ ] 거부된 로그인: 다른 사람 계정·미허용 호스트 시험이 남는다.
-- [ ] 인증서 ID(`github-<아이디>`)를 원본 로그에서 확인할 수 있다.
-- [ ] 플레이북의 sudo 확인용 실행(`COMMAND=/usr/bin/true`, `a password is required`)을 실제 사용과 구분할 수 있다.
-
-이 확인은 로그인과 sudo의 사용자 식별까지다. 실행한 모든 명령의 기록(auditd)은 이 작업 범위가 아니다.
 
 ## 온보딩·권한 변경·탈퇴
 
@@ -180,13 +162,13 @@ Wazuh 에이전트·수집·디코더 설정과 대시보드 검색 방법은 �
 
 | 날짜 | 작업 | 대상 (사람 / 호스트) | 결과 | 확인한 사람 | 비고 |
 | --- | --- | --- | --- | --- | --- |
-| YYYY-MM-DD | 전환 / 권한 변경 / 회수 | `<계정명>` / `sol` | 검증 표 전부 통과, Wazuh 로그인·sudo 확인 | `<GitHub 아이디>` | |
+| YYYY-MM-DD | 전환 / 권한 변경 / 회수 | `<계정명>` / `sol` | 검증 표 전부 통과, 호스트 로그의 로그인·sudo 확인 | `<GitHub 아이디>` | |
 | 2026-11-02 | Vault 개인 항목 적용 | 명단 5명 / astra Vault | 미리보기에서 개인 역할·정책·사용자 매핑 15개만 추가 대상, 삭제 목록 비어 있음. 적용 15개, 재실행 `바뀔 설정 []` | `jyvnee` | 브랜치 `task/15-personal-accounts-vault-ssh` `8f213ed`에서 적용 |
 | 2026-11-02 | 개인 계정 적용 | 명단 5명 / `sol` | 사전 검사 통과, 계정·그룹(UID=GID 2001~2005)·홈(`0700`)·sudoers·principal·SSH 조각 생성, 재실행 `changed=0`. 자동화(`orbit_ansible`) 접속 유지 | `jyvnee` | |
-| 2026-11-02 | 전환 검증 | `jyvnee` / `sol` | 실제 GitHub PAT로 setup 완료(인증서 `github-jyvnee`, principal `jyvnee`). 개인 인증서 로그인, 비밀번호 sudo 성공. 거부 확인: `hyn128@sol`, 인증서 없는 키, 개인 계정 없는 `luna`, 다른 사람 역할(`personal-hyn128`) 서명 403, 비밀번호 없는 sudo. `orbit@astra` 대체 경로 유지 | `jyvnee` | 호스트 로그에 `Accepted publickey for jyvnee from 100.115.101.78 ... ID github-jyvnee`와 sudo `jyvnee : TTY=pts/1 ...` 확인. Wazuh 수집은 미확인(담당 저장소 미정). 다른 팀원 4명은 setup 전 |
+| 2026-11-02 | 전환 검증 | `jyvnee` / `sol` | 실제 GitHub PAT로 setup 완료(인증서 `github-jyvnee`, principal `jyvnee`). 개인 인증서 로그인, 비밀번호 sudo 성공. 거부 확인: `hyn128@sol`, 인증서 없는 키, 개인 계정 없는 `luna`, 다른 사람 역할(`personal-hyn128`) 서명 403, 비밀번호 없는 sudo. `orbit@astra` 대체 경로 유지 | `jyvnee` | 호스트 로그에 `Accepted publickey for jyvnee from 100.115.101.78 ... ID github-jyvnee`와 sudo `jyvnee : TTY=pts/1 ...` 확인. 다른 팀원 4명은 setup 전 |
 | 2026-11-03 | 개인 계정 적용·전환 검증 | 명단 5명 / `terra`, `luna`, `efk`, `lgtm`, `polaris` | 호스트마다 미리보기(5명 신규·허용) → 적용(`changed=9`) → 재실행 `changed=0`. `jyvnee` 개인 인증서 로그인 성공, `hyn128@<호스트>`·인증서 없는 키·비밀번호 없는 sudo 거부, 자동화(`orbit_ansible`) 접속 유지. VM(`efk`, `lgtm`)은 astra 경유(`-J`)로 확인. 호스트 키는 Tailscale·astra 내부망 지문을 대조해 등록 | `jyvnee` | 비밀번호 sudo 성공은 `sol`에서만 확인. `polaris`는 k3s `active` 확인 |
 | 2026-11-03 | 문제 발견·조치 | `polaris` | `/etc`가 `775`(그룹 쓰기)라 sshd `StrictModes`가 principal 파일을 거부(`bad ownership or modes for directory /etc`). `orbit`은 영향 없음. 관리 세션에서 `sudo chmod g-w /etc`로 `755`로 고친 뒤 개인 로그인 성공. 같은 문제를 적용 전에 멈추도록 사전 검사 추가 | `jyvnee` | 원래 이미지 설정으로 추정. astra·wazuh·sol은 `755` |
-| 2026-11-03 | 개인 계정 적용·전환 검증 | 명단 5명 / `wazuh` | 미리보기(StrictModes 검사 포함 통과) → 적용(`changed=9`) → 재실행 `changed=0`. `jyvnee` 개인 인증서 로그인(astra 경유), `hyn128@wazuh`·인증서 없는 키·비밀번호 없는 sudo 거부, 자동화 접속 유지 | `jyvnee` | wazuh VM에 Wazuh가 아직 설치되지 않음(서비스 유닛·`/var/ossec` 없음). Wazuh 수집 확인은 설치 후 후속 작업 |
+| 2026-11-03 | 개인 계정 적용·전환 검증 | 명단 5명 / `wazuh` | 미리보기(StrictModes 검사 포함 통과) → 적용(`changed=9`) → 재실행 `changed=0`. `jyvnee` 개인 인증서 로그인(astra 경유), `hyn128@wazuh`·인증서 없는 키·비밀번호 없는 sudo 거부, 자동화 접속 유지 | `jyvnee` | |
 | 2026-11-03 | 충돌 정리 | `sungahbak` / `astra` | 사전 검사가 관리 기록 없는 기존 계정 `sungahbak`(2026-10-13 `adduser`, UID 1002, `sudo`·`libvirt` 그룹)에서 멈춤. 홈을 `/root/sungahbak-home-uid1002-20261103.tgz`로 백업하고 `userdel` 후 홈을 `/root/sungahbak-home-uid1002`로 옮김 | `jyvnee` | 백업과 옮긴 홈은 본인 확인 뒤 삭제 예정. 다른 호스트에는 같은 충돌 없음 |
 | 2026-11-03 | 개인 계정 적용·전환 검증 | 명단 5명 / `astra` | 미리보기 → 적용(`changed=9`) → 재실행 `changed=0`. `jyvnee` 개인 인증서 로그인, `hyn128@astra`·인증서 없는 키·비밀번호 없는 sudo 거부, `orbit` 접속 유지. Vault `active`, unsealed. **8대 모두 적용 완료** | `jyvnee` | 개인 인증서로는 VM 경유(`ssh -J`)가 막힘(인증서에 포워딩 확장 없음, `administratively prohibited`). 경유 설정은 하지 않기로 함. 공용 접속 회수 전에는 `ssh -J orbit@100.94.67.18 <VM>`로 접속하며, 회수 전에 VM 접속 방법을 정해야 함 |
 
