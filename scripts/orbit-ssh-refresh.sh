@@ -21,7 +21,7 @@ exec 3>&1 1>&2 </dev/null
 umask 077
 
 ORBIT_DIR=${ORBIT_DIR:-$HOME/.orbit}
-V_ADDR=${ORBIT_VAULT_ADDR:-https://100.94.67.18:8200}
+V_ADDR=${ORBIT_VAULT_ADDR:-https://10.0.0.201:8200}
 CA_CERT=${ORBIT_VAULT_CACERT:-$ORBIT_DIR/vault-ca.crt}
 KEY=${ORBIT_SSH_KEY:-$HOME/.ssh/id_ed25519}
 SIGN_PREFIX=ssh-client-signer/sign/personal-   # Vault 역할 personal-<계정명> (hvault_ssh_personal_role_prefix)
