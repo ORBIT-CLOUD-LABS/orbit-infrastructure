@@ -4,6 +4,9 @@
 # Vault는 유효기간을 초 단위 숫자로 돌려줘서, 비교할 수 있게 초로 바꿔 둠 (8h → 28800)
 - name: 설정에 쓸 값
   ansible.builtin.set_fact:
+    hvault_seen: []
+    hvault_todo: []
+    hvault_create: []
     hvault_api: "https://127.0.0.1:{{ hvault_port }}/v1"
     hvault_ssh_cert_ttl_s: "{{ (hvault_ssh_cert_ttl[:-1] | int) * hvault_unit[hvault_ssh_cert_ttl[-1]] }}"
     hvault_ssh_cert_max_ttl_s: "{{ (hvault_ssh_cert_max_ttl[:-1] | int) * hvault_unit[hvault_ssh_cert_max_ttl[-1]] }}"
@@ -13,6 +16,11 @@
     hvault_eso_token_max_ttl_s: "{{ (hvault_eso_token_max_ttl[:-1] | int) * hvault_unit[hvault_eso_token_max_ttl[-1]] }}"
   vars:
     hvault_unit: { s: 1, m: 60, h: 3600 }
+
+- name: 개인 계정 입력 검증 (조회·계정 변경 없음)
+  ansible.builtin.import_role:
+    name: personal_accounts
+    tasks_from: validate.yml
 
 - name: Vault API 호출 (토큰은 출력에 남기지 않음)
   module_defaults:
@@ -159,6 +167,9 @@
             write: sys/auth/userpass
             body: { type: userpass }
 
+    - name: 개인 SSH 설정 항목 추가
+      ansible.builtin.import_tasks: personal-ssh.yml
+
     # 비밀번호는 만들 때만 넣음. 바꾸려면 Vault에서 계정을 지우고 다시 실행
     - name: 비상 계정 ({{ hvault_breakglass_users | join(', ') }})
       ansible.builtin.set_fact:
@@ -204,6 +215,26 @@
           (item.cfg.missing_400 is defined and item.cfg.missing_400 in (item.errors | join(' ')))
         fail_msg: "{{ item.name }}: 예상하지 못한 400 응답 {{ item.errors }}. 자동으로 만들지 않음"
         quiet: true
+      loop: "{{ hvault_seen }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    - name: 기존 개인 역할은 SSH CA 역할이어야 함
+      ansible.builtin.assert:
+        that: item.data.key_type == 'ca'
+        fail_msg: "{{ item.name }}: 기존 역할이 CA 방식이 아님. 자동 전환하지 않음"
+        quiet: true
+      when: item.id.startswith('personal_role_') and item.status == 200
+      loop: "{{ hvault_seen }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    - name: GitHub 사용자 매핑의 다른 정책을 덮어쓰지 않음
+      ansible.builtin.assert:
+        that: >-
+          item.data.value | default('') | split(',') | map('trim') | reject('equalto', '')
+          | difference([item.cfg.body.value]) | length == 0
+        fail_msg: "{{ item.name }}: 예상하지 않은 기존 정책이 있음. 확인 후 개인 정책 매핑을 정리해야 함"
+        quiet: true
+      when: item.id.startswith('personal_github_') and item.status == 200
       loop: "{{ hvault_seen }}"
       loop_control: { label: "{{ item.name }}" }
 
@@ -264,6 +295,10 @@
           'ssh_mount' in (hvault_todo | default([]))
         fail_msg: "SSH CA 키를 읽을 수 없는데 SSH 엔진은 이미 있음. 자동으로 만들지 않음"
 
+    # 모든 쓰기 전에 조회·검사. 섞인 사용자 매핑이 있으면 여기서 멈춤
+    - name: 명단에서 빠진 개인 SSH 항목 찾기
+      ansible.builtin.import_tasks: personal-ssh-orphans.yml
+
     - name: 바뀔 설정
       ansible.builtin.debug:
         msg: "{{ hvault_seen | selectattr('id', 'in', hvault_todo | default([])) | map(attribute='name') | list }}"
@@ -276,5 +311,19 @@
         body: "{{ item.body | combine(item.create_body | default({}) if item.id in (hvault_create | default([])) else {}) }}"
         status_code: [200, 204]
       loop: "{{ hvault_cfg | selectattr('id', 'in', hvault_todo | default([])) | list }}"
+      changed_when: true
+      no_log: true
+
+    # 매핑 → 정책 → 역할 순서. 중간에 실패해도 먼저 지운 쪽 때문에 서명 경로는 이미 끊김
+    # 미리보기에서는 uri가 실행되지 않음. 지울 목록은 위 "삭제할 개인 SSH 항목"에 표시
+    - name: 명단에서 빠진 개인 SSH 항목 삭제
+      ansible.builtin.uri:
+        url: "{{ hvault_api }}/{{ item }}"
+        method: DELETE
+        status_code: [200, 204]
+      loop: >-
+        {{ (hvault_orphan_users | map('regex_replace', '^', 'auth/github/map/users/') | list)
+           + (hvault_orphan_policies | map('regex_replace', '^', 'sys/policies/acl/') | list)
+           + (hvault_orphan_roles | map('regex_replace', '^', hvault_ssh_mount ~ '/roles/') | list) }}
       changed_when: true
       no_log: true

@@ -18,6 +18,8 @@ hvault_ssh_role: orbit
 hvault_ssh_user: orbit                       # 인증서는 이 계정에만
 hvault_ssh_cert_ttl: 8h
 hvault_ssh_cert_max_ttl: 8h
+hvault_ssh_personal_role_prefix: personal-
+hvault_ssh_personal_policy_prefix: ssh-personal-
 
 # 로그인 (GitHub orbit 팀). 탈퇴 후 새 접속은 최대 토큰 24h + 인증서 8h
 hvault_github_org: ORBIT-CLOUD-LABS

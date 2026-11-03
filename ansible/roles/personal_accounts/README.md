@@ -1,0 +1,5 @@
+# 개인 Linux 계정과 호스트별 권한
+
+계정·홈·개인 그룹·개인 sudo 규칙과 인증서 전용 SSH 설정을 관리한다. Vault 역할·GitHub 매핑은 Vault 플레이북이, 팀원 인증서 자동 설정·갱신은 `scripts/orbit-ssh-setup.sh`가 맡는다.
+
+초기 비밀번호 준비, 사전 검사, 적용·복구와 검증 범위는 [개인 계정 운영 문서](../../../docs/personal-accounts.md)를 따른다.

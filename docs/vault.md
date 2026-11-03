@@ -51,6 +51,7 @@ astra에서 실행한다 (`ansible_connection: local`).
 | 주체 | 정책 | 허용 범위 |
 | --- | --- | --- |
 | GitHub `orbit` 팀 | `ssh-orbit`, `orbit-secrets-write` | 기존 SSH 서명 + `secret/data/orbit/*` 조회·생성·전체 교체·부분 수정 |
+| GitHub 사용자 (개인 명단) | `ssh-personal-<계정명>` | 본인 역할 `ssh-client-signer/sign/personal-<계정명>`의 서명만. 팀 정책에 더해짐. 명단에서 빠지면 Vault 플레이북이 삭제 ([개인 계정 문서](personal-accounts.md#vault-개인-ssh-역할정책)) |
 | ESO SA | `eso-orbit` | `secret/data/orbit/*` 읽기만. 앱별 격리가 아닌 orbit 앱 공용 권한 |
 | 비상 userpass 계정 | `ssh-orbit` | SSH 서명만 |
 | 임시 root | `root` | 엔진·인증·정책 관리와 검증·정리. 완료 후 폐기 |
@@ -217,11 +218,11 @@ ESO Helm Application, TokenReview RBAC, Vault CA ConfigMap, ClusterSecretStore�
 
 ## 팀원 접속 (자동 갱신, macOS)
 
-Vault CLI 없이 쓸 수 있다. 한 번 설정하면 평소처럼 `ssh orbit@10.0.0.202`만 하면 되고, 인증서가 없거나 만료 10분 전이면 ssh 직전에 자동으로 새로 받는다.
+Vault CLI 없이 쓸 수 있다. 한 번 설정하면 `ssh 10.0.0.202`처럼 접속하면 개인 계정으로 들어가고, 인증서가 없거나 만료 10분 전이면 ssh 직전에 자동으로 새로 받는다. 개인 계정과 접속 대상은 [개인 계정 문서](personal-accounts.md)를 따른다.
 
 준비:
 
-- GitHub `ORBIT-CLOUD-LABS`의 `orbit` 팀에 들어가 있어야 한다.
+- GitHub `ORBIT-CLOUD-LABS` 조직 멤버이고, 개인 계정 명단(`personal_accounts`)에 있어야 한다. 관리자가 명단을 반영한 Vault 플레이북을 적용해야 개인 서명 권한(`ssh-personal-<계정명>`)이 생긴다.
 - GitHub PAT (classic): scope는 `read:org` 하나만, 만료는 짧게.
 - `jq` (macOS 15부터 기본 포함. 없으면 `brew install jq`), Tailscale 연결.
 
@@ -235,25 +236,28 @@ scripts/orbit-ssh-setup.sh --reset-pat # PAT 만료 등으로 바꿀 때
 | 항목 | 위치 |
 | --- | --- |
 | 갱신 스크립트 (`scripts/orbit-ssh-refresh.sh` 복사본) | `~/.orbit/refresh-cert.sh` |
-| Vault CA 인증서. 없으면 astra에서 scp. astra에 접속할 수 없는 새 팀원은 다른 팀원에게 받아 이 위치에 둔다 | `~/.orbit/vault-ca.crt` |
+| Vault CA 인증서. 없으면 저장소의 `scripts/vault-ca.crt`, 그것도 없으면 `orbit@astra`에서 scp(공용 접속 회수 전까지만 됨). 둘 다 안 되면 다른 팀원에게 받아 이 위치에 둔다 | `~/.orbit/vault-ca.crt` |
 | SSH 키. 없을 때만 만듦 | `~/.ssh/id_ed25519` |
 | GitHub PAT | macOS 키체인 `orbit-github-pat` |
 | Vault 토큰 (`0600`, 기본 8시간) | `~/.orbit/vault-token` |
-| `Match host ... exec ...` 블록 (내부망, 와이파이, 노드 Tailscale 주소와 이름). 맨 뒤에 붙이고, 이전 파일은 `config.orbit-bak`. 노드나 Tailscale 주소가 바뀌면 스크립트의 `MATCH_HOSTS`를 고치고 다시 실행 | `~/.ssh/config` |
+| 개인 계정명. Vault 로그인 토큰의 `ssh-personal-<계정명>` 정책에서 알아냄. 찾지 못하면 여기서 멈추고 갱신 스크립트와 `~/.ssh/config`를 바꾸지 않음. 그래서 예전 설정은 계속 동작함 | `~/.orbit/user` |
+| `Match host ... exec ...` 블록 (내부망, 와이파이, 노드 Tailscale 주소와 이름, VM 이름). `User`는 개인 계정명. 맨 뒤에 붙이고, 이전 파일은 `config.orbit-bak`. 노드나 Tailscale 주소가 바뀌면 스크립트의 `MATCH_HOSTS`를 고치고 다시 실행 | `~/.ssh/config` |
 
-- 갱신 순서: 인증서가 충분히 남았으면 아무것도 안 함 → 저장된 Vault 토큰이 살아 있으면 그걸로 서명 → 아니면 키체인의 PAT로 GitHub 로그인 후 서명.
-- 갱신에 실패해도(Vault sealed, Tailscale 꺼짐, PAT 만료) 경고만 내고 ssh는 기존 키(`authorized_keys`)로 접속을 계속 시도한다. Vault에 연결되지 않으면 1분 동안은 다시 시도하지 않는다.
-- 인증서로 들어갔는지 확인: `ssh -v orbit@10.0.0.202 true 2>&1 | grep 'Server accepts key'` → `ED25519-CERT`면 인증서.
+- 갱신 순서: 인증서가 충분히 남았고 principal이 내 계정명뿐이면 아무것도 안 함 → 저장된 Vault 토큰이 살아 있으면 그걸로 개인 역할(`personal-<계정명>`) 서명 → 거부되거나 토큰이 없으면 키체인의 PAT로 GitHub 로그인 후 서명.
+- 기존 사용자 전환: 예전 설정(`User orbit`)을 쓰던 사람도 `scripts/orbit-ssh-setup.sh`를 다시 실행하면 된다. 남아 있던 `orbit` 인증서는 principal이 달라서 다음 접속 때 개인 인증서로 바뀐다. 개인 권한이 아직 없으면 setup이 멈추고, 설치된 갱신 스크립트와 `~/.ssh/config`가 예전 그대로 남아 `orbit` 인증서 갱신도 계속된다.
+- 개인 계정이 아직 만들어지지 않은 호스트는 개인 인증서로 거부된다. 그때나 비상시에는 `ssh orbit@<호스트>`로 기존 키(`authorized_keys`)를 쓴다(공용 접속 회수 전까지).
+- 갱신에 실패해도(Vault sealed, Tailscale 꺼짐, PAT 만료) 경고만 내고 ssh는 남은 인증서로 접속을 시도한다. Vault에 연결되지 않으면 1분 동안은 다시 시도하지 않는다. 개인 계정은 인증서로만 로그인되므로(`authorized_keys` 없음) 유효한 인증서가 없으면 거부된다. 그때는 위의 `ssh orbit@<호스트>`를 쓰고, 공용 접속 회수 후에는 [비상 접근](#비상-접근)을 따른다.
+- 인증서로 들어갔는지 확인: `ssh -v 10.0.0.202 true 2>&1 | grep 'Server accepts key'` → `ED25519-CERT`면 인증서.
 - 자동 갱신을 끄려면 `~/.ssh/config`에서 `orbit-vault-ssh` 표시 사이의 블록을 지운다.
 
 ## 수동으로 인증서 받기 (Vault CLI)
 
-자동 갱신을 쓰지 않거나 macOS가 아니면 이 방법을 쓴다. GitHub `ORBIT-CLOUD-LABS`의 `orbit` 팀에 들어가 있어야 하고, Tailscale에 연결되어 있어야 한다. Windows는 [아래](#windows-powershell)를 따른다.
+자동 갱신을 쓰지 않거나 macOS가 아니면 이 방법을 쓴다. GitHub `ORBIT-CLOUD-LABS` 조직 멤버이고 개인 계정 명단에 있어야 하며, Tailscale에 연결되어 있어야 한다. 아래 `<계정명>`은 명단의 Linux 계정명이다. `vault token lookup -format=json | jq '.data.policies'`의 `ssh-personal-<계정명>`으로도 확인할 수 있다. 다른 사람의 역할은 서명이 거부된다. Windows는 [아래](#windows-powershell)를 따른다.
 
 ### macOS, Linux
 
 1. Vault CLI 설치 (HashiCorp 공식 배포본).
-2. CA 인증서 받기: `mkdir -p ~/.orbit && scp orbit@100.94.67.18:/opt/vault/tls/vault-ca.crt ~/.orbit/vault-ca.crt`
+2. CA 인증서 받기: `mkdir -p ~/.orbit && scp orbit@100.94.67.18:/opt/vault/tls/vault-ca.crt ~/.orbit/vault-ca.crt` (공용 접속 회수 전까지. 안 되면 다른 팀원에게 받는다)
    SSH 키가 없으면 먼저 만든다: `test -f ~/.ssh/id_ed25519 || ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519`
 3. 환경 변수
    ```bash
@@ -264,9 +268,9 @@ scripts/orbit-ssh-setup.sh --reset-pat # PAT 만료 등으로 바꿀 때
 
 ```bash
 vault login -method=github          # PAT 입력. 토큰은 ~/.vault-token에 저장됨
-vault write -field=signed_key ssh-client-signer/sign/orbit \
+vault write -field=signed_key ssh-client-signer/sign/personal-<계정명> \
   public_key=@$HOME/.ssh/id_ed25519.pub > ~/.ssh/id_ed25519-cert.pub
-ssh orbit@10.0.0.202
+ssh <계정명>@10.0.0.202
 ```
 
 ### Windows (PowerShell)
@@ -290,18 +294,19 @@ Windows 10/11에 기본으로 있는 OpenSSH 클라이언트를 쓴다 (VS Code 
 
 ```powershell
 vault login -method=github          # PAT 입력. 토큰은 $HOME\.vault-token에 저장됨
-$cert = vault write -field=signed_key ssh-client-signer/sign/orbit "public_key=@$HOME\.ssh\id_ed25519.pub"
+$cert = vault write -field=signed_key ssh-client-signer/sign/personal-<계정명> "public_key=@$HOME\.ssh\id_ed25519.pub"
 [IO.File]::WriteAllText("$HOME\.ssh\id_ed25519-cert.pub", (($cert -join "").Trim() + "`n"))
-ssh orbit@10.0.0.202
+ssh <계정명>@10.0.0.202
 ```
 
 - 인증서 파일을 `>`나 `Out-File`로 저장하지 않는다. Windows PowerShell 5.1은 UTF-16으로 저장해서 ssh가 인증서를 읽지 못한다. 위처럼 `WriteAllText`(BOM 없는 UTF-8)로 저장한다.
-- 인증서로 들어갔는지 확인: `ssh -v orbit@10.0.0.202 exit 2>&1 | Select-String "Server accepts key"` → `ED25519-CERT`면 인증서.
+- 인증서로 들어갔는지 확인: `ssh -v <계정명>@10.0.0.202 exit 2>&1 | Select-String "Server accepts key"` → `ED25519-CERT`면 인증서.
 - 인증서 내용 확인: `ssh-keygen -L -f "$HOME\.ssh\id_ed25519-cert.pub"` (`Key ID`, `Valid` 줄).
 
 ### 공통
 
 - 개인키 옆에 `-cert.pub`로 저장하면 ssh가 알아서 함께 쓴다.
+- 인증서의 principal은 본인 계정명 하나다. `ssh-keygen -L -f ~/.ssh/id_ed25519-cert.pub`의 `Principals`로 확인한다.
 - 인증서는 8시간 뒤 만료된다. 새 접속에는 다시 발급받는다. 이미 연결된 세션은 끊기지 않는다.
 - 노드 sshd 로그에 `ID github-<아이디>`로 남는다. 보기: `journalctl -u ssh | grep "ID "` (`adm` 그룹이 아니면 sudo. terra의 `orbit`은 `adm`이 아님).
 
@@ -309,7 +314,7 @@ ssh orbit@10.0.0.202
 
 | 상황 | 방법 |
 | --- | --- |
-| GitHub에 닿지 않음 (강의실 와이파이 장애 등) | 비상 계정으로 로그인: `BG=$(vault login -token-only -method=userpass username=breakglass1)` 후 `VAULT_TOKEN=$BG vault write ...` |
+| GitHub에 닿지 않음 (강의실 와이파이 장애 등) | 비상 계정으로 로그인: `BG=$(vault login -token-only -method=userpass username=breakglass1)` 후 `VAULT_TOKEN=$BG vault write ...`. 비상 계정은 공용 `orbit` 역할(`ssh-client-signer/sign/orbit`)만 서명하므로 `ssh orbit@<호스트>`로 접속한다 |
 | Vault가 sealed이거나 꺼짐 | 기존 키(`orbit_ansible`, 각자 `authorized_keys`에 넣은 키)로 접속 |
 
 - `vault login`은 토큰을 화면에 출력한다. 다른 사람이 볼 수 있는 곳에서는 `-token-only`로 변수에 받는다.
@@ -328,7 +333,7 @@ vault operator unseal               # 키를 인자로 쓰지 않음 (history에
 
 ## 권한 회수
 
-- GitHub `orbit` 팀에서 빼면 새 로그인과 토큰 갱신이 막힌다. 이미 받은 Vault 토큰은 최대 24시간, 이미 받은 인증서는 최대 8시간 동안 쓸 수 있다.
+- GitHub `orbit` 팀에서 빼면 팀 정책(`ssh-orbit`, `orbit-secrets-write`)이 새 로그인 토큰에서 빠진다. 하지만 GitHub 로그인은 조직 멤버이면 되고 개인 SSH 정책은 사용자 매핑으로 붙으므로, 팀 탈퇴만으로 개인 인증서 발급이 막히지는 않는다. 개인 명단에서 지우고 Vault·개인 계정 플레이북을 모두 적용한다. 전체 순서는 [탈퇴·접근 회수](personal-accounts.md#온보딩권한-변경탈퇴)를 따른다. 이미 받은 Vault 토큰은 최대 24시간, 이미 받은 인증서는 최대 8시간 동안 쓸 수 있다.
 - 바로 막아야 하면 관리자 권한으로 GitHub 로그인 토큰을 모두 폐기한다 (전원 다시 로그인): `vault token revoke -mode=path auth/github/login`
 - 열려 있는 SSH 세션은 자동으로 끊기지 않는다. 노드 로그에서 `ID github-<아이디>`의 sshd PID를 찾아 종료한다.
 - 비상 계정 비밀번호 변경: 관리자 권한으로 `vault delete auth/userpass/users/<이름>` 후 `vault.yml` 값을 바꾸고 `vault.yml` 플레이북을 다시 실행한다.

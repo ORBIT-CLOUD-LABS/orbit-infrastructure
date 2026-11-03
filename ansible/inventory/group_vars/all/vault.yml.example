@@ -5,3 +5,12 @@ vault_orbit_password_hash: "$6$..."
 # HashiCorp Vault 비상 계정(userpass) 비밀번호. 계정을 처음 만들 때만 씀
 vault_breakglass1_password: "<비상 계정 1 비밀번호>"
 vault_breakglass2_password: "<비상 계정 2 비밀번호>"
+# 개인 계정 초기 sudo 비밀번호 해시. 개인별 임시 비밀번호를 openssl passwd -6의 숨김 프롬프트로 해시화
+# 담당자가 임시 비밀번호를 개인별 안전한 경로로 전달. 본인은 인증서 로그인 준비 후 passwd로 변경
+# 실제 해시도 암호화 vault.yml에만 기록. 계정 최초 생성에만 적용하며 이후 비밀번호를 덮어쓰지 않음
+vault_personal_accounts_password_hashes:
+  hyn128: "$6$..."
+  sungahbak: "$6$..."
+  chuchuu22: "$6$..."
+  jyvnee: "$6$..."
+  xoruddl: "$6$..."

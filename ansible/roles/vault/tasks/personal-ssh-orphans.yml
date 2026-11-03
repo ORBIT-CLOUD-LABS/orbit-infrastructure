@@ -1,0 +1,84 @@
+# 명단에서 빠진 개인 SSH 항목 찾기. 조회만 함. 삭제는 configure.yml의 설정 쓰기 뒤에 함
+# 이 prefix의 역할·정책은 이 코드가 관리함. 사용자 매핑은 개인 정책만 가리킬 때만 지움
+- name: 명단에 있는 개인 항목 이름
+  ansible.builtin.set_fact:
+    hvault_personal_roles: "{{ personal_accounts | map(attribute='username') | map('regex_replace', '^', hvault_ssh_personal_role_prefix) | list }}"
+    hvault_personal_policies: "{{ personal_accounts | map(attribute='username') | map('regex_replace', '^', hvault_ssh_personal_policy_prefix) | list }}"
+    hvault_personal_github: "{{ personal_accounts | map(attribute='github') | map('lower') | list }}"
+    hvault_orphan_users: []
+    hvault_orphan_user_policies: []
+    hvault_listed: []
+
+# 항목이 하나도 없으면 Vault가 404를 돌려줌 (엔진·로그인을 이번에 처음 만드는 경우 포함)
+- name: 개인 SSH 역할·정책·GitHub 사용자 매핑 목록 읽기
+  ansible.builtin.uri:
+    url: "{{ hvault_api }}/{{ item }}?list=true"
+    status_code: [200, 404]
+  loop:
+    - "{{ hvault_ssh_mount }}/roles"
+    - sys/policies/acl
+    - auth/github/map/users
+  register: hvault_personal_lists
+  check_mode: false
+  no_log: true
+
+# 순서: 역할, 정책, 사용자 매핑. 빈 dict에 ['keys']를 쓰면 dict.keys 메서드가 나와서 .get으로 읽음
+# uri 결과에는 요청 헤더(토큰)가 들어 있어서, 필요한 값만 뽑을 때까지 출력하지 않음
+- name: 목록 정리
+  ansible.builtin.set_fact:
+    hvault_listed: "{{ hvault_listed + [((item.json | default({})).data | default({}, true)).get('keys', [])] }}"
+  loop: "{{ hvault_personal_lists.results }}"
+  no_log: true
+
+- name: 명단에서 빠진 개인 역할·정책
+  ansible.builtin.set_fact:
+    hvault_orphan_roles: >-
+      {{ hvault_listed[0] | select('match', '^' ~ (hvault_ssh_personal_role_prefix | regex_escape))
+         | reject('in', hvault_personal_roles) | list }}
+    hvault_orphan_policies: >-
+      {{ hvault_listed[1] | select('match', '^' ~ (hvault_ssh_personal_policy_prefix | regex_escape))
+         | reject('in', hvault_personal_policies) | list }}
+    hvault_orphan_user_candidates: "{{ hvault_listed[2] | reject('in', hvault_personal_github) | list }}"
+
+- name: 명단에 없는 GitHub 사용자 매핑 읽기
+  ansible.builtin.uri:
+    url: "{{ hvault_api }}/auth/github/map/users/{{ item }}"
+  loop: "{{ hvault_orphan_user_candidates }}"
+  register: hvault_orphan_user_maps
+  check_mode: false
+  no_log: true
+
+- name: 사용자 매핑에서 이름과 정책만 남김
+  ansible.builtin.set_fact:
+    hvault_orphan_user_policies: >-
+      {{ hvault_orphan_user_policies + [{
+           'user': item.item,
+           'policies': ((item.json.data | default({}, true)).value | default('', true))
+                       | split(',') | map('trim') | reject('equalto', '') | list }] }}
+  loop: "{{ hvault_orphan_user_maps.results }}"
+  no_log: true
+
+- name: 개인 정책과 다른 정책이 섞인 사용자 매핑은 지우지 않음
+  ansible.builtin.assert:
+    that: hvault_map_personal | length == 0 or hvault_map_personal | length == item.policies | length
+    fail_msg: "GitHub 사용자 {{ item.user }}: 명단에 없는데 개인 SSH 정책과 다른 정책이 함께 있음 {{ item.policies }}. 수동 확인 후 정리"
+    quiet: true
+  vars:
+    hvault_map_personal: "{{ item.policies | select('match', '^' ~ (hvault_ssh_personal_policy_prefix | regex_escape)) | list }}"
+  loop: "{{ hvault_orphan_user_policies }}"
+  loop_control: { label: "{{ item.user }}" }
+
+- name: 개인 정책만 가리키는 명단 밖 사용자 매핑
+  ansible.builtin.set_fact:
+    hvault_orphan_users: "{{ hvault_orphan_users + [item.user] }}"
+  when: item.policies | select('match', '^' ~ (hvault_ssh_personal_policy_prefix | regex_escape)) | list | length > 0
+  loop: "{{ hvault_orphan_user_policies }}"
+  loop_control: { label: "{{ item.user }}" }
+
+- name: 삭제할 개인 SSH 항목 (명단에서 빠짐)
+  ansible.builtin.debug:
+    msg:
+      GitHub_사용자_매핑: "{{ hvault_orphan_users }}"
+      서명_정책: "{{ hvault_orphan_policies }}"
+      SSH_역할: "{{ hvault_orphan_roles }}"
+  changed_when: (hvault_orphan_users + hvault_orphan_policies + hvault_orphan_roles) | length > 0

@@ -1,0 +1,250 @@
+# 이 파일은 조회·검사만 함. 전체 대상에서 먼저 실행한 뒤에만 계정 생성 단계로 넘어감
+- name: 기존 Linux 사용자 읽기
+  ansible.builtin.getent:
+    database: passwd
+
+- name: 기존 Linux 그룹 읽기
+  ansible.builtin.getent:
+    database: group
+
+- name: 관리 기록 폴더 확인
+  ansible.builtin.stat:
+    path: "{{ personal_accounts_state_dir }}"
+    follow: false
+  register: personal_accounts_state_stat
+
+- name: 기존 관리 폴더는 root 전용 디렉터리여야 함
+  ansible.builtin.assert:
+    that:
+      - personal_accounts_state_stat.stat.isdir | default(false)
+      - personal_accounts_state_stat.stat.uid == 0
+      - personal_accounts_state_stat.stat.gid == 0
+      - personal_accounts_state_stat.stat.mode == '0700'
+    fail_msg: 개인 계정 관리 폴더가 root 전용 디렉터리가 아님
+    quiet: true
+  when: personal_accounts_state_stat.stat.exists
+
+- name: 이전에 관리한 계정 이름 확인
+  ansible.builtin.find:
+    paths: "{{ personal_accounts_state_dir }}"
+    patterns: '*.json'
+    file_type: file
+  when: personal_accounts_state_stat.stat.exists
+  register: personal_accounts_existing_records
+
+- name: 기존 계정의 인증서 전용 제한도 유지
+  ansible.builtin.set_fact:
+    personal_accounts_ssh_users: >-
+      {{ ((personal_accounts | map(attribute='username') | list)
+          + (personal_accounts_existing_records.files | default([]) | map(attribute='path')
+             | map('basename') | map('regex_replace', '[.]json$', '') | list)) | unique | sort }}
+
+- name: SSH에 사용할 계정 이름 형식 검사
+  ansible.builtin.assert:
+    that: personal_accounts_ssh_users | reject('match', '^[a-z][a-z0-9_]{0,31}$') | list | length == 0
+    fail_msg: 기존 관리 기록에 잘못된 계정 이름이 있음
+    quiet: true
+
+- name: 이 호스트의 허용 계정 초기화
+  ansible.builtin.set_fact:
+    personal_accounts_here: []
+
+- name: 이 호스트에 명시적으로 허용된 계정
+  ansible.builtin.set_fact:
+    personal_accounts_here: >-
+      {{ personal_accounts_here + [item | combine({'grant': grants | first})] }}
+  vars:
+    grants: "{{ item.access | selectattr('host', 'equalto', inventory_hostname) | list }}"
+  when: grants | length > 0
+  loop: "{{ personal_accounts }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+- name: 기존 관리 기록 확인
+  ansible.builtin.stat:
+    path: "{{ personal_accounts_state_dir }}/{{ item.username }}.json"
+    follow: false
+  loop: "{{ personal_accounts }}"
+  loop_control:
+    label: "{{ item.username }}"
+  register: personal_accounts_markers
+
+- name: 관리 기록은 root 소유 일반 파일이어야 함
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - item.stat.uid == 0
+      - item.stat.mode == '0600'
+    fail_msg: 개인 계정 관리 기록이 올바르지 않음. 자동으로 계정을 인수하지 않음
+    quiet: true
+  when: item.stat.exists
+  loop: "{{ personal_accounts_markers.results }}"
+  loop_control:
+    label: "{{ item.item.username }}"
+
+- name: 기존 관리 기록 읽기
+  ansible.builtin.slurp:
+    src: "{{ item.stat.path }}"
+  when: item.stat.exists
+  loop: "{{ personal_accounts_markers.results }}"
+  loop_control:
+    label: "{{ item.item.username }}"
+  register: personal_accounts_marker_contents
+
+- name: 기존 관리 기록이 원하는 계정과 일치해야 함
+  ansible.builtin.assert:
+    that: (item.content | b64decode | from_json) == expected
+    fail_msg: 개인 계정 관리 기록의 이름·UID·GID가 다름. 자동 변경하지 않음
+    quiet: true
+  vars:
+    expected: >-
+      {{ {'manager': 'orbit-personal-accounts', 'username': item.item.item.username,
+          'uid': item.item.item.uid | int, 'gid': item.item.item.uid | int} }}
+  when: not (item.skipped | default(false))
+  loop: "{{ personal_accounts_marker_contents.results }}"
+  loop_control:
+    label: "{{ item.item.item.username }}"
+
+- name: 기존 계정 인수와 UID·GID 충돌 금지
+  ansible.builtin.assert:
+    that:
+      - marked or (account_name not in ansible_facts.getent_passwd and account_name not in ansible_facts.getent_group)
+      - >-
+        account_name not in ansible_facts.getent_passwd or
+        (ansible_facts.getent_passwd[account_name][1] | int == member.uid and ansible_facts.getent_passwd[account_name][2] | int == member.uid)
+      - >-
+        account_name not in ansible_facts.getent_passwd or
+        (ansible_facts.getent_passwd[account_name][4] == '/home/' ~ account_name and ansible_facts.getent_passwd[account_name][5] == '/bin/bash')
+      - account_name not in ansible_facts.getent_group or ansible_facts.getent_group[account_name][1] | int == member.uid
+      - >-
+        ansible_facts.getent_passwd | dict2items
+        | selectattr('value.1', 'equalto', member.uid | string) | map(attribute='key') | difference([account_name]) | length == 0
+      - >-
+        ansible_facts.getent_group | dict2items
+        | selectattr('value.1', 'equalto', member.uid | string) | map(attribute='key') | difference([account_name]) | length == 0
+    fail_msg: "{{ account_name }}: 기존 계정·그룹·UID·GID·홈·셸 충돌. 변경하지 않음"
+    quiet: true
+  vars:
+    member: "{{ item.item }}"
+    account_name: "{{ member.username }}"
+    marked: "{{ item.stat.exists }}"
+  loop: "{{ personal_accounts_markers.results }}"
+  loop_control:
+    label: "{{ item.item.username }}"
+
+- name: 개인 홈 경로 확인
+  ansible.builtin.stat:
+    path: "/home/{{ item.username }}"
+    follow: false
+  loop: "{{ personal_accounts }}"
+  loop_control:
+    label: "{{ item.username }}"
+  register: personal_accounts_homes
+
+- name: 기존 홈은 관리 계정 소유 일반 디렉터리여야 함
+  ansible.builtin.assert:
+    that:
+      - item.item.username in ansible_facts.getent_passwd
+      - item.stat.isdir | default(false)
+      - item.stat.uid == item.item.uid
+      - item.stat.gid == item.item.uid
+    fail_msg: "{{ item.item.username }}: 기존 홈 경로 또는 소유권 충돌. 자동 chown하지 않음"
+    quiet: true
+  when: item.stat.exists
+  loop: "{{ personal_accounts_homes.results }}"
+  loop_control:
+    label: "{{ item.item.username }}"
+
+- name: 기존 개인 sudo 규칙 경로 확인
+  ansible.builtin.stat:
+    path: "/etc/sudoers.d/90-orbit-personal-{{ item.username }}"
+    follow: false
+  loop: "{{ personal_accounts }}"
+  loop_control:
+    label: "{{ item.username }}"
+  register: personal_accounts_sudo_files
+
+- name: 관리 기록 없는 sudo 규칙 인수 금지
+  ansible.builtin.assert:
+    that:
+      - marker.stat.exists
+      - item.stat.isreg | default(false)
+      - item.stat.uid == 0
+    fail_msg: 기존 개인 sudo 경로의 관리 기록·소유권·파일 형식이 다름. 덮어쓰지 않음
+    quiet: true
+  vars:
+    marker: "{{ personal_accounts_markers.results | selectattr('item.username', 'equalto', item.item.username) | first }}"
+  when: item.stat.exists
+  loop: "{{ personal_accounts_sudo_files.results }}"
+  loop_control:
+    label: "{{ item.item.username }}"
+
+- name: 기존 개인 계정의 비밀번호 상태 읽기
+  ansible.builtin.getent:
+    database: shadow
+    key: "{{ item.username }}"
+  when:
+    - item.username in ansible_facts.getent_passwd
+    - item.grant.sudo_auth == 'password'
+  loop: "{{ personal_accounts_here }}"
+  register: personal_accounts_shadow
+  no_log: true
+
+- name: 기존 sudo 비밀번호는 비어 있거나 잠긴 상태이면 안 됨
+  ansible.builtin.assert:
+    that: item.ansible_facts.getent_shadow[item.item.username][0] is match('^\$')
+    fail_msg: 개인 sudo 비밀번호가 비어 있거나 잠겨 있음. 관리자가 먼저 확인해야 하며 자동 재설정하지 않음
+    quiet: true
+  when: not (item.skipped | default(false))
+  loop: "{{ personal_accounts_shadow.results }}"
+  no_log: true
+
+- name: 신규 계정의 초기 비밀번호 해시 확인
+  ansible.builtin.assert:
+    that:
+      - personal_accounts_password_hashes is mapping
+      - personal_accounts_password_hashes[item.username] is defined
+      - personal_accounts_password_hashes[item.username] is string
+      - personal_accounts_password_hashes[item.username] is match('^\$6\$[./A-Za-z0-9]{1,16}\$[./A-Za-z0-9]{86}$')
+    fail_msg: 신규 sudo 계정의 개인별 SHA-512 임시 비밀번호 해시가 필요함 (암호화 vault.yml)
+    quiet: true
+  when:
+    - item.username not in ansible_facts.getent_passwd
+    - item.grant.sudo_auth == 'password'
+  loop: "{{ personal_accounts_here }}"
+  no_log: true
+
+- name: SSH CA 신뢰 설정과 서버 설정 확인
+  ansible.builtin.command: /usr/sbin/sshd -T
+  register: personal_accounts_sshd_before
+  changed_when: false
+  check_mode: false
+
+- name: 기존 SSH CA 신뢰가 준비되어야 함
+  ansible.builtin.assert:
+    that:
+      - personal_accounts_sshd_before.stdout_lines | select('match', '^trustedusercakeys /') | list | length == 1
+    fail_msg: 먼저 playbooks/ssh-ca.yml로 기존 SSH CA 신뢰를 준비해야 함
+    quiet: true
+
+- name: 기존 SSH CA 공개키 파일 확인
+  ansible.builtin.stat:
+    path: "{{ (personal_accounts_sshd_before.stdout_lines | select('match', '^trustedusercakeys /') | first).split(' ', 1)[1] }}"
+  register: personal_accounts_ca_file
+
+- name: SSH CA 공개키 파일이 존재해야 함
+  ansible.builtin.assert:
+    that:
+      - personal_accounts_ca_file.stat.isreg | default(false)
+      - personal_accounts_ca_file.stat.size | default(0) > 0
+      - personal_accounts_ca_file.stat.uid | default(-1) == 0
+    fail_msg: 기존 TrustedUserCAKeys 파일이 없거나 root 소유 공개키 파일이 아님
+    quiet: true
+
+- name: principal 파일 경로가 sshd StrictModes를 통과해야 함
+  ansible.builtin.import_tasks: strictmodes.yml
+
+- name: 기존 sudo 설정 검사
+  ansible.builtin.command: /usr/sbin/visudo -cf /etc/sudoers
+  changed_when: false
+  check_mode: false

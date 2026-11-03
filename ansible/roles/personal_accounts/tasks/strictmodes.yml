@@ -1,0 +1,37 @@
+# sshd StrictModes는 principal 파일을 읽기 전에 경로의 디렉터리를 모두 검사함
+# root 소유가 아니거나 그룹·기타가 쓸 수 있는 디렉터리가 있으면 개인 인증서 로그인을 거부함
+# (sshd -T -C로는 드러나지 않고 실제 로그인 때만 "bad ownership or modes for directory"로 나타남)
+# 권한은 자동으로 고치지 않음. /etc 등은 이 role이 관리하지 않으므로 사람이 확인하고 고침
+- name: principal 파일까지의 상위 디렉터리 초기화
+  ansible.builtin.set_fact:
+    personal_accounts_path_dirs: ["/"]
+
+- name: principal 파일까지의 상위 디렉터리
+  ansible.builtin.set_fact:
+    personal_accounts_path_dirs: "{{ personal_accounts_path_dirs + [(personal_accounts_path_dirs | last).rstrip('/') ~ '/' ~ item] }}"
+  loop: "{{ personal_accounts_principals_dir.strip('/').split('/') }}"
+
+- name: 상위 디렉터리 소유자·권한 읽기
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop: "{{ personal_accounts_path_dirs }}"
+  register: personal_accounts_path_stats
+
+# principal 폴더는 처음 적용 전에는 없을 수 있음. 나머지 상위 디렉터리는 있어야 함
+- name: 상위 디렉터리는 root 소유이고 그룹·기타 쓰기 권한이 없어야 함
+  ansible.builtin.assert:
+    that:
+      - item.stat.isdir | default(false)
+      - item.stat.uid == 0
+      - not item.stat.wgrp
+      - not item.stat.woth
+    fail_msg: >-
+      {{ item.item }}: {{ item.stat.pw_name | default('?') }}:{{ item.stat.gr_name | default('?') }} {{ item.stat.mode | default('?') }}.
+      sshd StrictModes 때문에 개인 인증서 로그인이 거부됨. root 소유, 그룹·기타 쓰기 없음(예: sudo chmod go-w {{ item.item }})으로
+      고친 뒤 다시 실행. 자동으로 고치지 않음
+    quiet: true
+  when: item.stat.exists or item.item != personal_accounts_principals_dir
+  loop: "{{ personal_accounts_path_stats.results }}"
+  loop_control:
+    label: "{{ item.item }}"

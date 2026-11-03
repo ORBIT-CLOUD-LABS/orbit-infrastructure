@@ -1,0 +1,5 @@
+personal_accounts_state_dir: /var/lib/orbit/personal-accounts
+personal_accounts_principals_dir: /etc/ssh/orbit-principals
+personal_accounts_ssh_dropin: /etc/ssh/sshd_config.d/20-orbit-personal-accounts.conf
+# 최초 생성에만 사용. 사용자가 passwd로 바꾼 비밀번호는 재실행으로 덮어쓰지 않음
+personal_accounts_password_hashes: "{{ vault_personal_accounts_password_hashes | default({}) }}"
