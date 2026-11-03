@@ -9,7 +9,7 @@ KV·Kubernetes 인증: [#13](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastru
 | 항목 | 값 |
 | --- | --- |
 | 위치 | astra 호스트에 직접 설치 (systemd `vault`, 버전 고정·apt hold) |
-| 주소 | 내부망 `https://10.0.0.201:8200`, Tailscale `https://100.94.67.18:8200`, astra 안 `https://127.0.0.1:8200` |
+| 주소 | 내부망 `https://10.0.0.201:8200` (팀원은 Tailscale subnet router 경유), astra 안 `https://127.0.0.1:8200` |
 | TLS | 내부 CA `/opt/vault/tls/vault-ca.crt` (2036년 만료), 서버 인증서 `vault.crt` (2029-02-03 만료) |
 | 저장소 | 단일 노드 Raft `/opt/vault/data`. 8201은 `127.0.0.1`에만 염 |
 | 방화벽 | 8200은 `lo`, `br0`, `tailscale0`에서만 받음 (INPUT 맨 앞 `ORBIT-VAULT` 체인). 와이파이 등 나머지는 DROP |
@@ -241,7 +241,7 @@ scripts/orbit-ssh-setup.sh --reset-pat # PAT 만료 등으로 바꿀 때
 | GitHub PAT | macOS 키체인 `orbit-github-pat` |
 | Vault 토큰 (`0600`, 기본 8시간) | `~/.orbit/vault-token` |
 | 개인 계정명. Vault 로그인 토큰의 `ssh-personal-<계정명>` 정책에서 알아냄. 찾지 못하면 여기서 멈추고 갱신 스크립트와 `~/.ssh/config`를 바꾸지 않음. 그래서 예전 설정은 계속 동작함 | `~/.orbit/user` |
-| `Match host ... exec ...` 블록 (내부망, 와이파이, 노드 Tailscale 주소와 이름, VM 이름). `User`는 개인 계정명. 맨 뒤에 붙이고, 이전 파일은 `config.orbit-bak`. 노드나 Tailscale 주소가 바뀌면 스크립트의 `MATCH_HOSTS`를 고치고 다시 실행 | `~/.ssh/config` |
+| `Match host ... exec ...` 블록 (내부망, 와이파이, 노드 Tailscale 주소, `*.orbit-labs.space` 이름). `User`는 개인 계정명. 맨 뒤에 붙이고, 이전 파일은 `config.orbit-bak`. 노드나 Tailscale 주소가 바뀌면 스크립트의 `MATCH_HOSTS`를 고치고 다시 실행 | `~/.ssh/config` |
 
 - 갱신 순서: 인증서가 충분히 남았고 principal이 내 계정명뿐이면 아무것도 안 함 → 저장된 Vault 토큰이 살아 있으면 그걸로 개인 역할(`personal-<계정명>`) 서명 → 거부되거나 토큰이 없으면 키체인의 PAT로 GitHub 로그인 후 서명.
 - 기존 사용자 전환: 예전 설정(`User orbit`)을 쓰던 사람도 `scripts/orbit-ssh-setup.sh`를 다시 실행하면 된다. 남아 있던 `orbit` 인증서는 principal이 달라서 다음 접속 때 개인 인증서로 바뀐다. 개인 권한이 아직 없으면 setup이 멈추고, 설치된 갱신 스크립트와 `~/.ssh/config`가 예전 그대로 남아 `orbit` 인증서 갱신도 계속된다.
@@ -257,11 +257,11 @@ scripts/orbit-ssh-setup.sh --reset-pat # PAT 만료 등으로 바꿀 때
 ### macOS, Linux
 
 1. Vault CLI 설치 (HashiCorp 공식 배포본).
-2. CA 인증서 받기: `mkdir -p ~/.orbit && scp orbit@100.94.67.18:/opt/vault/tls/vault-ca.crt ~/.orbit/vault-ca.crt` (공용 접속 회수 전까지. 안 되면 다른 팀원에게 받는다)
+2. CA 인증서 받기: `mkdir -p ~/.orbit && scp orbit@10.0.0.201:/opt/vault/tls/vault-ca.crt ~/.orbit/vault-ca.crt` (공용 접속 회수 전까지. 안 되면 다른 팀원에게 받는다)
    SSH 키가 없으면 먼저 만든다: `test -f ~/.ssh/id_ed25519 || ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519`
 3. 환경 변수
    ```bash
-   export VAULT_ADDR=https://100.94.67.18:8200
+   export VAULT_ADDR=https://10.0.0.201:8200
    export VAULT_CACERT=~/.orbit/vault-ca.crt
    ```
 4. GitHub PAT (classic) 만들기: scope는 `read:org` 하나만, 만료는 짧게. 비밀번호 관리자에 보관한다.
@@ -281,13 +281,13 @@ Windows 10/11에 기본으로 있는 OpenSSH 클라이언트를 쓴다 (VS Code 
 2. CA 인증서와 SSH 키
    ```powershell
    New-Item -ItemType Directory -Force "$HOME\.orbit", "$HOME\.ssh" | Out-Null
-   scp orbit@100.94.67.18:/opt/vault/tls/vault-ca.crt "$HOME\.orbit\vault-ca.crt"
+   scp orbit@10.0.0.201:/opt/vault/tls/vault-ca.crt "$HOME\.orbit\vault-ca.crt"
    if (-not (Test-Path "$HOME\.ssh\id_ed25519")) { ssh-keygen -t ed25519 -f "$HOME\.ssh\id_ed25519" }
    ```
    astra에 아직 접속할 수 없으면 `vault-ca.crt`를 다른 팀원에게 받아 `$HOME\.orbit\`에 둔다.
 3. 환경 변수 (사용자 환경 변수로 저장. 새 PowerShell 창부터 적용)
    ```powershell
-   [Environment]::SetEnvironmentVariable("VAULT_ADDR", "https://100.94.67.18:8200", "User")
+   [Environment]::SetEnvironmentVariable("VAULT_ADDR", "https://10.0.0.201:8200", "User")
    [Environment]::SetEnvironmentVariable("VAULT_CACERT", "$HOME\.orbit\vault-ca.crt", "User")
    ```
 4. GitHub PAT (classic) 만들기: scope는 `read:org` 하나만, 만료는 짧게. 비밀번호 관리자에 보관한다.
