@@ -14,6 +14,8 @@
     hvault_token_max_ttl_s: "{{ (hvault_token_max_ttl[:-1] | int) * hvault_unit[hvault_token_max_ttl[-1]] }}"
     hvault_eso_token_ttl_s: "{{ (hvault_eso_token_ttl[:-1] | int) * hvault_unit[hvault_eso_token_ttl[-1]] }}"
     hvault_eso_token_max_ttl_s: "{{ (hvault_eso_token_max_ttl[:-1] | int) * hvault_unit[hvault_eso_token_max_ttl[-1]] }}"
+    hvault_snapshot_token_ttl_s: "{{ (hvault_snapshot_token_ttl[:-1] | int) * hvault_unit[hvault_snapshot_token_ttl[-1]] }}"
+    hvault_snapshot_token_max_ttl_s: "{{ (hvault_snapshot_token_max_ttl[:-1] | int) * hvault_unit[hvault_snapshot_token_max_ttl[-1]] }}"
   vars:
     hvault_unit: { s: 1, m: 60, h: 3600 }
 
@@ -166,6 +168,31 @@
             exists_key: userpass/
             write: sys/auth/userpass
             body: { type: userpass }
+          - id: approle_mount
+            name: AppRole 로그인 켜기 (스냅샷 백업용)
+            read: sys/auth
+            exists_key: approle/
+            write: sys/auth/approle
+            body: { type: approle }
+          - id: snapshot_policy
+            name: 스냅샷 읽기 정책
+            read: "sys/policies/acl/{{ hvault_snapshot_policy }}"
+            body: { policy: "{{ lookup('ansible.builtin.template', 'snapshot-policy.hcl.j2') }}" }
+          # secret_id_ttl 0(무제한)은 "어느 날 조용히 백업이 멈추는 것"을 막기 위함이고,
+          # 그 대가를 CIDR 두 개로 막는다. secret_id_bound_cidrs는 로그인 자체를,
+          # token_bound_cidrs는 발급된 토큰의 사용을 astra 안으로 묶는다.
+          # 두 값이 모두 있어야 파일이 밖으로 새어 나가도 쓸 수 없다
+          - id: snapshot_role
+            name: 스냅샷 AppRole (127.0.0.1/32)
+            read: "auth/approle/role/{{ hvault_snapshot_role }}"
+            body:
+              token_policies: ["{{ hvault_snapshot_policy }}"]
+              secret_id_bound_cidrs: ["127.0.0.1/32"]
+              token_bound_cidrs: ["127.0.0.1/32"]
+              token_ttl: "{{ hvault_snapshot_token_ttl_s }}"
+              token_max_ttl: "{{ hvault_snapshot_token_max_ttl_s }}"
+              secret_id_num_uses: 0
+              secret_id_ttl: 0
 
     - name: 개인 SSH 설정 항목 추가
       ansible.builtin.import_tasks: personal-ssh.yml
@@ -313,6 +340,10 @@
       loop: "{{ hvault_cfg | selectattr('id', 'in', hvault_todo | default([])) | list }}"
       changed_when: true
       no_log: true
+
+    # 정책과 AppRole이 생긴 뒤에 자격증명을 내려 주고 타이머를 켠다
+    - name: 스냅샷 AppRole 자격증명과 타이머 (#11)
+      ansible.builtin.import_tasks: snapshot-approle.yml
 
     # 매핑 → 정책 → 역할 순서. 중간에 실패해도 먼저 지운 쪽 때문에 서명 경로는 이미 끊김
     # 미리보기에서는 uri가 실행되지 않음. 지울 목록은 위 "삭제할 개인 SSH 항목"에 표시
