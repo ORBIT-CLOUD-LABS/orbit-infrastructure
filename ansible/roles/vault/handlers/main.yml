@@ -18,3 +18,9 @@
     name: vault
     state: reloaded
   when: not ansible_check_mode
+
+# 스냅샷 유닛 파일이 바뀌면 systemd가 다시 읽어야 함. vault 본체는 재시작하지 않음(seal 방지)
+- name: reload systemd for vault snapshot
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: not ansible_check_mode

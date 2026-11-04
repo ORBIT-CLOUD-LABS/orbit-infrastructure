@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+[Unit]
+Description=ORBIT Vault 스냅샷 백업 타이머 ({{ hvault_snapshot_oncalendar }})
+
+[Timer]
+# UTC로 고정한다. 호스트 타임존이 바뀌어도 실행 시각이 움직이지 않게
+OnCalendar={{ hvault_snapshot_oncalendar }}
+# 꺼져 있던 동안 지난 실행은 부팅 후 한 번 따라잡는다
+Persistent=true
+# 같은 초에 몰리지 않게
+RandomizedDelaySec=5min
+Unit=vault-snapshot.service
+
+[Install]
+WantedBy=timers.target

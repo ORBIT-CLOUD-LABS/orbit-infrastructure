@@ -1,0 +1,25 @@
+# {{ ansible_managed }}
+# 타이머가 실행한다. 직접 실행도 된다: systemctl start vault-snapshot.service
+[Unit]
+Description=ORBIT Vault Raft 스냅샷 S3 백업
+Documentation=https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/blob/develop/docs/vault.md
+After=vault.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+# 비밀값은 인자가 아니라 이 파일들로만 들어온다 (ps에 보이지 않음)
+EnvironmentFile={{ hvault_snapshot_aws_env }}
+EnvironmentFile={{ hvault_snapshot_approle_env }}
+ExecStart={{ hvault_snapshot_bin }}
+# 스냅샷과 임시 파일만 쓴다
+ReadWritePaths={{ hvault_snapshot_work_dir }}
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+# 스냅샷에 Vault 데이터 전체가 들어 있다. 디스크에 남는 시간을 줄이려 메모리 스왑을 막는다
+MemorySwapMax=0
+TimeoutStartSec=15min
