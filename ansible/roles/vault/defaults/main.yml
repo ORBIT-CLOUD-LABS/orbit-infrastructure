@@ -14,3 +14,16 @@ hvault_allow_generate_root: false
 hvault_tls_sans: >-
   {{ ['DNS:' ~ inventory_hostname, 'DNS:localhost', 'IP:127.0.0.1', 'IP:' ~ lan_ip]
      + (['IP:' ~ tailscale_ip] if tailscale_ip is defined else []) }}
+
+# Raft 스냅샷 S3 백업 (#11). 버킷·접두사 등 프로젝트 값은 group_vars/all/hashicorp-vault.yml
+hvault_snapshot_bin: /usr/local/bin/vault-snapshot.sh
+hvault_snapshot_restore_bin: /usr/local/bin/vault-snapshot-restore.sh
+hvault_snapshot_work_dir: /var/lib/vault-snapshot     # root 0700. 업로드 성공 후 비움
+hvault_snapshot_aws_env: /etc/vault.d/snapshot-aws.env
+hvault_snapshot_approle_env: /etc/vault.d/snapshot-approle.env
+hvault_snapshot_oncalendar: "*-*-* 18:30:00 UTC"      # KST 03:30. 타임존 변경에 흔들리지 않게 UTC로 고정
+# 스냅샷이 이보다 작으면 올리지 않고 실패한다. 빈 백업이 쌓이는 쪽이 더 위험하다
+# gzip tar 헤더만 있어도 수십 바이트는 나오므로 "0바이트 아님"으로는 부족하다
+hvault_snapshot_min_bytes: 4096
+# node-exporter textfile collector 폴더. 있으면 성공·실패를 지표로 남긴다 (없으면 아무 일도 안 함)
+hvault_snapshot_metric_dir: /var/lib/node_exporter/textfile_collector

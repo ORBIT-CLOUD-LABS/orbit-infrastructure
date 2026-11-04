@@ -194,3 +194,7 @@
         enabled: true
         state: started
       when: not ansible_check_mode
+
+    # 스냅샷 백업의 파일·유닛. Vault 안의 정책과 AppRole은 configure.yml (root token 필요)
+    - name: Raft 스냅샷 S3 백업
+      ansible.builtin.include_tasks: snapshot.yml
