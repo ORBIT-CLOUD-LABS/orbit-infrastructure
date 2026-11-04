@@ -1,0 +1,24 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListFirmwarePrefix",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::orbit-firmware-origin-backup",
+      "Condition": { "StringLike": { "s3:prefix": ["firmware", "firmware/", "firmware/*"] } }
+    },
+    {
+      "Sid": "ReadWriteFirmwareObjects",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::orbit-firmware-origin-backup/firmware/*"
+    },
+    {
+      "Sid": "GetBucketLocation",
+      "Effect": "Allow",
+      "Action": "s3:GetBucketLocation",
+      "Resource": "arn:aws:s3:::orbit-firmware-origin-backup"
+    }
+  ]
+}
