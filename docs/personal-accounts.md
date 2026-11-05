@@ -153,7 +153,7 @@ ansible-playbook playbooks/<이름>.yml -K
 unset VAULT_TOKEN
 ```
 
-`orbit` 계정(자동화 키 `orbit_ansible`)은 아래에만 쓴다. `orbit`으로 실행할 때는 `--private-key ~/.ssh/orbit_ansible`을 붙인다.
+`orbit` 계정(자동화 키 `orbit_ansible`)은 아래에만 쓴다. `orbit`으로 실행할 때는 `--private-key ~/.ssh/orbit_ansible --ask-vault-pass`를 붙인다. `orbit` 저장소에는 `vault.yml`(ansible-vault)이 있어서, 그 값을 쓰지 않는 플레이북도 시작할 때 복호화 비밀번호가 필요하다.
 
 - 개인 계정이 아직 없는 새 VM의 첫 구성 (`vms.yml`, 첫 `personal-accounts.yml`)
 - `vault.yml`(ansible-vault)이 필요한 작업: network(Wi-Fi), VM 생성, 개인 계정 생성, Vault 비상 계정 생성

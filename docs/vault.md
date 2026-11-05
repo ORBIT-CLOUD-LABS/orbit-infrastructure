@@ -2,6 +2,7 @@
 
 구현: [#7](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/7).
 KV·Kubernetes 인증: [#13](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/13). 2026-11-02 astra에 적용하고 적용 후 미리보기에서 추가 변경 없음(`changed=0`)을 확인했다. 실제 k3s 로그인·권한 거부와 GitHub 조회·쓰기·부분 수정 및 SSH 서명을 검증했다. 시험 리소스 정리 완료는 별도 확인이 필요하며 root token 폐기는 운영자 요청으로 보류 중이다.
+KV 구역 분리: [#21](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/21). 2026-11-05 `jyvnee`가 astra 개인 계정으로 적용했다(바뀐 설정: `eso-orbit` 읽기 경로 `orbit/*` → `orbit/k3s/*`, `orbit-secrets-write` 설명 주석). 적용 후 미리보기 `changed=0`. `eso-orbit` 정책만 가진 10분 시험 토큰으로 k3s 구역 읽기 허용, 인프라 구역·구역 밖 읽기와 k3s 구역 쓰기 거부(403)를 확인하고 시험 토큰·값을 정리했다. 옮길 기존 값(`orbit/orbit-server`)은 없었다. k3s 로그인 역할(`eso`)은 바뀌지 않아 다시 시험하지 않았다.
 이 문서에는 이름과 절차만 기록한다. unseal 키, 토큰, 비밀번호, GitHub PAT 값은 Git·Issue·PR·문서·채팅 어디에도 남기지 않는다.
 
 ## 구성
