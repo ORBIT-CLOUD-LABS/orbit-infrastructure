@@ -1,0 +1,11 @@
+*mangle
+:{{ efk_ts_chain_name }} - [0:0]
+-F {{ efk_ts_chain_name }}
+{% for rule in efk_ts_chain[1:] %}
+{{ rule }}
+{% endfor %}
+{% for rule in efk_ts_fwd_now if rule == efk_ts_jump %}
+{{ efk_ts_jump | regex_replace('^-A ', '-D ') }}
+{% endfor %}
+{{ efk_ts_jump | regex_replace('^-A FORWARD ', '-I FORWARD 1 ') }}
+COMMIT

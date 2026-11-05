@@ -149,3 +149,11 @@ efk_fw_chain_name: ORBIT-EFK
 efk_fw_allow:
   - { port: 9200, hosts: "{{ groups['k3s'] + ['astra', 'lgtm', 'wazuh'] }}" }   # 송신(k3s, astra, VM)과 Grafana 조회(lgtm)
   - { port: 5601, hosts: [astra] }                                              # 팀원은 astra를 거쳐 접속
+
+# astra: tailnet(tailscale0)에서 efk로 통과하는 접속은 아래 TCP 포트와 ping만. 9200 등 나머지는 astra에서 버림
+# efk에서는 SNAT 때문에 tailnet 접속과 astra 자신이 같은 IP로 보여서, 이 구분은 astra에서만 할 수 있음
+# Tailscale은 재시작할 때 filter 표 FORWARD 맨 앞에 tailnet 통과를 허용하는 ts-forward를 다시 넣음
+# 그래서 filter보다 먼저 보는 mangle 표에 둠. mangle에서 버린 패킷은 뒤의 허용 규칙과 관계없이 버려짐
+efk_ts_chain_name: ORBIT-TS-EFK
+efk_ts_iface: tailscale0
+efk_ts_allow_ports: [22, 5601]   # SSH(개인 계정), Kibana
