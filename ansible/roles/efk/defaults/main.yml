@@ -4,6 +4,25 @@ efk_cluster_name: orbit-efk
 efk_es_heap: 4g                           # VM 20GB 중 Elasticsearch 8GB 예산의 절반. 나머지는 파일 캐시
 efk_es_data_dir: /var/lib/elasticsearch
 efk_es_log_dir: /var/log/elasticsearch
-# TLS 전에는 efk 안에서만 열어 둠. 내부망 주소는 TLS와 계정을 구성한 뒤 엶
-efk_es_host: 127.0.0.1
-efk_kibana_host: 127.0.0.1
+efk_es_http_hosts: ["127.0.0.1", "{{ lan_ip }}"]   # 9200 (HTTPS). 노드 간 통신(9300)은 단일 노드라 127.0.0.1에만
+efk_kibana_host: "{{ lan_ip }}"                    # 5601 (HTTPS)
+efk_url: "https://{{ lan_ip }}:9200"
+efk_kibana_url: "https://{{ lan_ip }}:5601"
+
+# TLS. 자체 CA로 Elasticsearch·Kibana 서버 인증서를 발급. 송신기(Fluent Bit)와 Kibana는 efk-ca.crt로 검증
+efk_es_tls_dir: /etc/elasticsearch/tls    # Elasticsearch는 설정 폴더 안의 파일만 읽음
+efk_kibana_tls_dir: /etc/kibana/tls
+efk_ca_path: "{{ efk_es_tls_dir }}/efk-ca.crt"   # 공개용. 송신기에 나눠 줄 CA
+efk_tls_ca_days: 3650
+efk_tls_cert_days: 825
+efk_tls_sans: ["DNS:{{ inventory_hostname }}", "DNS:localhost", "IP:127.0.0.1", "IP:{{ lan_ip }}"]
+
+# 비밀값: Vault KV 인프라 구역 (ESO는 읽지 못함). 없는 키는 처음 실행할 때 무작위로 만들어 Vault에 먼저 저장
+efk_vault_path: "{{ hvault_kv_infra_prefix }}/efk"          # secret/orbit/infra/efk
+efk_vault_ca: "{{ hvault_tls_dir }}/vault-ca.crt"           # 실행하는 쪽(astra)의 Vault CA
+efk_secret_keys:
+  - elastic_password            # 관리자. Ansible이 역할·템플릿·ILM을 만들 때
+  - kibana_system_password      # Kibana가 Elasticsearch에 접속할 때
+  - kibana_security_key         # Kibana 로그인 세션 암호화 (재시작해도 로그인 유지)
+  - kibana_saved_objects_key    # Kibana 저장 객체 암호화
+  - kibana_reporting_key        # Kibana 보고서 암호화

@@ -1,28 +1,31 @@
 # efk: Elasticsearch, Kibana (단일 노드)
-# deb822_repository는 python3-debian이 필요함. 미리보기에서는 아래 apt가 실제로 설치하지 않으므로 먼저 있는지 확인
-- name: python3-debian이 설치돼 있는지
-  ansible.builtin.command: dpkg-query -W -f=${Status} python3-debian
+# deb822_repository는 python3-debian, 인증서 모듈은 python3-cryptography가 필요함
+# 미리보기에서는 아래 apt가 실제로 설치하지 않으므로 먼저 있는지 확인
+- name: 파이썬 패키지가 설치돼 있는지
+  ansible.builtin.command:
+    # 한 줄 문자열로 쓰면 인자를 나눌 때 역슬래시가 지워져 \n이 n이 됨. 목록으로 넘겨 그대로 전달
+    argv: [dpkg-query, -W, '-f=${Package}:${Status}\n', python3-debian, python3-cryptography]
   register: efk_pydeb
   changed_when: false
   failed_when: false
   check_mode: false   # 읽기만 함
 
-- name: 모듈에 필요한 파이썬 패키지 (apt 저장소)
+- name: 모듈에 필요한 파이썬 패키지 (apt 저장소, TLS 인증서)
   ansible.builtin.apt:
-    name: python3-debian
+    name: [python3-debian, python3-cryptography]
     state: present
     update_cache: true
     cache_valid_time: 3600
 
-- name: 미리보기에서 python3-debian이 없으면 저장소 등록과 패키지 설치를 건너뜀
+- name: 미리보기에서 하나라도 없으면 저장소 등록, 패키지 설치, 인증서를 건너뜀
   ansible.builtin.set_fact:
-    efk_pydeb_missing: "{{ 'install ok installed' not in efk_pydeb.stdout }}"
+    efk_pydeb_missing: "{{ efk_pydeb.stdout_lines | select('search', 'install ok installed') | list | length < 2 }}"
 
 - name: 건너뛰는 이유
   ansible.builtin.debug:
     msg: >-
-      python3-debian이 아직 없어서 미리보기에서는 Elastic 저장소 등록과 Elasticsearch·Kibana 설치를 건너뜀.
-      실제 실행에서는 python3-debian을 먼저 설치한 뒤 진행함
+      python3-debian 또는 python3-cryptography가 아직 없어서 미리보기에서는 Elastic 저장소 등록, Elasticsearch·Kibana 설치, 인증서를 건너뜀.
+      실제 실행에서는 두 패키지를 먼저 설치한 뒤 진행함
   when: ansible_check_mode and efk_pydeb_missing
 
 - name: Elastic apt 저장소
@@ -40,6 +43,9 @@
 - name: 미리보기에서 패키지 설치를 건너뛸지
   ansible.builtin.set_fact:
     efk_skip_install: "{{ ansible_check_mode and (efk_repo is skipped or efk_repo is changed) }}"
+
+- name: 비밀값 (Vault)
+  ansible.builtin.include_tasks: secrets.yml
 
 - name: Elasticsearch
   ansible.builtin.include_tasks: elasticsearch.yml

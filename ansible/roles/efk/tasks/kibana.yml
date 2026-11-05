@@ -20,9 +20,40 @@
     path: /etc/kibana
   register: efk_kibana_conf
 
-- name: 설정과 서비스
+- name: TLS, 설정, 서비스
   when: efk_kibana_conf.stat.exists   # 미리보기 첫 실행에서는 kibana 그룹과 폴더가 아직 없음
   block:
+    - name: TLS 폴더
+      ansible.builtin.file:
+        path: "{{ efk_kibana_tls_dir }}"
+        state: directory
+        owner: root
+        group: kibana
+        mode: "2750"
+
+    - name: TLS
+      when: not (ansible_check_mode and efk_pydeb_missing)
+      block:
+        - name: Elasticsearch 검증용 CA (efk-ca.crt 복사)
+          ansible.builtin.copy:
+            src: "{{ efk_ca_path }}"
+            dest: "{{ efk_kibana_tls_dir }}/efk-ca.crt"
+            remote_src: true
+            owner: root
+            group: kibana
+            mode: "0644"
+          when: not (ansible_check_mode and efk_ca_key is changed)
+          notify: restart kibana
+
+        - name: Kibana 서버 인증서
+          ansible.builtin.include_tasks: tls.yml
+          vars:
+            efk_tls_name: kibana
+            efk_tls_dir: "{{ efk_kibana_tls_dir }}"
+            efk_tls_group: kibana
+            efk_tls_notify: restart kibana
+
+    # 비밀번호와 암호화 키가 들어 있음. 그룹 kibana만 읽음. diff에 값이 나오지 않게 함
     - name: Kibana 설정
       ansible.builtin.template:
         src: kibana.yml.j2
@@ -30,6 +61,8 @@
         owner: root
         group: kibana
         mode: "0660"
+      diff: false
+      when: efk_secrets_ready
       notify: restart kibana
 
     - name: Kibana 서비스 켜기

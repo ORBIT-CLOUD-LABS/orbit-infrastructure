@@ -1,10 +1,22 @@
 # {{ ansible_managed }}
 # Kibana (efk). 패키지 기본값(pid, 로그 파일)은 그대로 둠
+# 비밀번호와 암호화 키는 Vault {{ hvault_kv_mount }}/{{ efk_vault_path }}에서 옴
 server.host: "{{ efk_kibana_host }}"
 server.port: 5601
 server.name: {{ inventory_hostname }}
+server.publicBaseUrl: "{{ efk_kibana_url }}"
+server.ssl.enabled: true
+server.ssl.key: {{ efk_kibana_tls_dir }}/kibana.key
+server.ssl.certificate: {{ efk_kibana_tls_dir }}/kibana.crt
 
-elasticsearch.hosts: ["http://127.0.0.1:9200"]
+elasticsearch.hosts: ["https://127.0.0.1:9200"]
+elasticsearch.ssl.certificateAuthorities: [{{ efk_kibana_tls_dir }}/efk-ca.crt]
+elasticsearch.username: kibana_system
+elasticsearch.password: {{ efk_secrets.kibana_system_password | to_json }}
+
+xpack.security.encryptionKey: {{ efk_secrets.kibana_security_key | to_json }}
+xpack.encryptedSavedObjects.encryptionKey: {{ efk_secrets.kibana_saved_objects_key | to_json }}
+xpack.reporting.encryptionKey: {{ efk_secrets.kibana_reporting_key | to_json }}
 
 pid.file: /run/kibana/kibana.pid
 

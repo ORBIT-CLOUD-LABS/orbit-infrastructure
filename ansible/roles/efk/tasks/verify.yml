@@ -1,18 +1,26 @@
-# 서비스 확인. 재시작 직후에는 뜨는 데 시간이 걸림
-- name: Elasticsearch 응답 대기
+# 서비스 확인 (HTTPS, elastic 계정). 재시작 직후에는 뜨는 데 시간이 걸림
+- name: Elasticsearch 상태
   ansible.builtin.uri:
-    url: "http://127.0.0.1:9200/_cluster/health?wait_for_status=green&timeout=60s"
-    return_content: true
+    url: "{{ efk_url }}/_cluster/health?wait_for_status=green&timeout=60s"
+    ca_path: "{{ efk_ca_path }}"
+    url_username: elastic
+    url_password: "{{ efk_secrets.elastic_password }}"
+    force_basic_auth: true
   register: efk_es_health
   retries: 12
   delay: 10
   until: efk_es_health.status == 200
+  no_log: true
 
-- name: Elasticsearch 버전과 상태
+- name: Elasticsearch 버전
   ansible.builtin.uri:
-    url: http://127.0.0.1:9200/
-    return_content: true
+    url: "{{ efk_url }}/"
+    ca_path: "{{ efk_ca_path }}"
+    url_username: elastic
+    url_password: "{{ efk_secrets.elastic_password }}"
+    force_basic_auth: true
   register: efk_es_root
+  no_log: true
 
 - name: 기대한 값인지
   ansible.builtin.assert:
@@ -24,16 +32,26 @@
       실행 중: {{ efk_es_root.json.version.number }} / {{ efk_es_health.json.status }}.
       기대: {{ efk_version }} / green
 
-- name: Kibana 응답 대기
+- name: 인증 없이는 거부되는지
   ansible.builtin.uri:
-    url: http://127.0.0.1:5601/api/status
-    return_content: true
+    url: "{{ efk_url }}/"
+    ca_path: "{{ efk_ca_path }}"
+    status_code: 401
+
+- name: Kibana 상태
+  ansible.builtin.uri:
+    url: "{{ efk_kibana_url }}/api/status"
+    ca_path: "{{ efk_ca_path }}"
+    url_username: elastic
+    url_password: "{{ efk_secrets.elastic_password }}"
+    force_basic_auth: true
   register: efk_kibana_status
   retries: 30
   delay: 10
   until: >-
     efk_kibana_status.status == 200
     and efk_kibana_status.json.status.overall.level == 'available'
+  no_log: true
 
 - name: Kibana 버전
   ansible.builtin.assert:

@@ -1,0 +1,38 @@
+# 서버 인증서 하나 발급 (efk CA로 서명). 미리보기에서 키를 새로 만드는 경우는 키 파일이 실제로 없어서 CSR과 인증서는 건너뜀
+# 변수: efk_tls_name(파일 이름), efk_tls_dir, efk_tls_group, efk_tls_notify
+- name: 서버 개인키 {{ efk_tls_name }}
+  community.crypto.openssl_privatekey:
+    path: "{{ efk_tls_dir }}/{{ efk_tls_name }}.key"
+    type: ECC
+    curve: secp256r1
+    owner: root
+    group: "{{ efk_tls_group }}"
+    mode: "0640"
+  register: efk_tls_key
+  notify: "{{ efk_tls_notify }}"
+
+- name: 서버 인증서 요청 {{ efk_tls_name }}
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: "{{ efk_tls_dir }}/{{ efk_tls_name }}.key"
+    common_name: "{{ inventory_hostname }}"
+    subject_alt_name: "{{ efk_tls_sans }}"
+    key_usage: [digitalSignature, keyAgreement]
+    extended_key_usage: [serverAuth]
+  register: efk_tls_csr
+  changed_when: false
+  check_mode: false   # community.crypto 2.x는 미리보기에서 CSR을 안 만들어 다음 task가 실패함. 파일은 쓰지 않음
+  when: not (ansible_check_mode and (efk_tls_key is changed or efk_ca_key is changed))
+
+- name: 서버 인증서 (SAN이 바뀌면 다시 발급) {{ efk_tls_name }}
+  community.crypto.x509_certificate:
+    path: "{{ efk_tls_dir }}/{{ efk_tls_name }}.crt"
+    csr_content: "{{ efk_tls_csr.csr }}"
+    provider: ownca
+    ownca_path: "{{ efk_ca_path }}"
+    ownca_privatekey_path: "{{ efk_es_tls_dir }}/efk-ca.key"
+    ownca_not_after: "+{{ efk_tls_cert_days }}d"
+    owner: root
+    group: "{{ efk_tls_group }}"
+    mode: "0644"
+  when: not (ansible_check_mode and (efk_tls_key is changed or efk_ca_key is changed))
+  notify: "{{ efk_tls_notify }}"
