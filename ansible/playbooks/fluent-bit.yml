@@ -1,0 +1,24 @@
+# 호스트 Fluent Bit (astra, 모니터링 VM 3대) → efk Elasticsearch orbit-host-*. astra 개인 계정으로 실행
+#   먼저: ansible-playbook playbooks/efk.yml -K   (Elasticsearch, 쓰기 계정, CA, 방화벽)
+#   ../scripts/orbit-ssh-cert.sh                       # SSH 인증서와 Vault 토큰 (8시간)
+#   export VAULT_TOKEN=$(cat ~/.orbit/vault-token)    # 쓰기 계정 비밀번호를 secret/orbit/infra/efk에서 읽음
+#   미리보기: ansible-playbook playbooks/fluent-bit.yml -K --check --diff
+#   실행:    ansible-playbook playbooks/fluent-bit.yml -K
+# k3s 노드는 orbit-gitops의 Fluent Bit DaemonSet이 맡음
+
+- name: 호스트 Fluent Bit
+  hosts: gateway:monitoring
+  become: true
+  roles:
+    - fluent_bit
+
+- name: 확인
+  hosts: gateway:monitoring
+  become: true
+  gather_facts: false
+  tasks:
+    - name: 상태와 수신
+      ansible.builtin.include_role:
+        name: fluent_bit
+        tasks_from: verify.yml
+      when: not ansible_check_mode   # 미리보기에서는 실제로 설치·시작되지 않음

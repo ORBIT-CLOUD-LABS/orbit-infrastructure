@@ -1,0 +1,96 @@
+# 호스트 Fluent Bit: 설치, 설정, 서비스
+- name: 이 호스트가 보낼 대상
+  ansible.builtin.set_fact:
+    fluentbit_units: >-
+      {{ (fluentbit_units_common
+          + fluentbit_units_by_host[inventory_hostname] | default([])
+          + (group_names | map('extract', fluentbit_units_by_group) | select('defined') | flatten))
+         | unique }}
+    fluentbit_identifiers: "{{ (fluentbit_identifiers_common + fluentbit_identifiers_by_host[inventory_hostname] | default([])) | unique }}"
+    fluentbit_files: "{{ fluentbit_files_by_host[inventory_hostname] | default([]) }}"
+
+- name: 비밀값과 CA
+  ansible.builtin.include_tasks: secrets.yml
+
+- name: Fluent Bit apt 저장소 키
+  ansible.builtin.get_url:
+    url: "{{ fluentbit_repo_key_url }}"
+    dest: "{{ fluentbit_keyring }}"
+    mode: "0644"
+
+- name: Fluent Bit apt 저장소
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by={{ fluentbit_keyring }}] {{ fluentbit_repo_url }} {{ ansible_distribution_release }} main"
+    filename: fluent-bit
+    state: present
+  register: fluentbit_repo
+
+# 미리보기에서 저장소를 처음 등록하면 apt가 패키지를 못 찾으므로 설치를 건너뜀
+- name: 설치와 버전 고정
+  when: not (ansible_check_mode and fluentbit_repo is changed)
+  block:
+    - name: Fluent Bit 설치 {{ fluentbit_version }}
+      ansible.builtin.apt:
+        name: "fluent-bit={{ fluentbit_version }}"
+        state: present
+        update_cache: true
+        allow_change_held_packages: true
+      notify: restart fluent-bit
+
+    - name: apt upgrade로 버전이 바뀌지 않게 고정
+      ansible.builtin.dpkg_selections:
+        name: fluent-bit
+        selection: hold
+
+- name: 설치됐는지 (미리보기에서 처음이면 아직 없음)
+  ansible.builtin.stat:
+    path: "{{ fluentbit_conf_dir }}"
+  register: fluentbit_conf_stat
+
+- name: 설정과 서비스
+  when: fluentbit_conf_stat.stat.exists
+  block:
+    - name: 읽기 위치 DB와 파일 버퍼 폴더
+      ansible.builtin.file:
+        path: "{{ fluentbit_data_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Elasticsearch 검증용 CA
+      ansible.builtin.copy:
+        content: "{{ fluentbit_ca_pem }}"
+        dest: "{{ fluentbit_ca_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart fluent-bit
+
+    # 비밀번호는 환경 변수로. 설정 파일에는 값이 들어가지 않아 diff로 볼 수 있음
+    - name: 쓰기 계정 비밀번호 (환경 변수 파일, root만 읽음)
+      ansible.builtin.copy:
+        content: "FLUENTBIT_ES_PASSWORD={{ fluentbit_es_password }}\n"
+        dest: /etc/default/fluent-bit
+        owner: root
+        group: root
+        mode: "0600"
+      diff: false
+      no_log: true
+      notify: restart fluent-bit
+
+    - name: Fluent Bit 설정
+      ansible.builtin.template:
+        src: fluent-bit.conf.j2
+        dest: "{{ fluentbit_conf_dir }}/fluent-bit.conf"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart fluent-bit
+
+    - name: Fluent Bit 서비스 켜기
+      ansible.builtin.systemd_service:
+        name: fluent-bit
+        enabled: true
+        state: started
+      when: not ansible_check_mode

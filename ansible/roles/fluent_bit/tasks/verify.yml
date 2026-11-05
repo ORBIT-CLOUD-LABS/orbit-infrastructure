@@ -1,0 +1,35 @@
+# Fluent Bit이 살아 있고, 이 호스트의 로그가 Elasticsearch에 들어오는지
+# 이 확인 작업도 sudo(become)와 SSH 접속 기록을 남기므로, 잠시 기다리면 최근 10분 안에 들어온 문서가 생김
+- name: Fluent Bit 상태
+  ansible.builtin.uri:
+    url: http://127.0.0.1:2020/api/v1/health
+    return_content: true
+  register: fluentbit_health
+  retries: 6
+  delay: 5
+  until: fluentbit_health.status == 200 and fluentbit_health.content | trim == 'ok'
+
+- name: 이 호스트의 로그가 들어왔는지 (조회 계정, 최근 10분)
+  ansible.builtin.uri:
+    url: "https://{{ fluentbit_es_host }}:{{ fluentbit_es_port }}/{{ fluentbit_index_prefix }}-*/_count"
+    method: POST
+    ca_path: "{{ fluentbit_ca_path }}"
+    url_username: "{{ fluentbit_check_user }}"
+    url_password: "{{ fluentbit_check_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      query:
+        bool:
+          filter:
+            - term: { host.name: "{{ inventory_hostname }}" }
+            - range: { "@timestamp": { gte: now-10m } }
+  register: fluentbit_count
+  retries: 12
+  delay: 10
+  until: fluentbit_count.status == 200 and fluentbit_count.json.count > 0
+  no_log: true
+
+- name: 들어온 문서 수
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }}: 최근 10분 {{ fluentbit_count.json.count }}건"
