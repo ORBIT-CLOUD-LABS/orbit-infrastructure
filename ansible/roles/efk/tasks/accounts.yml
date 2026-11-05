@@ -55,7 +55,7 @@
       url_username: elastic
       url_password: "{{ efk_secrets.elastic_password }}"
       force_basic_auth: true
-      body_format: json
+      # body_format은 본문이 있는 작업에만 씀. 기본값에 두면 GET에도 본문 "null"이 붙어 Elasticsearch가 400으로 거부함
   block:
     - name: 역할 읽기
       ansible.builtin.uri:
@@ -70,6 +70,7 @@
       ansible.builtin.uri:
         url: "https://127.0.0.1:9200/_security/role/{{ item.item.key }}"
         method: PUT
+        body_format: json
         body: "{{ item.item.value }}"
       loop: "{{ efk_role_now.results }}"
       loop_control: { label: "{{ item.item.key }}" }
@@ -90,6 +91,7 @@
       ansible.builtin.uri:
         url: "https://127.0.0.1:9200/_security/user/{{ item.item.name }}"
         method: PUT
+        body_format: json
         body:
           password: "{{ (efk_k8s_secrets if item.item.vault == 'k8s' else efk_secrets)[item.item.key] }}"
           roles: "{{ item.item.roles }}"
@@ -104,6 +106,7 @@
       ansible.builtin.uri:
         url: "https://127.0.0.1:9200/_security/user/{{ item.item.name }}"
         method: PUT
+        body_format: json
         body: { roles: "{{ item.item.roles }}" }
       loop: "{{ efk_user_now.results }}"
       loop_control: { label: "{{ item.item.name }}" }
@@ -126,6 +129,7 @@
       ansible.builtin.uri:
         url: "https://127.0.0.1:9200/_security/user/{{ item.item.name }}/_password"
         method: POST
+        body_format: json
         body:
           password: "{{ (efk_k8s_secrets if item.item.vault == 'k8s' else efk_secrets)[item.item.key] }}"
       loop: "{{ efk_user_auth.results }}"
