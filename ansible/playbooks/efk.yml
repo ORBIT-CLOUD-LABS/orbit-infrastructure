@@ -1,5 +1,6 @@
 # Elasticsearch, Kibana (efk VM). astra 개인 계정으로 실행 (docs/personal-accounts.md#ansible-실행)
 #   먼저: ansible-playbook playbooks/vms.yml -K --ask-vault-pass  (efk VM)
+# 방화벽: 9200·5601은 허용한 출발지만 (roles/efk/defaults의 efk_fw_allow). 확인 단계에서 lgtm에도 접속해 봄
 # 비밀번호와 Kibana 암호화 키는 Vault에 있음. 없는 키는 처음 실행할 때 만들어 저장
 #   secret/orbit/infra/efk: elastic, kibana_system, Kibana 암호화 키, fluentbit_host, kibana_viewer, grafana_viewer
 #   secret/orbit/k3s/fluent-bit: fluentbit_k8s (ESO가 읽어 k3s Secret으로 만듦)

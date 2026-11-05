@@ -1,0 +1,11 @@
+*filter
+:{{ efk_fw_chain_name }} - [0:0]
+-F {{ efk_fw_chain_name }}
+{% for rule in efk_fw_chain[1:] %}
+{{ rule }}
+{% endfor %}
+{% for rule in efk_fw_input_now if rule == efk_fw_jump %}
+{{ efk_fw_jump | regex_replace('^-A ', '-D ') }}
+{% endfor %}
+{{ efk_fw_jump | regex_replace('^-A INPUT ', '-I INPUT 1 ') }}
+COMMIT

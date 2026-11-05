@@ -142,3 +142,10 @@ efk_index_mappings:
 efk_data_views:
   - { id: orbit-k8s, name: "orbit-k8s (k3s Pod)", title: "orbit-k8s-*" }
   - { id: orbit-host, name: "orbit-host (호스트 journald·파일)", title: "orbit-host-*" }
+
+# 방화벽: 9200·5601만 허용한 출발지에서 받고 나머지는 버림 (전용 체인 ORBIT-EFK). 22 등 다른 포트는 건드리지 않음
+# astra 서브넷 라우터가 SNAT하므로 Tailscale 팀원 접속도 astra(10.0.0.201)로 보임. tailnet에서 9200을 막는 건 astra 쪽 몫
+efk_fw_chain_name: ORBIT-EFK
+efk_fw_allow:
+  - { port: 9200, hosts: "{{ groups['k3s'] + ['astra', 'lgtm', 'wazuh'] }}" }   # 송신(k3s, astra, VM)과 Grafana 조회(lgtm)
+  - { port: 5601, hosts: [astra] }                                              # 팀원은 astra를 거쳐 접속

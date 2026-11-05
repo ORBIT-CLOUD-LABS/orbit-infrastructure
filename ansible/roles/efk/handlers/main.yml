@@ -11,3 +11,8 @@
     name: kibana
     state: restarted
   when: not ansible_check_mode
+
+# 재부팅 뒤에도 유지 (gateway·vault role과 같은 명령)
+- name: save efk firewall
+  ansible.builtin.command: netfilter-persistent save
+  changed_when: true

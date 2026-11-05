@@ -140,3 +140,28 @@
   loop: "{{ efk_data_views }}"
   loop_control: { label: "{{ item.id }}" }
   no_log: true
+
+# 방화벽: 허용한 곳에서는 열리고, 허용하지 않은 포트는 막히는지 (다른 호스트에서 접속해 봄)
+- name: astra에서 9200·5601 열림
+  ansible.builtin.wait_for:
+    host: "{{ lan_ip }}"
+    port: "{{ item }}"
+    timeout: 5
+  loop: [9200, 5601]
+  delegate_to: astra
+  become: false
+
+- name: lgtm에서 5601 (허용하지 않음)
+  ansible.builtin.wait_for:
+    host: "{{ lan_ip }}"
+    port: 5601
+    timeout: 5
+  delegate_to: lgtm
+  become: false
+  register: efk_fw_blocked
+  failed_when: false
+
+- name: lgtm에서 5601이 막혀야 함
+  ansible.builtin.assert:
+    that: "'Timeout' in (efk_fw_blocked.msg | default(''))"   # DROP이라 거부 응답 없이 시간 초과
+    fail_msg: "lgtm에서 efk 5601에 접속됨. 방화벽(ORBIT-EFK) 확인"

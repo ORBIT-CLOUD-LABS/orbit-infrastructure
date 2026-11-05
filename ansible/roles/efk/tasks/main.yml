@@ -44,6 +44,10 @@
   ansible.builtin.set_fact:
     efk_skip_install: "{{ ansible_check_mode and (efk_repo is skipped or efk_repo is changed) }}"
 
+# 서비스보다 먼저. 첫 설치 때도 9200·5601이 허용한 곳에만 열림
+- name: 방화벽
+  ansible.builtin.include_tasks: firewall.yml
+
 - name: 비밀값 (Vault)
   ansible.builtin.include_tasks: secrets.yml
 
