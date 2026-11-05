@@ -78,3 +78,11 @@
         state: started
         daemon_reload: true
       when: not ansible_check_mode
+
+# 데이터 뷰는 Kibana API로 만듦. 설정이 바뀌었으면 먼저 재시작
+- name: 바뀐 설정 반영 (재시작)
+  ansible.builtin.meta: flush_handlers
+
+- name: 데이터 뷰
+  ansible.builtin.include_tasks: dataviews.yml
+  when: not ansible_check_mode and efk_secrets_ready

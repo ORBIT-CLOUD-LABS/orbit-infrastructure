@@ -1,0 +1,55 @@
+# Kibana 데이터 뷰 (default 공간). 조회 계정은 만들 수 없으므로 elastic으로 만들어 둠
+# Fluent Bit 배포 전에는 인덱스가 없음. allowNoIndex가 없으면 일치하는 인덱스가 없을 때 만들기·읽기가 실패할 수 있음
+- name: Kibana 데이터 뷰
+  module_defaults:
+    ansible.builtin.uri:
+      ca_path: "{{ efk_ca_path }}"
+      url_username: elastic
+      url_password: "{{ efk_secrets.elastic_password }}"
+      force_basic_auth: true
+      headers: { kbn-xsrf: "true" }
+  block:
+    - name: Kibana 응답 대기 (재시작 직후에는 시간이 걸림)
+      ansible.builtin.uri:
+        url: "{{ efk_kibana_url }}/api/status"
+      register: efk_kibana_up
+      retries: 30
+      delay: 10
+      until: >-
+        efk_kibana_up.status == 200
+        and efk_kibana_up.json.status.overall.level == 'available'
+
+    - name: 데이터 뷰 읽기
+      ansible.builtin.uri:
+        url: "{{ efk_kibana_url }}/api/data_views/data_view/{{ item.id }}"
+        status_code: [200, 404]
+      loop: "{{ efk_data_views }}"
+      loop_control: { label: "{{ item.id }}" }
+      register: efk_dv_now
+
+    - name: 데이터 뷰 만들기
+      ansible.builtin.uri:
+        url: "{{ efk_kibana_url }}/api/data_views/data_view"
+        method: POST
+        body_format: json
+        body:
+          data_view: "{{ item.item | combine({'timeFieldName': '@timestamp', 'allowNoIndex': true}) }}"
+      loop: "{{ efk_dv_now.results }}"
+      loop_control: { label: "{{ item.item.id }}" }
+      when: item.status == 404
+      changed_when: true
+
+    - name: 데이터 뷰 고치기 (이름·패턴·allowNoIndex가 다를 때만)
+      ansible.builtin.uri:
+        url: "{{ efk_kibana_url }}/api/data_views/data_view/{{ item.item.id }}"
+        method: POST
+        body_format: json
+        body:
+          data_view: { name: "{{ item.item.name }}", title: "{{ item.item.title }}", timeFieldName: "@timestamp", allowNoIndex: true }
+      loop: "{{ efk_dv_now.results }}"
+      loop_control: { label: "{{ item.item.id }}" }
+      when: >-
+        item.status == 200 and
+        [item.json.data_view.name, item.json.data_view.title, item.json.data_view.timeFieldName, item.json.data_view.allowNoIndex | default(false)]
+        != [item.item.name, item.item.title, '@timestamp', true]
+      changed_when: true

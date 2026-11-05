@@ -81,3 +81,62 @@
     quiet: true
   loop: "{{ efk_priv.results }}"
   loop_control: { label: "{{ item.item.0.name }} {{ item.item.1.priv }} {{ item.item.1.index }}" }
+
+# 새 인덱스가 만들어지면 템플릿이 어떻게 적용될지 미리 확인 (인덱스는 만들지 않음)
+- name: 인덱스에 적용될 설정
+  ansible.builtin.uri:
+    url: "{{ efk_url }}/_index_template/_simulate_index/{{ item }}"
+    method: POST
+    ca_path: "{{ efk_ca_path }}"
+    url_username: elastic
+    url_password: "{{ efk_secrets.elastic_password }}"
+    force_basic_auth: true
+  loop: [orbit-k8s-check, orbit-host-check]
+  register: efk_sim
+  no_log: true
+
+- name: 템플릿·ILM이 적용되는지
+  ansible.builtin.assert:
+    that:
+      # 설정은 이 role이 정한 항목만, 매핑은 전체를 비교
+      - >-
+        (item.json.template.settings.index | dict2items
+        | selectattr('key', 'in', efk_index_settings.index.keys() | list) | items2dict)
+        == efk_index_settings.index
+      - item.json.template.mappings == efk_index_mappings
+    fail_msg: "{{ item.item }}: 템플릿 {{ efk_index_template }}가 기대대로 적용되지 않음"
+    quiet: true
+  loop: "{{ efk_sim.results }}"
+  loop_control: { label: "{{ item.item }}" }
+
+- name: ILM 정책
+  ansible.builtin.uri:
+    url: "{{ efk_url }}/_ilm/policy/{{ efk_ilm_policy }}"
+    ca_path: "{{ efk_ca_path }}"
+    url_username: elastic
+    url_password: "{{ efk_secrets.elastic_password }}"
+    force_basic_auth: true
+  register: efk_ilm
+  no_log: true
+
+- name: 단계와 보관 기간이 기대와 같은지
+  ansible.builtin.assert:
+    that:
+      - efk_ilm.json[efk_ilm_policy].policy.phases.delete.min_age == efk_retention
+      - efk_ilm.json[efk_ilm_policy].policy.phases.keys() | sort == ['delete', 'hot']
+      - efk_ilm.json[efk_ilm_policy].policy.phases.hot.actions == {}
+    fail_msg: >-
+      단계: {{ efk_ilm.json[efk_ilm_policy].policy.phases.keys() | sort }},
+      삭제 시점: {{ efk_ilm.json[efk_ilm_policy].policy.phases.delete.min_age | default('없음') }}.
+      기대: hot·delete, {{ efk_retention }}
+
+- name: Kibana 데이터 뷰가 있는지
+  ansible.builtin.uri:
+    url: "{{ efk_kibana_url }}/api/data_views/data_view/{{ item.id }}"
+    ca_path: "{{ efk_ca_path }}"
+    url_username: kibana_viewer   # 조회 계정으로 보이는지까지 확인
+    url_password: "{{ efk_secrets.kibana_viewer_password }}"
+    force_basic_auth: true
+  loop: "{{ efk_data_views }}"
+  loop_control: { label: "{{ item.id }}" }
+  no_log: true

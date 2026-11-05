@@ -183,3 +183,7 @@
 - name: 기본 계정
   ansible.builtin.include_tasks: accounts.yml
   when: not ansible_check_mode and efk_secrets_ready
+
+- name: ILM 정책과 인덱스 템플릿
+  ansible.builtin.include_tasks: indices.yml
+  when: not ansible_check_mode and efk_secrets_ready

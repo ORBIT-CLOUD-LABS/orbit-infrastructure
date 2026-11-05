@@ -83,3 +83,62 @@ efk_privilege_expect:
   fluentbit_host: ["create_doc orbit-host-check"]
   kibana_viewer: ["read orbit-k8s-check", "read orbit-host-check"]
   grafana_viewer: ["read orbit-k8s-check", "read orbit-host-check"]
+
+# 인덱스: 날짜별(orbit-k8s-YYYY.MM.DD, orbit-host-YYYY.MM.DD), primary 1·replica 0, 만든 지 7일 뒤 삭제
+# rollover·쓰기 alias 없음. 템플릿을 바꾸면 그 뒤에 새로 만들어지는 인덱스(보통 다음 날)부터 적용됨
+efk_ilm_policy: orbit-logs-7d
+efk_retention: 7d
+efk_index_template: orbit-logs
+efk_index_patterns: ["orbit-k8s-*", "orbit-host-*"]
+
+# 명시한 필드만 검색·집계용으로 색인. 나머지는 dynamic false라 _source에만 남음
+# ignore_malformed: 숫자 필드에 "-" 같은 값이 와도 문서 전체를 거부하지 않고 그 필드만 버림
+# 이름이 같은 필드를 문자열과 객체로 섞어 보내면(예: host가 문자열) 문서가 거부되므로 송신 측은 아래 이름을 따름
+# 값은 Elasticsearch가 돌려주는 형식(설정 값은 문자열, dynamic은 "false")으로 써서 실제 값과 그대로 비교함
+efk_index_settings:
+  index:
+    number_of_shards: "1"
+    number_of_replicas: "0"
+    lifecycle: { name: "{{ efk_ilm_policy }}" }
+    mapping: { ignore_malformed: "true" }
+efk_index_mappings:
+  dynamic: "false"
+  properties:
+    "@timestamp": { type: date }
+    message: { type: match_only_text }        # 원문. k3s 컨테이너 log도 message로 바꿔 보냄
+    level: { type: keyword }                  # 정규화한 로그 레벨 (debug, info, warn, error 등)
+    stream: { type: keyword }                 # stdout, stderr
+    host:
+      properties:
+        name: { type: keyword }               # 보낸 호스트 (노드·VM 이름)
+    kubernetes:
+      properties:
+        namespace_name: { type: keyword }
+        pod_name: { type: keyword }
+        container_name: { type: keyword }
+        host: { type: keyword }
+        labels: { type: flattened }           # 키에 점·슬래시가 있어도 충돌 없음. kubernetes.labels.app으로 검색
+    systemd:
+      properties:
+        unit: { type: keyword }               # journald _SYSTEMD_UNIT
+    syslog:
+      properties:
+        identifier: { type: keyword }         # journald SYSLOG_IDENTIFIER (sudo 등)
+        priority: { type: byte }              # journald PRIORITY (0 emerg ~ 7 debug, 4 이하가 warning 이상)
+    file:
+      properties:
+        path: { type: keyword }               # 파일 입력의 원본 경로 (astra qemu 로그)
+    parsed:
+      properties:
+        nginx:
+          properties:
+            status: { type: long }
+            bytes: { type: long }             # 응답 본문 크기 ($body_bytes_sent)
+            cache: { type: keyword }
+        server:
+          type: object                        # 서버 로그 파싱 결과. 필드를 정하면 여기에 추가
+
+# Kibana 데이터 뷰. 조회 계정은 읽기만 되므로 Ansible이 만들어 둠
+efk_data_views:
+  - { id: orbit-k8s, name: "orbit-k8s (k3s Pod)", title: "orbit-k8s-*" }
+  - { id: orbit-host, name: "orbit-host (호스트 journald·파일)", title: "orbit-host-*" }
