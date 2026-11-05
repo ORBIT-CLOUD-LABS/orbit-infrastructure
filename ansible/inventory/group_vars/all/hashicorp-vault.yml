@@ -48,7 +48,8 @@ hvault_eso_token_ttl: 1h
 hvault_eso_token_max_ttl: 1h                 # 갱신을 포함한 최대 수명. ESO는 재로그인으로 새 토큰 발급
 
 # 인터넷(GitHub)이 안 될 때 쓰는 비상 계정. SSH 서명만. 비밀번호는 vault.yml (ansible-vault)
+# 계정을 처음 만들 때만 필요함. vault.yml이 없는 곳(팀원 Mac)에서도 이미 있는 계정은 그대로 두고 진행
 hvault_breakglass_users: [breakglass1, breakglass2]
 hvault_breakglass_passwords:
-  breakglass1: "{{ vault_breakglass1_password }}"
-  breakglass2: "{{ vault_breakglass2_password }}"
+  breakglass1: "{{ vault_breakglass1_password | default('') }}"
+  breakglass2: "{{ vault_breakglass2_password | default('') }}"

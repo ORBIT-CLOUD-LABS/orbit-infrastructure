@@ -304,6 +304,15 @@
         msg: "{{ hvault_seen | selectattr('id', 'in', hvault_todo | default([])) | map(attribute='name') | list }}"
       changed_when: hvault_todo | default([]) | length > 0
 
+    # 비상 계정을 새로 만들 때만 비밀번호가 필요함 (vault.yml). 이미 있으면 비밀번호를 쓰지 않음
+    - name: 새로 만들 비상 계정의 비밀번호가 있어야 함
+      ansible.builtin.assert:
+        that: hvault_breakglass_passwords[item] | length > 0
+        fail_msg: "비상 계정 {{ item }}을 새로 만들어야 하는데 비밀번호가 없음. vault.yml이 있는 곳에서 --ask-vault-pass로 실행"
+        quiet: true
+      loop: "{{ hvault_breakglass_users | select('in', (hvault_create | default([])) | map('regex_replace', '^user_', '') | list) | list }}"
+      no_log: true
+
     - name: 설정 쓰기
       ansible.builtin.uri:
         url: "{{ hvault_api }}/{{ item.write | default(item.read) }}"

@@ -19,7 +19,7 @@ efk_tls_sans: ["DNS:{{ inventory_hostname }}", "DNS:localhost", "IP:127.0.0.1", 
 
 # 비밀값: Vault KV 인프라 구역 (ESO는 읽지 못함). 없는 키는 처음 실행할 때 무작위로 만들어 Vault에 먼저 저장
 efk_vault_path: "{{ hvault_kv_infra_prefix }}/efk"          # secret/orbit/infra/efk
-efk_vault_ca: "{{ hvault_tls_dir }}/vault-ca.crt"           # 실행하는 쪽(astra)의 Vault CA
+efk_vault_ca: "{{ hvault_tls_dir }}/vault-ca.crt"           # Vault API는 astra에서 호출 (어디서 실행하든 같은 CA 경로)
 efk_secret_keys:
   - elastic_password            # 관리자. Ansible이 역할·템플릿·ILM을 만들 때
   - kibana_system_password      # Kibana가 Elasticsearch에 접속할 때

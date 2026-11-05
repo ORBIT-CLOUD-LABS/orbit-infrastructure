@@ -1,8 +1,9 @@
-# Elasticsearch, Kibana (efk VM). astra에서 실행
+# Elasticsearch, Kibana (efk VM). astra 개인 계정으로 실행 (docs/personal-accounts.md#ansible-실행)
 #   먼저: ansible-playbook playbooks/vms.yml -K --ask-vault-pass  (efk VM)
 # 비밀번호와 Kibana 암호화 키는 Vault secret/orbit/infra/efk에 있음. 없는 키는 처음 실행할 때 만들어 저장
-#   read -rs VAULT_TOKEN && export VAULT_TOKEN   # 팀원 GitHub 로그인 토큰. 화면과 history에 남지 않게 입력
-#   미리보기: ansible-playbook playbooks/efk.yml -K --check --diff
+#   ../scripts/orbit-ssh-cert.sh                       # SSH 인증서와 Vault 토큰 (8시간)
+#   export VAULT_TOKEN=$(cat ~/.orbit/vault-token)    # 팀원 GitHub 로그인 토큰
+#   미리보기: ansible-playbook playbooks/efk.yml -K --check --diff   # -K는 자기 sudo 비밀번호
 #   실행:    ansible-playbook playbooks/efk.yml -K
 #   unset VAULT_TOKEN
 # 설정이나 버전이 바뀌면 Elasticsearch와 Kibana가 재시작됨. 그동안 로그 전송은 송신 측 버퍼에 쌓임

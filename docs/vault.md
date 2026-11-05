@@ -25,7 +25,7 @@ KV·Kubernetes 인증: [#13](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastru
 
 ## 플레이북
 
-astra에서 실행한다 (`ansible_connection: local`).
+astra 개인 계정으로 실행한다([Ansible 실행](personal-accounts.md#ansible-실행)). `-K`에는 자기 sudo 비밀번호를 넣는다. 비상 계정이 이미 있으면 `--ask-vault-pass`(`vault.yml`)는 필요 없고, 새로 만들어야 할 때만 `vault.yml`이 있는 `orbit` 계정에서 실행한다.
 
 | 플레이북 | 하는 일 |
 | --- | --- |
