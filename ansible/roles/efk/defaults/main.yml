@@ -1,0 +1,9 @@
+efk_version: 9.5.6                        # 버전 고정. Elasticsearch와 Kibana는 같은 버전으로 맞춤
+efk_repo_url: https://artifacts.elastic.co/packages/9.x/apt
+efk_cluster_name: orbit-efk
+efk_es_heap: 4g                           # VM 20GB 중 Elasticsearch 8GB 예산의 절반. 나머지는 파일 캐시
+efk_es_data_dir: /var/lib/elasticsearch
+efk_es_log_dir: /var/log/elasticsearch
+# TLS 전에는 efk 안에서만 열어 둠. 내부망 주소는 TLS와 계정을 구성한 뒤 엶
+efk_es_host: 127.0.0.1
+efk_kibana_host: 127.0.0.1

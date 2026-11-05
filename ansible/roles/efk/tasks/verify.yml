@@ -1,0 +1,41 @@
+# 서비스 확인. 재시작 직후에는 뜨는 데 시간이 걸림
+- name: Elasticsearch 응답 대기
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:9200/_cluster/health?wait_for_status=green&timeout=60s"
+    return_content: true
+  register: efk_es_health
+  retries: 12
+  delay: 10
+  until: efk_es_health.status == 200
+
+- name: Elasticsearch 버전과 상태
+  ansible.builtin.uri:
+    url: http://127.0.0.1:9200/
+    return_content: true
+  register: efk_es_root
+
+- name: 기대한 값인지
+  ansible.builtin.assert:
+    that:
+      - efk_es_root.json.version.number == efk_version
+      - efk_es_health.json.status == 'green'
+      - efk_es_health.json.number_of_nodes == 1
+    fail_msg: >-
+      실행 중: {{ efk_es_root.json.version.number }} / {{ efk_es_health.json.status }}.
+      기대: {{ efk_version }} / green
+
+- name: Kibana 응답 대기
+  ansible.builtin.uri:
+    url: http://127.0.0.1:5601/api/status
+    return_content: true
+  register: efk_kibana_status
+  retries: 30
+  delay: 10
+  until: >-
+    efk_kibana_status.status == 200
+    and efk_kibana_status.json.status.overall.level == 'available'
+
+- name: Kibana 버전
+  ansible.builtin.assert:
+    that: efk_kibana_status.json.version.number == efk_version
+    fail_msg: "실행 중: {{ efk_kibana_status.json.version.number }}. 기대: {{ efk_version }}"

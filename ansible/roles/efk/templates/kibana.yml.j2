@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+# Kibana (efk). 패키지 기본값(pid, 로그 파일)은 그대로 둠
+server.host: "{{ efk_kibana_host }}"
+server.port: 5601
+server.name: {{ inventory_hostname }}
+
+elasticsearch.hosts: ["http://127.0.0.1:9200"]
+
+pid.file: /run/kibana/kibana.pid
+
+logging:
+  appenders:
+    file:
+      type: file
+      fileName: /var/log/kibana/kibana.log
+      layout:
+        type: json
+  root:
+    appenders: [default, file]

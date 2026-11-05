@@ -1,0 +1,41 @@
+# Kibana 패키지는 설치할 때 보안을 자동 구성하지 않음. 설치 후 설정을 덮어씀
+- name: 설치와 버전 고정
+  when: not efk_skip_install
+  block:
+    - name: Kibana 설치 {{ efk_version }}
+      ansible.builtin.apt:
+        name: "kibana={{ efk_version }}"
+        state: present
+        update_cache: true
+        allow_change_held_packages: true
+      notify: restart kibana
+
+    - name: apt upgrade로 버전이 바뀌지 않게 고정
+      ansible.builtin.dpkg_selections:
+        name: kibana
+        selection: hold
+
+- name: 설치됐는지 (미리보기에서 처음이면 아직 없음)
+  ansible.builtin.stat:
+    path: /etc/kibana
+  register: efk_kibana_conf
+
+- name: 설정과 서비스
+  when: efk_kibana_conf.stat.exists   # 미리보기 첫 실행에서는 kibana 그룹과 폴더가 아직 없음
+  block:
+    - name: Kibana 설정
+      ansible.builtin.template:
+        src: kibana.yml.j2
+        dest: /etc/kibana/kibana.yml
+        owner: root
+        group: kibana
+        mode: "0660"
+      notify: restart kibana
+
+    - name: Kibana 서비스 켜기
+      ansible.builtin.systemd_service:
+        name: kibana
+        enabled: true
+        state: started
+        daemon_reload: true
+      when: not ansible_check_mode
