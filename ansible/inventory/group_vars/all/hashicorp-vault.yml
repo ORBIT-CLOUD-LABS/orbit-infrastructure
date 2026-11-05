@@ -27,11 +27,14 @@ hvault_github_team: orbit
 hvault_token_ttl: 8h
 hvault_token_max_ttl: 24h
 
-# 앱 비밀값 (KV v2). k3s 앱은 External Secrets Operator가 읽음 (orbit-gitops)
+# 비밀값 (KV v2). k3s 앱은 External Secrets Operator가 읽음 (orbit-gitops)
 hvault_kv_mount: secret
-hvault_kv_prefix: orbit                      # 앱별 경로: secret/orbit/<앱 이름>
-hvault_kv_read_policy: eso-orbit             # 읽기만. ESO에 줌
-hvault_kv_write_policy: orbit-secrets-write  # 쓰기. GitHub orbit 팀에 SSH 정책과 함께 줌
+# ESO는 k3s 구역만 읽음. 인프라 구역(Elasticsearch 관리자 등)은 팀만 다룸
+hvault_kv_prefix: orbit                                   # 팀이 관리하는 전체 범위: secret/orbit/
+hvault_kv_k3s_prefix: "{{ hvault_kv_prefix }}/k3s"         # k3s 앱: secret/orbit/k3s/<앱 이름>
+hvault_kv_infra_prefix: "{{ hvault_kv_prefix }}/infra"     # 인프라: secret/orbit/infra/<서비스 이름>
+hvault_kv_read_policy: eso-orbit             # k3s 구역 읽기만. ESO에 줌
+hvault_kv_write_policy: orbit-secrets-write  # 두 구역 쓰기. GitHub orbit 팀에 SSH 정책과 함께 줌
 
 # Kubernetes 인증. ESO가 자기 ServiceAccount 토큰으로 로그인하고, Vault가 k3s API로 진위를 확인
 hvault_k8s_mount: kubernetes

@@ -110,11 +110,11 @@
             write: "sys/mounts/{{ hvault_kv_mount }}"
             body: { type: kv, options: { version: "2" } }
           - id: kv_read_policy
-            name: 앱 비밀값 읽기 정책 (ESO)
+            name: k3s 앱 비밀값 읽기 정책 (ESO)
             read: "sys/policies/acl/{{ hvault_kv_read_policy }}"
             body: { policy: "{{ lookup('ansible.builtin.template', 'kv-read-policy.hcl.j2') }}" }
           - id: kv_write_policy
-            name: 앱 비밀값 쓰기 정책 (GitHub 팀)
+            name: 비밀값 쓰기 정책 (GitHub 팀)
             read: "sys/policies/acl/{{ hvault_kv_write_policy }}"
             body: { policy: "{{ lookup('ansible.builtin.template', 'kv-write-policy.hcl.j2') }}" }
           - id: k8s_mount
