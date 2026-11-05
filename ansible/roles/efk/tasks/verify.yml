@@ -57,3 +57,27 @@
   ansible.builtin.assert:
     that: efk_kibana_status.json.version.number == efk_version
     fail_msg: "실행 중: {{ efk_kibana_status.json.version.number }}. 기대: {{ efk_version }}"
+
+# 계정마다 허용한 것만 되는지. 데이터 없이 권한만 물어봄 (_has_privileges)
+- name: 계정 권한 확인
+  ansible.builtin.uri:
+    url: "{{ efk_url }}/_security/user/_has_privileges"
+    method: POST
+    ca_path: "{{ efk_ca_path }}"
+    url_username: "{{ item.0.name }}"
+    url_password: "{{ (efk_k8s_secrets if item.0.vault == 'k8s' else efk_secrets)[item.0.key] }}"
+    force_basic_auth: true
+    body_format: json
+    body: { index: [{ names: ["{{ item.1.index }}"], privileges: ["{{ item.1.priv }}"] }] }
+  loop: "{{ efk_users | product(efk_privilege_checks) | list }}"
+  loop_control: { label: "{{ item.0.name }} {{ item.1.priv }} {{ item.1.index }}" }
+  register: efk_priv
+  no_log: true
+
+- name: 허용·거부가 기대와 같은지
+  ansible.builtin.assert:
+    that: item.json.has_all_requested == (item.item.1.priv ~ ' ' ~ item.item.1.index in efk_privilege_expect[item.item.0.name])
+    fail_msg: "{{ item.item.0.name }}: {{ item.item.1.priv }} {{ item.item.1.index }} 결과가 {{ item.json.has_all_requested }}"
+    quiet: true
+  loop: "{{ efk_priv.results }}"
+  loop_control: { label: "{{ item.item.0.name }} {{ item.item.1.priv }} {{ item.item.1.index }}" }

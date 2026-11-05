@@ -26,3 +26,60 @@ efk_secret_keys:
   - kibana_security_key         # Kibana 로그인 세션 암호화 (재시작해도 로그인 유지)
   - kibana_saved_objects_key    # Kibana 저장 객체 암호화
   - kibana_reporting_key        # Kibana 보고서 암호화
+  - fluentbit_host_password     # astra·VM Fluent Bit (orbit-host-* 쓰기)
+  - kibana_viewer_password      # 사람이 Kibana에서 조회
+  - grafana_viewer_password     # Grafana 데이터 소스
+# k3s Fluent Bit 쓰기 계정은 k3s 구역에 둠. ESO가 읽어 k3s Secret으로 만듦 (orbit-gitops#46). 계정명은 비밀이 아니라 저장하지 않음
+efk_k8s_vault_path: "{{ hvault_kv_k3s_prefix }}/fluent-bit"   # secret/orbit/k3s/fluent-bit
+efk_k8s_secret_keys: [password]
+
+# 역할. Fluent Bit은 날짜별 인덱스를 새로 만들고 문서를 추가만 함 (수정·삭제·읽기 없음)
+# 템플릿·ILM 관리는 elastic(Ansible)만. GET으로 읽은 값과 비교하려고 Elasticsearch가 돌려주는 형태로 씀
+# 쓰기 계정은 보내는 곳으로 나눔. k3s DaemonSet은 Pod 로그(orbit-k8s-*)와 노드 journald(orbit-host-*)를 함께 보냄 (orbit-gitops#46)
+efk_roles:
+  orbit_k8s_writer:
+    cluster: []
+    indices:
+      - { names: ["orbit-k8s-*", "orbit-host-*"], privileges: [create_doc, create_index], allow_restricted_indices: false }
+    applications: []
+    run_as: []
+  orbit_host_writer:
+    cluster: []
+    indices:
+      - { names: ["orbit-host-*"], privileges: [create_doc, create_index], allow_restricted_indices: false }
+    applications: []
+    run_as: []
+  # Kibana 기본 공간 읽기 전용 (Discover·대시보드 보기). 데이터 뷰 등 저장 객체는 만들지 못함
+  orbit_log_viewer:
+    cluster: []
+    indices:
+      - { names: ["orbit-k8s-*", "orbit-host-*"], privileges: [read, view_index_metadata], allow_restricted_indices: false }
+    applications:
+      - { application: kibana-.kibana, privileges: [space_read], resources: ["space:default"] }
+    run_as: []
+  # Grafana 데이터 소스. 연결 확인에 클러스터 상태(monitor)를 읽음
+  orbit_grafana_viewer:
+    cluster: [monitor]
+    indices:
+      - { names: ["orbit-k8s-*", "orbit-host-*"], privileges: [read, view_index_metadata], allow_restricted_indices: false }
+    applications: []
+    run_as: []
+
+# 계정. 비밀번호는 vault(infra: secret/orbit/infra/efk, k8s: secret/orbit/k3s/fluent-bit)의 key
+efk_users:
+  - { name: fluentbit_k8s, roles: [orbit_k8s_writer], vault: k8s, key: password }
+  - { name: fluentbit_host, roles: [orbit_host_writer], vault: infra, key: fluentbit_host_password }
+  - { name: kibana_viewer, roles: [orbit_log_viewer], vault: infra, key: kibana_viewer_password }
+  - { name: grafana_viewer, roles: [orbit_grafana_viewer], vault: infra, key: grafana_viewer_password }
+
+# 확인용 (verify.yml). 계정마다 위 4가지 중 허용돼야 하는 것만 적음. 나머지는 거부돼야 함
+efk_privilege_checks:
+  - { priv: create_doc, index: orbit-k8s-check }
+  - { priv: create_doc, index: orbit-host-check }
+  - { priv: read, index: orbit-k8s-check }
+  - { priv: read, index: orbit-host-check }
+efk_privilege_expect:
+  fluentbit_k8s: ["create_doc orbit-k8s-check", "create_doc orbit-host-check"]   # Pod 로그 + 노드 journald
+  fluentbit_host: ["create_doc orbit-host-check"]
+  kibana_viewer: ["read orbit-k8s-check", "read orbit-host-check"]
+  grafana_viewer: ["read orbit-k8s-check", "read orbit-host-check"]
