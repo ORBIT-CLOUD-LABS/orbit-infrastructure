@@ -31,8 +31,14 @@
         group: kibana
         mode: "2750"
 
+    - name: TLS 폴더가 있는지
+      ansible.builtin.stat:
+        path: "{{ efk_kibana_tls_dir }}"
+      register: efk_kibana_tls_stat
+
+    # Elasticsearch 쪽 인증서를 건너뛰었거나 폴더가 아직 없으면 미리보기에서 건너뜀
     - name: TLS
-      when: not (ansible_check_mode and efk_pydeb_missing)
+      when: not (efk_skip_tls or (ansible_check_mode and not efk_kibana_tls_stat.stat.exists))
       block:
         - name: Elasticsearch 검증용 CA (efk-ca.crt 복사)
           ansible.builtin.copy:

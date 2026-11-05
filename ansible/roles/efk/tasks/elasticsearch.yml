@@ -28,9 +28,24 @@
     - /etc/elasticsearch/jvm.options.d
     - "{{ efk_es_tls_dir }}"
 
+# 인증서 모듈은 파일을 둘 폴더가 실제로 있어야 함. 미리보기 첫 실행에서는 위 폴더가 아직 없어서 인증서를 건너뜀
+- name: TLS 폴더가 있는지
+  ansible.builtin.stat:
+    path: "{{ efk_es_tls_dir }}"
+  register: efk_es_tls_stat
+
+- name: 미리보기에서 인증서를 건너뛸지
+  ansible.builtin.set_fact:
+    efk_skip_tls: "{{ ansible_check_mode and (efk_pydeb_missing or not efk_es_tls_stat.stat.exists) }}"
+
+- name: 건너뛰는 이유
+  ansible.builtin.debug:
+    msg: 미리보기에서 TLS 폴더가 아직 없어서 CA와 서버 인증서 만들기를 건너뜀. 실제 실행에서는 폴더를 만든 뒤 진행함
+  when: efk_skip_tls and not efk_pydeb_missing
+
 # 내부 CA. 송신기(Fluent Bit)와 Kibana에는 efk-ca.crt만 나눠 줌. 개인키는 efk 밖으로 내보내지 않음
 - name: TLS
-  when: not (ansible_check_mode and efk_pydeb_missing)
+  when: not efk_skip_tls
   block:
     - name: CA 개인키
       community.crypto.openssl_privatekey:
