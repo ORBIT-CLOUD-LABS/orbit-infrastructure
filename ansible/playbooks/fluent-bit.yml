@@ -1,4 +1,5 @@
 # 호스트 Fluent Bit (astra, 모니터링 VM 3대) → efk Elasticsearch orbit-host-*. astra 개인 계정으로 실행
+# 문서: docs/efk.md
 #   먼저: ansible-playbook playbooks/efk.yml -K   (Elasticsearch, 쓰기 계정, CA, 방화벽)
 #   ../scripts/orbit-ssh-cert.sh                       # SSH 인증서와 Vault 토큰 (8시간)
 #   export VAULT_TOKEN=$(cat ~/.orbit/vault-token)    # 쓰기 계정 비밀번호를 secret/orbit/infra/efk에서 읽음

@@ -1,4 +1,5 @@
 # Elasticsearch, Kibana (efk VM). astra 개인 계정으로 실행 (docs/personal-accounts.md#ansible-실행)
+# 문서: docs/efk.md
 #   먼저: ansible-playbook playbooks/vms.yml -K --ask-vault-pass  (efk VM)
 # 방화벽: 9200·5601은 허용한 출발지만 (roles/efk/defaults의 efk_fw_allow). 확인 단계에서 lgtm에도 접속해 봄
 # astra: tailnet → efk는 22·5601과 ping만 통과 (efk_ts_allow_ports, mangle 표 ORBIT-TS-EFK)
