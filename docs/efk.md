@@ -1,6 +1,7 @@
 # efk 로그 저장소 (Elasticsearch, Kibana, 호스트 Fluent Bit)
 
 구현: [#21](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/21). k3s 쪽 수집은 [orbit-gitops#46](https://github.com/ORBIT-CLOUD-LABS/orbit-gitops/issues/46).
+2026-11-05~06 `jyvnee`가 astra 개인 계정으로 efk·astra·lgtm·wazuh에 적용했다. 플레이북마다 재실행 `changed=0`을 확인했다. 팀원 Mac의 Kibana 접속(Tailscale ACL 5601 허용 대기), VM 재부팅 뒤 자동 시작, 첫 주 저장 증가량은 아직 확인하지 않았다([적용 기록](#적용-기록)).
 이 문서에는 이름과 절차만 기록한다. 비밀번호, 토큰, Kibana 암호화 키 값은 Git·Issue·PR·문서·채팅 어디에도 남기지 않는다. 값은 Vault에만 있다.
 
 ## 구성
@@ -269,3 +270,34 @@ Accepted publickey for jyvnee from 10.0.0.201 port 43456 ssh2: ED25519-CERT SHA2
 ```
 
 Kibana에서 `syslog.identifier: sshd and message: "Accepted publickey"`로 찾고 `ID github-<아이디>`를 본다. 공용 `orbit` 계정으로 들어와도 인증서 ID는 남는다. sudo 기록은 `syslog.identifier: sudo`다.
+
+## 적용 기록
+
+날짜는 KST. 실행은 모두 astra 개인 계정(`jyvnee`)에서 했고 Vault 토큰은 본인 GitHub 로그인 토큰을 썼다.
+
+| 날짜 | 작업 | 대상 | 결과 | 비고 |
+| --- | --- | --- | --- | --- |
+| 2026-11-05 | 설치, TLS, 기본 계정(`elastic`, `kibana_system`) | efk | 미리보기 → 적용 `changed=26` → 재실행 `changed=0`. 9200은 `127.0.0.1`·`10.0.0.205`, 9300은 `127.0.0.1`, 5601은 `10.0.0.205`에서만 받음. astra에서 9200 인증 없이 401, 5601 200 | 첫 미리보기에서 TLS 폴더가 없어 실패해 고침(`acdade6`). Kibana 상태 확인은 재시도 2회 뒤 available |
+| 2026-11-06 | 수집·조회 역할과 계정 | efk | 적용(역할 4개, 계정 4개) → 재실행 `changed=0`. 계정 4개 × 쓰기·읽기 × 인덱스 2종 16개 조합이 기대와 같음(`_has_privileges`) | 첫 적용에서 Vault에 새 비밀번호 4개를 저장한 뒤 역할 읽기가 400(GET에 빈 JSON 본문)으로 실패해 고침(`d7ad815`) |
+| 2026-11-06 | ILM, 인덱스 템플릿, Kibana 데이터 뷰 | efk | 적용 `changed=3` → 재실행 `changed=0`. 템플릿 시뮬레이션에서 매핑 전체·primary 1·replica 0·ILM 연결 일치, ILM hot·delete(7d), `kibana_viewer`로 데이터 뷰 2개 조회 | 첫 인덱스 `orbit-host-2026.11.06`에 ILM이 붙은 것을 Elasticsearch 로그로 확인 |
+| 2026-11-06 | efk 방화벽 `ORBIT-EFK` | efk | 적용 `changed=4`(`iptables-persistent` 설치·`ufw` 제거, 규칙 교체·저장) → 재실행 `changed=0`. astra에서 9200·5601 열림, lgtm에서 5601 시간 초과 | |
+| 2026-11-06 | astra tailnet → efk 제한 `ORBIT-TS-EFK` | astra | 미리보기에서 바뀔 규칙만 있고 기존 mangle FORWARD 규칙 없음 → 적용 `changed=2` → 재실행 `changed=0`. 다시 읽은 규칙이 원하는 모양과 같음 | tailnet에서 실제로 막히는지는 아직 확인 안 함 |
+| 2026-11-06 | 호스트 Fluent Bit 5.1.5 | astra, efk, lgtm, wazuh | 미리보기(저장소만) → 적용 각 `changed=10` → 재실행 `changed=0`. 4대 상태 `ok`, 호스트별 최근 10분 문서 51~59건. `tls.verify_hostname On`으로 연결 | 아래 수집 내용 확인 참고 |
+
+수집 내용 확인(2026-11-06, astra에서 `kibana_viewer`로 조회):
+
+- 유닛·식별자 조건이 OR로 동작한다. 식별자(`sudo`, `sshd`)와 유닛(astra `tailscaled.service`, `vault.service`)이 함께 들어오고, 설정하지 않은 유닛은 없다.
+- 커널: astra `/dev/kmsg`에 시험 메시지 warning(4)·info(6)를 한 줄씩 남겼다. warning 1건만 들어오고 info는 버려졌다. 시험 문서는 ILM으로 7일 뒤 지워진다.
+- SSH: lgtm에 새로 접속한 기록이 `ssh.service`/`sshd`로 `Accepted publickey for jyvnee from 10.0.0.201 ... ID github-jyvnee`로 들어왔다.
+- efk Elasticsearch 서버 로그: JSON이 풀려 `message`에 로그 문장만 들어왔다(`file.path`는 `orbit-efk_server.json`).
+- `host.name` 같은 점이 들어간 필드는 `_source`에 키 그대로 남고 검색·집계는 객체 경로로 된다.
+
+아직 확인할 것:
+
+| 항목 | 조건 |
+| --- | --- |
+| 팀원 Mac에서 `https://10.0.0.205:5601` 접속, `kibana_viewer` 로그인, 데이터 뷰 조회 | tailnet 관리자가 ACL에 `10.0.0.205:5601` 추가 |
+| 팀원 Mac에서 `nc -vz -G 5 10.0.0.205 9200` 실패 | 지금도 가능 |
+| VM 재부팅 뒤 Elasticsearch·Kibana·Fluent Bit 자동 시작, `ORBIT-EFK`·`ORBIT-TS-EFK` 유지 | 재부팅 시점 결정 |
+| 첫 주 인덱스별 크기와 하루 증가량, 7일 보관이 디스크 70% 안에 드는지 | 2026-11-13까지 매일 기록 |
+
