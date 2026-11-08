@@ -1,16 +1,14 @@
 #!/bin/bash
 # {{ ansible_managed }}
-# Vault Raft 스냅샷을 S3로 올린다. systemd timer(vault-snapshot.timer)가 하루 1회 실행
+# Vault Raft 스냅샷을 S3로 업로드함. systemd timer(vault-snapshot.timer)가 하루 1회 실행
 #
-# 설계
-#   - root token을 쓰지 않는다. AppRole로 로그인하고 끝나면 토큰을 폐기한다
-#   - 스냅샷이 비었거나 깨졌으면 "올리지 않고" 실패한다. 빈 백업이 쌓이는 쪽이 더 위험하다
-#   - 업로드가 성공한 뒤에만 로컬 파일을 지운다. 실패하면 남겨서 다음 실행이 덮어쓴다
-#   - 비밀값은 인자에 쓰지 않는다 (ps로 보인다). 파일과 환경변수로만 넘긴다
-#
-# 환경변수는 systemd EnvironmentFile로 들어온다
-#   {{ hvault_snapshot_aws_env }}      AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_DEFAULT_REGION
-#   {{ hvault_snapshot_approle_env }}  VAULT_SNAPSHOT_ROLE_ID / VAULT_SNAPSHOT_SECRET_ID
+# 동작 요약
+#   - AppRole로 단기 토큰을 발급받아 스냅샷을 저장하고 종료 시 토큰을 폐기함
+#   - 업로드 전 스냅샷 크기와 gzip·tar 무결성을 검사하고, 실패 시 업로드하지 않음
+#   - 업로드와 S3 크기 확인이 끝난 뒤 로컬 임시 파일을 삭제함
+#   - 자격증명은 systemd EnvironmentFile로 주입받음
+#     {{ hvault_snapshot_aws_env }}      AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_DEFAULT_REGION
+#     {{ hvault_snapshot_approle_env }}  VAULT_SNAPSHOT_ROLE_ID / VAULT_SNAPSHOT_SECRET_ID
 set -euo pipefail
 umask 077
 
@@ -31,23 +29,19 @@ TOKEN=""
 SNAP=""
 
 cleanup() {
-  # 토큰을 반드시 폐기한다. 실패 경로로 빠져도 토큰이 남아 있으면 안 된다
   if [[ -n "$TOKEN" ]]; then
     VAULT_TOKEN="$TOKEN" vault token revoke -self >/dev/null 2>&1 || log "경고: 토큰 폐기 실패"
   fi
-  # 업로드 성공 시에만 지운다. 실패하면 남겨서 사람이 볼 수 있게 한다
   if [[ -n "$SNAP" && "${DONE:-0}" == "1" ]]; then
     rm -f -- "$SNAP"
   fi
-  # 성공 표시 전에 끝났으면 실패로 기록한다. die의 exit도 여기를 지난다
   if [[ "${DONE:-0}" != "1" ]]; then
     metric 0 "${SIZE:-0}"
   fi
 }
 trap cleanup EXIT
 
-# node-exporter textfile collector가 있으면 결과를 남긴다. 없으면 아무 일도 하지 않는다
-# 모니터링 담당이 이 파일을 긁어서 "백업이 멈췄다"를 감지할 수 있게 하는 접점
+# node-exporter textfile collector 경로가 있으면 실행 결과를 기록함
 metric() {
   local ok="$1" size="$2"
   [[ -d "$METRIC_DIR" ]] || return 0
@@ -65,50 +59,46 @@ metric() {
   } > "$f.tmp" && mv -- "$f.tmp" "$f"
 }
 
-# ---------------------------------------------------------------- 1. 사전 확인
+# 1. 사전 확인
 [[ -n "${VAULT_SNAPSHOT_ROLE_ID:-}"   ]] || die "VAULT_SNAPSHOT_ROLE_ID 없음 ({{ hvault_snapshot_approle_env }} 확인)"
 [[ -n "${VAULT_SNAPSHOT_SECRET_ID:-}" ]] || die "VAULT_SNAPSHOT_SECRET_ID 없음"
 [[ -n "${AWS_ACCESS_KEY_ID:-}"        ]] || die "AWS_ACCESS_KEY_ID 없음 ({{ hvault_snapshot_aws_env }} 확인)"
 
-# sealed 상태면 스냅샷을 못 받는다. 로그인 실패로 헷갈리지 않게 먼저 본다
-# vault status는 unsealed 0 / sealed 2 / 응답 없음 1을 돌려준다
 SEALED=$(vault status -format=json 2>/dev/null | jq -r '.sealed // "unknown"' || echo unknown)
 [[ "$SEALED" == "false" ]] || die "Vault가 sealed 또는 응답 없음 (sealed=$SEALED). unseal 후 다시 실행"
 
 mkdir -p -- "$WORK_DIR"
 
-# ---------------------------------------------------------------- 2. AppRole 로그인
-# role_id/secret_id를 인자로 주면 ps에 보인다. 파일로 넘긴다
+# 2. AppRole 로그인 (인자 노출 방지를 위해 임시 파일로 전달)
 LOGIN_BODY=$(mktemp "$WORK_DIR/login.XXXXXX.json")
 jq -n --arg r "$VAULT_SNAPSHOT_ROLE_ID" --arg s "$VAULT_SNAPSHOT_SECRET_ID" \
   '{role_id: $r, secret_id: $s}' > "$LOGIN_BODY"
 
 TOKEN=$(vault write -field=token auth/approle/login @"$LOGIN_BODY" 2>/dev/null) || {
   rm -f -- "$LOGIN_BODY"
-  die "AppRole 로그인 실패. secret_id가 만료됐거나 CIDR 제한에 걸렸다"
+  die "AppRole 로그인 실패. secret_id 또는 CIDR 제한 확인"
 }
 rm -f -- "$LOGIN_BODY"
 export VAULT_TOKEN="$TOKEN"
 log "AppRole 로그인 성공"
 
-# ---------------------------------------------------------------- 3. 스냅샷 저장
+# 3. 스냅샷 저장
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 SNAP="$WORK_DIR/vault-$TS.snap"
 
 vault operator raft snapshot save "$SNAP" || die "스냅샷 저장 실패"
 
-# ---------------------------------------------------------------- 4. 검사 (올리기 전에)
-[[ -f "$SNAP" ]] || die "스냅샷 파일이 없다"
+# 4. 업로드 전 무결성 확인
+[[ -f "$SNAP" ]] || die "스냅샷 파일이 없음"
 SIZE=$(stat -c %s -- "$SNAP")
-(( SIZE >= MIN_BYTES )) || die "스냅샷이 너무 작다 (${SIZE}B < ${MIN_BYTES}B). 업로드하지 않음"
+(( SIZE >= MIN_BYTES )) || die "스냅샷 크기가 기준 미달 (${SIZE}B < ${MIN_BYTES}B). 업로드하지 않음"
 
-# 스냅샷은 gzip tar다. 크기만 보면 "0바이트가 아닌 쓰레기"를 통과시킨다
-gzip -t -- "$SNAP" 2>/dev/null || die "스냅샷이 올바른 gzip이 아니다. 업로드하지 않음"
-tar -tzf "$SNAP" >/dev/null 2>&1 || die "스냅샷 tar를 읽을 수 없다. 업로드하지 않음"
+gzip -t -- "$SNAP" 2>/dev/null || die "스냅샷 gzip 검사 실패. 업로드하지 않음"
+tar -tzf "$SNAP" >/dev/null 2>&1 || die "스냅샷 tar 목록 확인 실패. 업로드하지 않음"
 
 log "스냅샷 검사 통과 (${SIZE}B)"
 
-# ---------------------------------------------------------------- 5. 업로드
+# 5. S3 업로드
 KEY="$PREFIX$(basename -- "$SNAP")"
 aws s3api put-object \
   --bucket "$BUCKET" \
@@ -118,8 +108,7 @@ aws s3api put-object \
 
 log "uploaded s3://$BUCKET/$KEY (${SIZE}B)"
 
-# ---------------------------------------------------------------- 6. 확인
-# 올린 객체가 실제로 그 크기로 있는지 다시 읽는다. 업로드 성공 코드만 믿지 않는다
+# 6. 업로드 객체 크기 확인
 REMOTE=$(aws s3api head-object --bucket "$BUCKET" --key "$KEY" \
            --query ContentLength --output text) || die "업로드 후 head-object 실패"
 [[ "$REMOTE" == "$SIZE" ]] || die "크기 불일치 (로컬 ${SIZE}B / S3 ${REMOTE}B)"

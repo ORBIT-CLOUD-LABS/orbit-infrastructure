@@ -178,10 +178,7 @@
             name: 스냅샷 읽기 정책
             read: "sys/policies/acl/{{ hvault_snapshot_policy }}"
             body: { policy: "{{ lookup('ansible.builtin.template', 'snapshot-policy.hcl.j2') }}" }
-          # secret_id_ttl 0(무제한)은 "어느 날 조용히 백업이 멈추는 것"을 막기 위함이고,
-          # 그 대가를 CIDR 두 개로 막는다. secret_id_bound_cidrs는 로그인 자체를,
-          # token_bound_cidrs는 발급된 토큰의 사용을 astra 안으로 묶는다.
-          # 두 값이 모두 있어야 파일이 밖으로 새어 나가도 쓸 수 없다
+          # 주기 백업용이므로 secret_id_ttl은 0으로 두고, 로그인과 토큰 사용 CIDR을 127.0.0.1/32로 제한
           - id: snapshot_role
             name: 스냅샷 AppRole (127.0.0.1/32)
             read: "auth/approle/role/{{ hvault_snapshot_role }}"

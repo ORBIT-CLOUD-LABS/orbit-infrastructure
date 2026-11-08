@@ -1,8 +1,5 @@
-# Raft 스냅샷 S3 백업: 파일과 systemd 유닛. Vault 안의 설정(정책·AppRole)은 configure.yml
-# 타이머는 AppRole 자격증명이 생긴 뒤에 켠다 (snapshot-approle.yml). 여기서는 켜지 않는다
-#
-# aws/jq는 배포판 패키지를 쓴다. 스크립트가 쓰는 것은
-# s3api put-object / head-object / get-object / list-objects-v2 뿐이고 awscli 1.x·2.x에 모두 있다
+# Raft 스냅샷 S3 백업: 파일과 systemd 유닛. Vault 내부 설정(정책·AppRole)은 configure.yml에서 수행함
+# 타이머는 AppRole 자격증명 생성 후 snapshot-approle.yml에서 켬
 - name: 스냅샷 백업에 필요한 패키지
   ansible.builtin.apt:
     name: [awscli, jq]
@@ -18,8 +15,7 @@
     group: root
     mode: "0700"
 
-# 암호화된 vault.yml에 키가 없으면 빈 값이 파일에 들어간다. 그 상태로 타이머가 돌면
-# 매일 조용히 실패하므로 여기서 멈춘다
+# vault.yml에 AWS 백업 키가 비어 있으면 중단함
 - name: AWS 백업 키가 ansible-vault에 있는지
   ansible.builtin.assert:
     that:
@@ -46,7 +42,7 @@
     group: root
     mode: "0750"
 
-- name: 복원 스크립트 (사람이 직접 실행. 타이머가 쓰지 않음)
+- name: 복원 스크립트 (수동 실행 전용)
   ansible.builtin.template:
     src: vault-snapshot-restore.sh.j2
     dest: "{{ hvault_snapshot_restore_bin }}"
@@ -75,16 +71,15 @@
 - name: 유닛 파일을 먼저 읽게 함
   ansible.builtin.meta: flush_handlers
 
-# AppRole 자격증명이 아직 없으면 타이머를 켜지 않는다.
-# 켜 두면 매일 "role_id 없음"으로 실패하고, 그 실패를 아무도 안 본다
+# AppRole 자격증명 파일이 아직 없으면 타이머를 켜지 않음
 - name: AppRole 자격증명 파일이 있는지
   ansible.builtin.stat:
     path: "{{ hvault_snapshot_approle_env }}"
   register: hvault_snapshot_creds
 
-- name: 자격증명이 없으면 할 일을 알려 줌
+- name: 자격증명이 없으면 안내 출력
   ansible.builtin.debug:
     msg: >-
-      {{ hvault_snapshot_approle_env }}가 없어 타이머를 켜지 않았다.
-      root token을 넣고 playbooks/vault.yml을 다시 실행하면 configure.yml이 AppRole을 만들고 타이머를 켠다
+      {{ hvault_snapshot_approle_env }}가 없어 타이머를 켜지 않음.
+      VAULT_TOKEN을 설정하고 playbooks/vault.yml을 실행하면 AppRole 생성 후 타이머를 활성화함
   when: not hvault_snapshot_creds.stat.exists

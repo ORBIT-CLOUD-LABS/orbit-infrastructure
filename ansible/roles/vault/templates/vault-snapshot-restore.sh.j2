@@ -1,17 +1,13 @@
 #!/bin/bash
 # {{ ansible_managed }}
-# Vault Raft 스냅샷 복원. 사람이 직접 실행한다. 타이머가 실행하지 않는다
+# Vault Raft 스냅샷 수동 복원 스크립트
 #
-# 이 명령은 "추가"가 아니라 "덮어쓰기"다.
-#   스냅샷 시점 이후에 발급한 인증서·시크릿·정책은 전부 사라진다.
-#   그래서 복원 전에 지금 상태의 스냅샷을 먼저 받고, 사람에게 한 번 확인받는다.
+# 주의사항
+#   - 스냅샷 복원은 현재 Vault 데이터를 스냅샷 시점 데이터로 덮어씀
+#   - 복원 실행 전 현재 상태의 스냅샷을 먼저 백업하고 확인 입력을 받음
+#   - unseal 키와 /opt/vault/tls 파일은 스냅샷에 포함되지 않으므로 기존 값을 유지함
 #
-# 복원해도 돌아오지 않는 것
-#   - unseal 키: 스냅샷에 들어 있지 않다. 복원 후에도 기존 unseal 키로 unseal한다
-#   - TLS 인증서/개인키: 디스크 파일이다. roles/vault가 관리한다
-#   복원이 되돌리는 것은 "Vault 안의 데이터"뿐이다
-#
-# 사용
+# 사용법
 #   export VAULT_TOKEN=<root token>     # read -rs VAULT_TOKEN 으로 입력
 #   {{ hvault_snapshot_restore_bin }} /path/to/vault-<ts>.snap
 #   {{ hvault_snapshot_restore_bin }} --from-s3 vault-<ts>.snap
@@ -31,13 +27,12 @@ log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 die() { log "FAIL $*"; exit 1; }
 
 usage() {
-  sed -n '2,20p' "$0" | sed 's/^# \?//'
+  sed -n '2,15p' "$0" | sed 's/^# \?//'
   exit 1
 }
 
 [[ $# -ge 1 ]] || usage
 
-# S3 조회·다운로드는 백업용 키로 한다 (Get/List만 있고 Delete가 없다)
 s3() { set -a; . "{{ hvault_snapshot_aws_env }}"; set +a; aws "$@"; }
 
 if [[ "$1" == "--list" ]]; then
@@ -51,54 +46,54 @@ if [[ "$1" == "--from-s3" ]]; then
   [[ $# -eq 2 ]] || usage
   mkdir -p -- "$WORK_DIR"
   SNAP="$WORK_DIR/restore-$2"
-  log "S3에서 받는다: s3://$BUCKET/$PREFIX$2"
+  log "S3에서 다운로드: s3://$BUCKET/$PREFIX$2"
   s3 s3api get-object --bucket "$BUCKET" --key "$PREFIX$2" "$SNAP" >/dev/null \
     || die "다운로드 실패"
 else
   SNAP="$1"
 fi
 
-[[ -f "$SNAP" ]] || die "파일이 없다: $SNAP"
-[[ -n "${VAULT_TOKEN:-}" ]] || die "VAULT_TOKEN이 없다. root token이 필요하다"
+[[ -f "$SNAP" ]] || die "파일이 없음: $SNAP"
+[[ -n "${VAULT_TOKEN:-}" ]] || die "VAULT_TOKEN이 없음 (root token 필요)"
 
-# ---------------------------------------------------------------- 검사
-gzip -t -- "$SNAP" 2>/dev/null || die "올바른 gzip이 아니다"
-tar -tzf "$SNAP" >/dev/null 2>&1 || die "tar를 읽을 수 없다"
+# 1. 스냅샷 파일 무결성 확인
+gzip -t -- "$SNAP" 2>/dev/null || die "올바른 gzip 파일이 아님"
+tar -tzf "$SNAP" >/dev/null 2>&1 || die "tar 아카이브를 읽을 수 없음"
 SIZE=$(stat -c %s -- "$SNAP")
 log "복원 대상: $SNAP (${SIZE}B)"
 
 SEALED=$(vault status -format=json 2>/dev/null | jq -r '.sealed // "unknown"' || echo unknown)
 [[ "$SEALED" == "false" ]] || die "Vault가 sealed 또는 응답 없음 (sealed=$SEALED)"
 
-# ---------------------------------------------------------------- 되돌릴 길 확보
+# 2. 복원 전 현재 상태 백업
 mkdir -p -- "$WORK_DIR"
 PRE="$WORK_DIR/pre-restore-$(date -u +%Y%m%dT%H%M%SZ).snap"
-log "복원 전 현재 상태를 먼저 저장한다: $PRE"
-vault operator raft snapshot save "$PRE" || die "복원 전 스냅샷 실패. 되돌릴 길이 없으므로 중단한다"
-gzip -t -- "$PRE" 2>/dev/null || die "복원 전 스냅샷이 깨졌다. 중단한다"
-log "복원 전 스냅샷 OK ($(stat -c %s -- "$PRE")B)"
+log "복원 전 현재 상태 스냅샷 저장: $PRE"
+vault operator raft snapshot save "$PRE" || die "복원 전 스냅샷 저장 실패로 중단함"
+gzip -t -- "$PRE" 2>/dev/null || die "복원 전 스냅샷 파일 검증 실패로 중단함"
+log "복원 전 스냅샷 저장 완료 ($(stat -c %s -- "$PRE")B)"
 
-# ---------------------------------------------------------------- 확인
+# 3. 사용자 확인
 cat <<MSG
 
-  이 복원은 Vault 안의 데이터를 "$SNAP" 시점으로 덮어쓴다.
-  그 시점 이후에 발급·변경된 시크릿, SSH 인증서 서명 설정, 정책, 로그인 매핑은 사라진다.
-  되돌리려면: {{ hvault_snapshot_restore_bin }} $PRE
+  이 작업은 Vault 데이터를 "$SNAP" 시점으로 덮어씁니다.
+  스냅샷 시점 이후에 변경된 시크릿, 정책, 로그인 매핑은 사라집니다.
+  복원 전 백업 파일: $PRE
 
 MSG
-read -r -p "  복원한다 (restore 입력): " ANSWER
+read -r -p "  계속하려면 restore 입력: " ANSWER
 [[ "$ANSWER" == "restore" ]] || die "취소됨"
 
-# ---------------------------------------------------------------- 복원
-vault operator raft snapshot restore "$SNAP" || die "복원 실패. 되돌릴 스냅샷: $PRE"
+# 4. 복원 실행
+vault operator raft snapshot restore "$SNAP" || die "복원 실패. 사전 백업 파일: $PRE"
 log "복원 완료"
 
-# ---------------------------------------------------------------- 확인
+# 5. 복원 후 상태 확인
 SEALED=$(vault status -format=json 2>/dev/null | jq -r '.sealed // "unknown"' || echo unknown)
-log "sealed=$SEALED  (false가 아니면 unseal 필요. unseal 키는 기존 것을 쓴다)"
+log "sealed=$SEALED (true인 경우 기존 unseal 키로 unseal 필요)"
 
-log "SSH CA 공개키 조회 (서명 경로가 살아 있는지)"
+log "SSH CA 공개키 조회"
 vault read -field=public_key {{ hvault_ssh_mount }}/config/ca >/dev/null \
-  && log "SSH CA OK" || log "경고: SSH CA 조회 실패"
+  && log "SSH CA 정상" || log "경고: SSH CA 조회 실패"
 
-log "복원 전 스냅샷은 지우지 않았다: $PRE"
+log "사전 백업 파일 보관 위치: $PRE"
