@@ -1,0 +1,16 @@
+{
+  "Rules": [
+    {
+      "ID": "firmware-noncurrent-expire-30d",
+      "Filter": { "Prefix": "firmware/" },
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 30 }
+    },
+    {
+      "ID": "firmware-abort-multipart-7d",
+      "Filter": { "Prefix": "firmware/" },
+      "Status": "Enabled",
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 7 }
+    }
+  ]
+}
