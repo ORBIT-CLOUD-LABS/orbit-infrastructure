@@ -13,5 +13,6 @@ k3s_kernel_opts:                          # Cilium(eBPF)에 필요한 커널 기
   - VXLAN
   - CRYPTO_USER_API_HASH
   - PERF_EVENTS
-k3s_nodes_ready_retries: 30               # 노드 Ready 대기 (10초 간격)
+k3s_cp_taint: node-role.kubernetes.io/control-plane=true:NoSchedule   # polaris에만. 일반 파드는 워커에만
+k3s_nodes_ready_retries: 30              # 노드 Ready 대기 (10초 간격)
 k3s_kubeconfig_local: "{{ lookup('env', 'HOME') }}/.kube/orbit-k3s.yaml"   # 실행하는 쪽(astra)에 받아 둘 kubeconfig

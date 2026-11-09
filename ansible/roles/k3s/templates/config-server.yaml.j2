@@ -11,5 +11,5 @@ service-cidr: {{ k3s_service_cidr }}
 flannel-backend: none               # CNI는 Cilium
 disable-network-policy: true        # NetworkPolicy도 Cilium이
 node-taint:
-  - node-role.kubernetes.io/control-plane=true:NoSchedule   # 일반 파드는 워커에만
+  - {{ k3s_cp_taint }}   # 일반 파드는 워커에만
 write-kubeconfig-mode: "0600"
