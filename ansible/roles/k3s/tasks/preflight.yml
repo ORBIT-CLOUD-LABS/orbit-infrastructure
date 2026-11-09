@@ -1,4 +1,4 @@
-# polaris(cp) 사전 확인: etcd가 NVMe에 저장되는지, 커널이 Cilium(eBPF)을 지원하는지
+# polaris(cp) 사전 확인: SQLite 데이터가 NVMe에 저장되는지, 커널이 Cilium(eBPF)을 지원하는지
 - name: 데이터 폴더가 따로 붙어 있는지 (NVMe)
   ansible.builtin.command: findmnt -n -o SOURCE {{ k3s_data_mount }}
   register: k3s_mount
@@ -6,7 +6,7 @@
   failed_when: false
   check_mode: false
 
-- name: NVMe가 안 붙어 있으면 멈춤 (etcd가 eMMC에 쌓이는 걸 막음)
+- name: NVMe가 안 붙어 있으면 멈춤 (SQLite 데이터가 eMMC에 쌓이는 걸 막음)
   ansible.builtin.assert:
     that: k3s_mount.rc == 0
     fail_msg: "{{ k3s_data_mount }}가 따로 마운트되어 있지 않음. polaris NVMe 설정 확인 ([[1 polaris OS 설치]] 8번)"
