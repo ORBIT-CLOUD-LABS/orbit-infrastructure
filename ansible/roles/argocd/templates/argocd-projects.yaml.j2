@@ -1,0 +1,67 @@
+# {{ ansible_managed }}
+# Ansible이 kubectl apply로 적용함 (root Application보다 먼저). orbit-gitops는 이 범위를 바꿀 수 없음
+{% for ns in argocd_addons_namespaces %}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ ns | to_json }}
+{% endfor %}
+---
+# Argo CD가 자동으로 만드는 default 프로젝트는 모든 것을 허용함.
+# 자식 Application이 project: default로 제한을 우회하지 못하게 아무것도 허용하지 않음
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: {{ argocd_namespace | to_json }}
+spec:
+  description: 사용하지 않음. 아무것도 배포할 수 없음
+  sourceRepos: []
+  destinations: []
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist: []
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ argocd_project_root | to_json }}
+  namespace: {{ argocd_namespace | to_json }}
+spec:
+  description: root Application 전용. argocd namespace에 자식 Application만 만듦
+  sourceRepos:
+    - {{ argocd_gitops_repo_url | to_json }}
+  destinations:
+    - server: {{ argocd_cluster_server | to_json }}
+      namespace: {{ argocd_namespace | to_json }}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: argoproj.io
+      kind: Application
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ argocd_project_addons | to_json }}
+  namespace: {{ argocd_namespace | to_json }}
+spec:
+  description: 애드온 (ESO, Fluent Bit 등)
+  sourceRepos:
+    - {{ argocd_gitops_repo_url | to_json }}
+{% for repo in argocd_addons_chart_repos %}
+    - {{ repo | to_json }}
+{% endfor %}
+  destinations:
+{% for ns in argocd_addons_namespaces %}
+    - server: {{ argocd_cluster_server | to_json }}
+      namespace: {{ ns | to_json }}
+{% endfor %}
+  clusterResourceWhitelist: {{ argocd_addons_cluster_resources | to_json }}
+  # 허용한 namespace 안의 종류는 막지 않음. Argo CD 자체 리소스만 금지 (권한 확장 방지)
+  namespaceResourceBlacklist:
+    - group: argoproj.io
+      kind: Application
+    - group: argoproj.io
+      kind: ApplicationSet
+    - group: argoproj.io
+      kind: AppProject

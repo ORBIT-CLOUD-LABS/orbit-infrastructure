@@ -107,3 +107,6 @@
            | rejectattr('metadata.deletionTimestamp', 'defined') | list }}
       loop_control:
         label: "{{ item.metadata.name }}"
+
+- name: 애드온 namespace와 AppProject
+  ansible.builtin.include_tasks: projects.yml
