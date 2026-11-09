@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+# Raft 스냅샷 읽기만. 복원(write)·시크릿 조회·SSH 서명은 허용하지 않음
+# 복원은 사람이 root token으로 한다 (현재 데이터를 덮어쓰는 동작이라 자동화하지 않음)
+path "sys/storage/raft/snapshot" {
+  capabilities = ["read"]
+}

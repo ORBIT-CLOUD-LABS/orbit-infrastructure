@@ -2,6 +2,7 @@
 
 구현: [#7](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/7).
 KV·Kubernetes 인증: [#13](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/13). 2026-11-02 astra에 적용하고 적용 후 미리보기에서 추가 변경 없음(`changed=0`)을 확인했다. 실제 k3s 로그인·권한 거부와 GitHub 조회·쓰기·부분 수정 및 SSH 서명을 검증했다. 시험 리소스 정리 완료는 별도 확인이 필요하며 root token 폐기는 운영자 요청으로 보류 중이다.
+스냅샷 S3 백업: [#11](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/11). 역할·스크립트·systemd 유닛을 작성했고 **astra 적용과 업로드·복원 검증은 아직 하지 않았다.**
 이 문서에는 이름과 절차만 기록한다. unseal 키, 토큰, 비밀번호, GitHub PAT 값은 Git·Issue·PR·문서·채팅 어디에도 남기지 않는다.
 
 ## 구성
@@ -381,10 +382,139 @@ ansible-playbook playbooks/vault.yml -K --ask-vault-pass
 
 ## 백업과 복구
 
-- 스냅샷 (관리자 권한): `umask 077; vault operator raft snapshot save vault-$(date +%Y%m%d).snap`
+### 자동 백업 (systemd timer, #11)
+
+`roles/vault`가 astra에 아래 파일과 타이머를 구성한다.
+
+| 대상 | 경로 | 권한 |
+|---|---|---|
+| 백업 스크립트 | `/usr/local/bin/vault-snapshot.sh` | `root:root 0750` |
+| 복원 스크립트 | `/usr/local/bin/vault-snapshot-restore.sh` | `root:root 0750` |
+| AWS 자격증명 | `/etc/vault.d/snapshot-aws.env` | `root:root 0600` |
+| AppRole 자격증명 | `/etc/vault.d/snapshot-approle.env` | `root:root 0600` |
+| 작업 폴더 | `/var/lib/vault-snapshot` | `root:root 0700` |
+| 유닛 | `/etc/systemd/system/vault-snapshot.{service,timer}` | `0644` |
+
+하루 1회 `18:30 UTC`(KST 03:30)에 실행되며, `s3://orbit-vault-snapshot-backup/vault/vault-<ts>.snap` 경로로 업로드한다.
+
+#### 권한과 접근 제한
+
+- 백업 타이머는 root token을 쓰지 않고 AppRole `vault-snapshot`으로 로그인하며, 작업이 끝나면 발급받은 단기 토큰을 폐기한다.
+- 정책 `vault-snapshot`에는 `sys/storage/raft/snapshot`의 `read` 권한만 부여한다. 복원(`write`) 권한은 포함하지 않으며 복원은 관리자가 수동으로 수행한다.
+- AppRole에는 `127.0.0.1/32` CIDR 제한 두 가지를 함께 적용한다:
+  - `secret_id_bound_cidrs`: 해당 `secret_id`로 로그인할 수 있는 출발지 제한
+  - `token_bound_cidrs`: 발급된 토큰을 사용할 수 있는 출발지 제한
+- `secret_id_ttl`은 `0`(무기한)으로 두어 만료로 인해 주기 백업이 중단되지 않도록 하고, 외부 유출 위험은 로컬 루프백 CIDR 제한과 파일 권한(`0600`)으로 통제한다.
+
+#### 버킷 보안 및 수명 주기
+
+스냅샷에는 저장 시점의 Vault 데이터와 활성 토큰이 포함되므로 S3 버킷(`orbit-vault-snapshot-backup`)에 다음 보호 설정을 적용한다(세부 설정은 `docs/aws.md` 참고).
+
+- 퍼블릭 액세스 4개 항목 전체 차단, 기본 암호화 `SSE-S3`, 버전 관리 `Enabled`, 평문 HTTP 요청 거부(`DenyInsecureTransport`)
+- 전용 IAM 사용자 `orbit-vault-backup`에 접두사 `vault/*` 최소 권한만 부여하고 `s3:DeleteObject`는 부여하지 않음
+- 보존 기간 관리는 수명 주기 규칙(`vault-snapshot-lifecycle`: 현재 버전 및 이전 버전 30일 후 만료, 미완료 멀티파트 7일 후 중단)으로 처리
+
+#### 업로드 전후 무결성 검증
+
+백업 스크립트는 빈 파일이나 손상된 스냅샷이 업로드되지 않도록 업로드 전 세 가지를 확인하고, 하나라도 실패하면 업로드하지 않고 종료(`exit 1`)한다.
+
+1. 파일 크기가 `hvault_snapshot_min_bytes`(기본 `4096` 바이트) 이상인지 확인
+2. `gzip -t` 압축 무결성 확인
+3. `tar -tzf` 아카이브 목록 조회 확인
+
+업로드 후에는 `s3api head-object`의 `ContentLength`를 로컬 파일 크기와 비교하며, 검증이 통과한 뒤에만 로컬 임시 파일을 삭제한다.
+
+#### 적용
+
+```bash
+# astra에서 실행 (ansible_connection: local)
+cd ~/orbit-infrastructure/ansible
+ansible-playbook playbooks/vault.yml -K --ask-vault-pass --check --diff
+
+# AppRole 구성과 타이머 활성화에는 관리자 토큰(VAULT_TOKEN)이 필요하다
+read -rs VAULT_TOKEN && export VAULT_TOKEN
+ansible-playbook playbooks/vault.yml -K --ask-vault-pass
+unset VAULT_TOKEN
+```
+
+AWS 자격증명은 `inventory/group_vars/all/vault.yml`(`ansible-vault`)에 아래 변수로 저장한다. 값이 비어 있으면 플레이북 실행이 중단된다.
+
+```yaml
+vault_snapshot_aws_access_key_id: "AKIA..."
+vault_snapshot_aws_secret_access_key: "..."
+```
+
+#### 확인
+
+```bash
+systemctl list-timers vault-snapshot.timer --no-pager
+sudo systemctl start vault-snapshot.service
+sudo journalctl -u vault-snapshot.service -n 30 --no-pager
+sudo -E bash -c '. /etc/vault.d/snapshot-aws.env; export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION; aws s3api list-objects-v2 --bucket orbit-vault-snapshot-backup --prefix vault/ --query "sort_by(Contents,&LastModified)[-3:].[LastModified,Size,Key]" --output text'
+```
+
+주요 오류 원인과 확인 순서:
+
+| 증상 | 확인 사항 |
+|---|---|
+| `VAULT_SNAPSHOT_ROLE_ID 없음` | `/etc/vault.d/snapshot-approle.env` 미생성. `VAULT_TOKEN`을 설정하고 플레이북 재실행 |
+| `AppRole 로그인 실패` | `secret_id` 불일치 또는 CIDR 제한. 아래 자격증명 교체 절차 수행 |
+| `Vault가 sealed` | Vault unseal 후 재실행 |
+| `스냅샷이 너무 작다` / `올바른 gzip이 아니다` | 업로드 중단됨. `/var/lib/vault-snapshot`의 로컬 파일 확인 |
+| `S3 업로드 실패` | `/etc/vault.d/snapshot-aws.env` 자격증명 및 `vault/` 접두사 권한 확인 |
+
+#### 자격증명 교체
+
+`secret_id`는 최초 발급 시에만 반환되므로 플레이북은 `/etc/vault.d/snapshot-approle.env` 파일이 없을 때만 새로 발급한다. 교체할 때는 기존 파일을 삭제한 뒤 플레이북을 다시 실행한다.
+
+```bash
+sudo rm /etc/vault.d/snapshot-approle.env
+read -rs VAULT_TOKEN && export VAULT_TOKEN
+ansible-playbook playbooks/vault.yml -K --ask-vault-pass
+unset VAULT_TOKEN
+```
+
+#### 모니터링 지표
+
+node-exporter textfile collector 경로(`/var/lib/node_exporter/textfile_collector`)가 존재하면 실행 결과를 아래 지표로 기록한다.
+
+```text
+vault_snapshot_success 1
+vault_snapshot_last_run_timestamp_seconds <epoch>
+vault_snapshot_size_bytes <bytes>
+```
+
+### 수동 스냅샷
+
+- 스냅샷 저장 (관리자 권한): `umask 077; vault operator raft snapshot save vault-$(date +%Y%m%d).snap`
 - 스냅샷은 Vault가 암호화한 상태라 unseal 키 없이 열 수 없다. 그래도 Git·공유 드라이브에는 두지 않고, unseal 키와 같은 곳에 보관하지 않는다.
 - 최초 스냅샷: jyvnee의 Mac `~/Documents/orbit` (`0600`). S3로 옮길 때는 별도 경로에 퍼블릭 액세스 차단, 최소 권한, 서버 측 암호화, 버전 관리를 건다.
 - 스냅샷에는 받은 시점의 토큰도 들어 있다. 최초 스냅샷에는 최초 root token이 들어 있으므로, 이 스냅샷으로 복구하면 나중에 폐기한 root token이 다시 살아난다.
+
+### 복원
+
+스냅샷 복원(`vault operator raft snapshot restore`)은 기존 데이터를 스냅샷 시점 데이터로 덮어쓰며, 스냅샷 이후에 추가·변경된 시크릿과 정책은 사라진다. 또한 스냅샷은 Vault 내부 데이터만 담고 있으므로 unseal 키나 `/opt/vault/tls`의 TLS 파일은 변경되지 않는다.
+
+`/usr/local/bin/vault-snapshot-restore.sh`는 복원 전에 현재 상태의 백업 스냅샷(`/var/lib/vault-snapshot/pre-restore-<ts>.snap`)을 먼저 저장하고, `restore` 확인 입력을 받은 뒤 복원을 실행한다.
+
+```bash
+read -rs VAULT_TOKEN && export VAULT_TOKEN
+
+sudo -E /usr/local/bin/vault-snapshot-restore.sh --list
+sudo -E /usr/local/bin/vault-snapshot-restore.sh --from-s3 vault-<ts>.snap
+sudo -E /usr/local/bin/vault-snapshot-restore.sh /path/to/vault.snap
+
+unset VAULT_TOKEN
+```
+
+복원 후 확인:
+
+```bash
+vault status
+vault read -field=public_key ssh-client-signer/config/ca
+vault kv get -mount=secret orbit/<앱>
+```
+
 - 복구 (astra를 새로 설치한 경우):
   1. `playbooks/vault.yml`로 설치. Raft `node_id`가 원래와 같은 `astra`여야 한다 (다르면 복구 뒤 스스로 sealed가 됨)
   2. 새로 `vault operator init -key-shares=5 -key-threshold=2` (원래와 같은 개수로. 다르면 원래 키를 받지 못함) → 새 키로 unseal

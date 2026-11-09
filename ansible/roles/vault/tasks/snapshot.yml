@@ -1,0 +1,85 @@
+# Raft 스냅샷 S3 백업: 파일과 systemd 유닛. Vault 내부 설정(정책·AppRole)은 configure.yml에서 수행함
+# 타이머는 AppRole 자격증명 생성 후 snapshot-approle.yml에서 켬
+- name: 스냅샷 백업에 필요한 패키지
+  ansible.builtin.apt:
+    name: [awscli, jq]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: 스냅샷 작업 폴더 (root만)
+  ansible.builtin.file:
+    path: "{{ hvault_snapshot_work_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+# vault.yml에 AWS 백업 키가 비어 있으면 중단함
+- name: AWS 백업 키가 ansible-vault에 있는지
+  ansible.builtin.assert:
+    that:
+      - vault_snapshot_aws_access_key_id | default('') | length > 0
+      - vault_snapshot_aws_secret_access_key | default('') | length > 0
+    fail_msg: >-
+      vault_snapshot_aws_access_key_id / vault_snapshot_aws_secret_access_key가 없음.
+      inventory/group_vars/all/vault.yml (ansible-vault)에 넣고 --ask-vault-pass로 실행
+
+- name: AWS 자격증명 (root만 읽음)
+  ansible.builtin.template:
+    src: snapshot-aws.env.j2
+    dest: "{{ hvault_snapshot_aws_env }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true   # 평문 키가 diff와 로그에 남지 않게
+
+- name: 백업 스크립트
+  ansible.builtin.template:
+    src: vault-snapshot.sh.j2
+    dest: "{{ hvault_snapshot_bin }}"
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: 복원 스크립트 (수동 실행 전용)
+  ansible.builtin.template:
+    src: vault-snapshot-restore.sh.j2
+    dest: "{{ hvault_snapshot_restore_bin }}"
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: systemd service
+  ansible.builtin.template:
+    src: vault-snapshot.service.j2
+    dest: /etc/systemd/system/vault-snapshot.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd for vault snapshot
+
+- name: systemd timer
+  ansible.builtin.template:
+    src: vault-snapshot.timer.j2
+    dest: /etc/systemd/system/vault-snapshot.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd for vault snapshot
+
+- name: 유닛 파일을 먼저 읽게 함
+  ansible.builtin.meta: flush_handlers
+
+# AppRole 자격증명 파일이 아직 없으면 타이머를 켜지 않음
+- name: AppRole 자격증명 파일이 있는지
+  ansible.builtin.stat:
+    path: "{{ hvault_snapshot_approle_env }}"
+  register: hvault_snapshot_creds
+
+- name: 자격증명이 없으면 안내 출력
+  ansible.builtin.debug:
+    msg: >-
+      {{ hvault_snapshot_approle_env }}가 없어 타이머를 켜지 않음.
+      VAULT_TOKEN을 설정하고 playbooks/vault.yml을 실행하면 AppRole 생성 후 타이머를 활성화함
+  when: not hvault_snapshot_creds.stat.exists
