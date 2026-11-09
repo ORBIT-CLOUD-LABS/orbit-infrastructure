@@ -1,0 +1,57 @@
+# 스냅샷 백업용 AppRole 자격증명을 astra에 배포하고 타이머를 켬
+# configure.yml의 block 안에서 import되어 module_defaults(X-Vault-Token, ca_path)를 그대로 씀
+# secret_id는 발급 시에만 반환되므로 자격증명 파일이 없을 때만 새로 발급함
+- name: AppRole 자격증명 파일이 있는지
+  ansible.builtin.stat:
+    path: "{{ hvault_snapshot_approle_env }}"
+  register: hvault_snap_creds
+
+- name: 자격증명 발급과 타이머
+  when: not ansible_check_mode   # 미리보기에서는 uri가 실행되지 않아 role_id를 못 읽음
+  block:
+    - name: role_id 읽기
+      ansible.builtin.uri:
+        url: "{{ hvault_api }}/auth/approle/role/{{ hvault_snapshot_role }}/role-id"
+      register: hvault_snap_role_id
+      check_mode: false
+      no_log: true
+
+    - name: secret_id 발급 (자격증명 파일이 없을 때만)
+      ansible.builtin.uri:
+        url: "{{ hvault_api }}/auth/approle/role/{{ hvault_snapshot_role }}/secret-id"
+        method: POST
+        status_code: [200]
+      register: hvault_snap_secret_id
+      when: not hvault_snap_creds.stat.exists
+      changed_when: true
+      no_log: true
+
+    - name: 자격증명 파일 (root만 읽음)
+      ansible.builtin.copy:
+        dest: "{{ hvault_snapshot_approle_env }}"
+        content: |
+          # Ansible managed (roles/vault/tasks/snapshot-approle.yml)
+          # 교체하려면 이 파일을 지우고 playbooks/vault.yml을 다시 실행
+          VAULT_SNAPSHOT_ROLE_ID={{ hvault_snap_role_id.json.data.role_id }}
+          VAULT_SNAPSHOT_SECRET_ID={{ hvault_snap_secret_id.json.data.secret_id }}
+        owner: root
+        group: root
+        mode: "0600"
+      when: not hvault_snap_creds.stat.exists
+      no_log: true
+
+    - name: 타이머 켜기
+      ansible.builtin.systemd_service:
+        name: vault-snapshot.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: 다음 실행 시각 확인
+      ansible.builtin.command: systemctl list-timers vault-snapshot.timer --no-pager
+      register: hvault_snap_timers
+      changed_when: false
+
+    - name: 타이머 상태
+      ansible.builtin.debug:
+        msg: "{{ hvault_snap_timers.stdout_lines }}"

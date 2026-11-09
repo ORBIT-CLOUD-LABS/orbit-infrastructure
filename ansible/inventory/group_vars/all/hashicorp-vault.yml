@@ -53,3 +53,12 @@ hvault_breakglass_users: [breakglass1, breakglass2]
 hvault_breakglass_passwords:
   breakglass1: "{{ vault_breakglass1_password | default('') }}"
   breakglass2: "{{ vault_breakglass2_password | default('') }}"
+
+# Raft 스냅샷 백업 (#11). 버킷·IAM은 콘솔 생성. docs/aws.md 참조
+hvault_snapshot_bucket: orbit-vault-snapshot-backup
+hvault_snapshot_prefix: "vault/"             # IAM 정책과 수명 주기 규칙이 이 접두사에만 걸려 있다
+hvault_snapshot_region: ap-northeast-2
+hvault_snapshot_policy: vault-snapshot       # sys/storage/raft/snapshot read만
+hvault_snapshot_role: vault-snapshot         # AppRole 이름. 127.0.0.1/32로 묶음
+hvault_snapshot_token_ttl: 10m               # 스냅샷 한 번 받고 끝나는 토큰. 길 필요가 없다
+hvault_snapshot_token_max_ttl: 30m

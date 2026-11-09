@@ -14,3 +14,7 @@ vault_personal_accounts_password_hashes:
   chuchuu22: "$6$..."
   jyvnee: "$6$..."
   xoruddl: "$6$..."
+# Vault 스냅샷 백업용 AWS 액세스 키 (IAM 사용자 orbit-vault-backup). docs/aws.md 참조
+# astra의 /etc/vault.d/snapshot-aws.env (root 0600)로만 내려간다. 평문은 여기에도 두지 않음
+vault_snapshot_aws_access_key_id: "AKIA..."
+vault_snapshot_aws_secret_access_key: "<시크릿 액세스 키>"
