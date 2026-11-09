@@ -16,7 +16,7 @@
 | 구성요소 | application-controller, repo-server, server, redis, applicationset-controller. dex(SSO)·notifications는 끔 |
 | 리소스 | 요청 합계 약 0.5 CPU / 1Gi, 메모리 상한 합계 약 2Gi. CPU 상한 없음 (orbit `docs/infrastructure.md`의 1 CPU / 2Gi 안) |
 | 배치 | 워커(sol, terra, luna)만. polaris는 control-plane NoSchedule taint로 제외되고, 플레이북이 taint와 실제 배치 노드를 확인 |
-| UI | 공개하지 않음. Service ClusterIP, ingress 없음. port-forward로만 접근 |
+| UI | 공개하지 않음. Service ClusterIP, ingress 없음. 기본은 kubectl로 확인하고 UI는 필요할 때만 port-forward ([상태 확인과 UI](#상태-확인과-ui)) |
 | 저장소 인증 | 없음. orbit-gitops는 공개 저장소라 HTTPS로 읽음. 비공개로 바꾸면 읽기 전용 인증을 추가해야 함 |
 
 ### AppProject
@@ -64,17 +64,33 @@ ansible-playbook playbooks/argocd.yml -K                      # 재실행: chang
 
 미리보기에서는 파일 변경만 보이고 적용·대기·확인은 건너뛴다. taint 확인은 읽기 전용이라 미리보기에서도 실행한다.
 
-## UI 접근
+## 상태 확인과 UI
 
-polaris에서 port-forward하고 Mac에서 SSH 터널로 연다. 공개 경로를 만들지 않는다.
+### kubectl로 확인 (기본)
+
+UI 없이 polaris에서 `kubectl`로 확인·조작한다.
 
 ```bash
-# Mac
-ssh -L 8080:127.0.0.1:8080 10.0.0.200
-# polaris (위 SSH 세션 안)
-sudo k3s kubectl -n argocd port-forward svc/argocd-server 8080:443
-# Mac 브라우저: https://localhost:8080 (자체 서명 인증서 경고는 정상)
+sudo k3s kubectl -n argocd get applications                     # 이름, Sync, Health
+sudo k3s kubectl -n argocd get application orbit-k3s-root \
+  -o jsonpath='{.status.sync.status} / {.status.health.status}{"\n"}{range .status.conditions[*]}{.type}: {.message}{"\n"}{end}'
+sudo k3s kubectl -n argocd get application <이름> -o jsonpath='{range .status.resources[*]}{.kind}/{.name}: {.status} {.health.status}{"\n"}{end}'
+sudo k3s kubectl -n argocd get appproject
+sudo k3s kubectl -n argocd get pods -o wide
 ```
+
+### UI (필요할 때만)
+
+UI는 공개하지 않고 기본으로 쓰지 않는다. 필요하면 polaris에서 내부망 주소로 port-forward를 잠깐 연다.
+
+```bash
+sudo k3s kubectl -n argocd port-forward --address 10.0.0.200 svc/argocd-server 8080:443
+# 브라우저: https://10.0.0.200:8080 (자체 서명 인증서 경고는 정상). 끝나면 Ctrl+C로 닫음
+```
+
+- 열어 둔 동안에는 내부망에서 로그인 화면에 접근할 수 있다. 쓸 때만 연다.
+- 내부망에 직접 붙은 기기에서는 바로 된다. Tailscale(subnet router 경유) 기기에서는 tailnet ACL이 `10.0.0.200:8080`을 허용해야 한다. 2026-11-09 기준 허용되어 있지 않다.
+- `ssh -L` 터널은 쓸 수 없다. 개인 계정 SSH 인증서에 포트 포워딩 권한이 없다 ([개인 계정 문서](personal-accounts.md)).
 
 로그인은 `admin`. 초기 비밀번호는 polaris에서 화면에만 출력한다.
 
