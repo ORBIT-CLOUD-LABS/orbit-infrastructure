@@ -1,0 +1,12 @@
+# Argo CD (k3s, namespace argocd). astra 개인 계정으로 실행
+# 문서: docs/argocd.md
+#   먼저: ansible-playbook playbooks/cluster.yml (k3s)
+#   ../scripts/orbit-ssh-cert.sh                       # SSH 인증서 (8시간)
+#   미리보기: ansible-playbook playbooks/argocd.yml -K --check --diff
+#   실행:    ansible-playbook playbooks/argocd.yml -K
+
+- name: Argo CD
+  hosts: cp
+  become: true
+  roles:
+    - argocd

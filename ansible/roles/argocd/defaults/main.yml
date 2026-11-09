@@ -1,0 +1,15 @@
+# Argo CD: k3s HelmChart manifest로 설치 (Cilium과 같은 방식). polaris의 k3s helm-controller가 설치함
+argocd_chart_repo: https://argoproj.github.io/argo-helm
+argocd_chart_version: 10.11.6              # Argo CD v3.5.6. 버전 고정
+argocd_namespace: argocd
+argocd_manifest: /var/lib/rancher/k3s/server/manifests/orbit-argocd.yaml
+argocd_ready_retries: 60                   # 설치 대기 (10초 간격, 10분). 처음엔 이미지 받는 시간이 걸림
+
+# 리소스: 합계 요청 약 0.5 CPU / 1Gi, 메모리 상한 약 2Gi (orbit docs/infrastructure.md의 1 CPU / 2Gi 안)
+# CPU는 상한을 두지 않음 (throttling으로 Sync가 느려지는 것을 피함)
+argocd_resources:
+  controller:     { requests: { cpu: 250m, memory: 512Mi }, limits: { memory: 1Gi } }
+  repoServer:     { requests: { cpu: 100m, memory: 256Mi }, limits: { memory: 512Mi } }
+  server:         { requests: { cpu: 50m, memory: 128Mi }, limits: { memory: 256Mi } }
+  redis:          { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 128Mi } }
+  applicationSet: { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 128Mi } }

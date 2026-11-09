@@ -1,0 +1,26 @@
+# {{ ansible_managed }}
+# k3s helm-controller가 이 파일을 보고 Argo CD를 설치함 (Cilium과 같은 방식)
+# 이 파일을 지워도 설치된 Argo CD는 지워지지 않음. 제거 방법은 docs/argocd.md
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: argocd
+  namespace: kube-system
+spec:
+  repo: {{ argocd_chart_repo }}
+  chart: argo-cd
+  version: "{{ argocd_chart_version }}"   # 문자열로 고정 (10.12 같은 버전이 숫자로 읽히지 않게)
+  targetNamespace: {{ argocd_namespace }}
+  createNamespace: true
+  valuesContent: |-
+    # UI는 공개하지 않음: Service는 ClusterIP, ingress·route 없음 (chart 기본값). port-forward로만 접근
+    dex:
+      enabled: false          # SSO 안 씀. admin 계정만
+    notifications:
+      enabled: false          # 알림 안 씀
+    # polaris의 control-plane NoSchedule taint 때문에 모든 파드가 워커에 배치됨 (toleration을 주지 않음)
+{% for component, res in argocd_resources.items() %}
+    {{ component }}:
+      resources:
+        {{ res | to_nice_yaml(indent=2) | indent(8) | trim }}
+{% endfor %}
