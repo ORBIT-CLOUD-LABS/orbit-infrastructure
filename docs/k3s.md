@@ -184,7 +184,6 @@ ansible cp -b -K --ask-vault-pass -m command -a 'findmnt -n -o SOURCE /var/lib/r
 - `남음`이 나오면 그 노드를 한 번 더 재부팅하고 다시 확인한다. 그래도 남으면 원인을 확인할 때까지 4단계로 넘어가지 않는다.
 - `조회 실패`는 잔여가 없다는 뜻이 아니다. 명령이 실패한 원인부터 해결한다.
 - polaris의 `findmnt`는 NVMe 장치(`/dev/nvme0n1p1`)를 출력해야 한다. 실패하면 4단계 사전 확인에서도 멈춘다.
-- **sol은 재부팅 중 멈출 수 있다.** 2026-11-09에는 OS 종료(`journalctl -b -1` 마지막 줄 `Journal stopped`)까지 정상으로 끝난 뒤 다시 켜지지 않았고, 덮개를 열고 전원을 넣자 부팅됐다. 몇 분 지나도 `UNREACHABLE`이면 sol(맨 위 노트북) 상태를 직접 확인한다. 덮개를 닫아도 잠들지 않도록 logind 설정과 `sleep`·`suspend` 마스킹은 되어 있다.
 
 ### 4. 재설치
 
@@ -242,9 +241,7 @@ vault read -field=disable_local_ca_jwt auth/kubernetes/config; echo             
 
 ### 7. 후속
 
-- orbit-gitops `AGENTS.md`의 k3s 클러스터 절에 데이터 저장소(SQLite)와 재설치 사실 반영을 요청한다.
-- #11: `snapshot.yml`의 awscli 설치를 Ubuntu 24.04에서 되는 방식(snap `aws-cli` 또는 AWS 공식 설치 파일)으로 바꾼다. 고친 뒤 `vault.yml`을 실행하면 k3s CA는 이미 같아서 바뀌지 않는다.
-- sol 재부팅 멈춤의 원인(펌웨어·ACPI 리셋 등)을 확인한다.
+- `vault.yml`은 #11 스냅샷 단계(`roles/vault/tasks/snapshot.yml`)에서 멈춘다. Ubuntu 24.04 apt에 `awscli` 패키지가 없다. #11에서 확인이 필요하다. 해결된 뒤 `vault.yml`을 실행해도 k3s CA는 이미 같아서 바뀌지 않는다.
 
 ### 적용 기록
 
@@ -252,7 +249,7 @@ vault read -field=disable_local_ca_jwt auth/kubernetes/config; echo             
 | --- | --- | --- | --- | --- |
 | 2026-11-09 | 1. 상태 확인 | 클러스터 | 노드 4대 Ready, polaris ROLES `control-plane,etcd`(내장 etcd 확인). namespace 5개(`cilium-secrets` 포함), 기본 애드온·Cilium만, PV·PVC 없음. #13 시험 리소스도 없음 | `jyvnee`(polaris `sudo k3s kubectl`) |
 | 2026-11-09 | 2. 제거 | sol, terra, luna → polaris | 워커 3대 `CHANGED rc=0`, 생략 없음 → `제거 확인`. Tailscale `AdvertiseRoutes: null`(astra만 `10.0.0.0/24` 광고). polaris `CHANGED rc=0` → `제거 확인` | `orbit`@astra |
-| 2026-11-09 | 3. 재부팅·잔여 | 노드 4대 | polaris 06:26:57, terra·luna 06:26:36, sol 06:48:50(재부팅 멈춤, 직접 전원). 4대 모두 `깨끗함`, polaris `/dev/nvme0n1p1` | `orbit`@astra |
+| 2026-11-09 | 3. 재부팅·잔여 | 노드 4대 | polaris 06:26:57, terra·luna 06:26:36, sol 06:48:50. 4대 모두 `깨끗함`, polaris `/dev/nvme0n1p1` | `orbit`@astra |
 | 2026-11-09 | 4. 재설치 | `cluster.yml` | 미리보기에서 `cluster-init` 없음 확인. 설치 후 확인 단계의 라벨·taint 검사가 Jinja 문법 오류로 실패 → `618e15a`로 수정 후 재실행. 4대 `failed=0`, 재실행 `changed=0` | `orbit`@astra |
 | 2026-11-09 | 5. 수동 확인 | 클러스터 | polaris ROLES `control-plane`(etcd 없음), 라벨·taint polaris에만, Cilium agent·envoy 4개와 operator, 기본 애드온 Running. 새 CA `k3s-server-ca@1794207293`, kubeconfig `/home/orbit/.kube/orbit-k3s.yaml` 갱신 | `orbit`@astra |
 | 2026-11-09 | 6. Vault CA | `auth/kubernetes/config` | `vault.yml`은 #11 awscli 문제로 중단(변경 없음). CA만 직접 갱신: `k3s-server-ca@1793246016` → `@1794207293`, `kubernetes_host`·`disable_local_ca_jwt=true` 유지 | `orbit`@astra, 관리자 토큰 |
