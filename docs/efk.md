@@ -1,7 +1,7 @@
 # efk 로그 저장소 (Elasticsearch, Kibana, 호스트 Fluent Bit)
 
 구현: [#21](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/21). k3s 쪽 수집은 [orbit-gitops#46](https://github.com/ORBIT-CLOUD-LABS/orbit-gitops/issues/46).
-2026-11-05~06 `jyvnee`가 astra 개인 계정으로 efk·astra·lgtm·wazuh에 적용했다. 플레이북마다 재실행 `changed=0`을 확인했다. 팀원 Mac의 Kibana 접속(Tailscale ACL 5601 허용 대기), VM 재부팅 뒤 자동 시작, 첫 주 저장 증가량은 아직 확인하지 않았다([적용 기록](#적용-기록)).
+2026-11-05~06 `jyvnee`가 astra 개인 계정으로 efk·astra·lgtm·wazuh에 적용했다. 플레이북마다 재실행 `changed=0`을 확인했다. 2026-11-09 efk VM 재부팅 뒤 자동 시작과 방화벽 유지를 확인했다. 팀원 Mac의 Kibana 접속(Tailscale ACL 5601 허용 대기), astra 재부팅 뒤 `ORBIT-TS-EFK` 유지, 첫 주 저장 증가량은 아직 확인하지 않았다([적용 기록](#적용-기록)).
 이 문서에는 이름과 절차만 기록한다. 비밀번호, 토큰, Kibana 암호화 키 값은 Git·Issue·PR·문서·채팅 어디에도 남기지 않는다. 값은 Vault에만 있다.
 
 ## 구성
@@ -283,6 +283,7 @@ Kibana에서 `syslog.identifier: sshd and message: "Accepted publickey"`로 찾�
 | 2026-11-06 | efk 방화벽 `ORBIT-EFK` | efk | 적용 `changed=4`(`iptables-persistent` 설치·`ufw` 제거, 규칙 교체·저장) → 재실행 `changed=0`. astra에서 9200·5601 열림, lgtm에서 5601 시간 초과 | |
 | 2026-11-06 | astra tailnet → efk 제한 `ORBIT-TS-EFK` | astra | 미리보기에서 바뀔 규칙만 있고 기존 mangle FORWARD 규칙 없음 → 적용 `changed=2` → 재실행 `changed=0`. 다시 읽은 규칙이 원하는 모양과 같음 | tailnet에서 실제로 막히는지는 아직 확인 안 함 |
 | 2026-11-06 | 호스트 Fluent Bit 5.1.5 | astra, efk, lgtm, wazuh | 미리보기(저장소만) → 적용 각 `changed=10` → 재실행 `changed=0`. 4대 상태 `ok`, 호스트별 최근 10분 문서 51~59건. `tls.verify_hostname On`으로 연결 | 아래 수집 내용 확인 참고 |
+| 2026-11-09 | efk VM 재부팅 | efk | `systemctl reboot` 뒤 Elasticsearch는 25초 만에 `active`(재시작 0회), Kibana·Fluent Bit `active`. `ORBIT-EFK`가 INPUT에 연결된 채 유지. 두 플레이북 적용 실행 `changed=0`, 확인 단계 통과(계정 16개 조합, 템플릿·ILM, 데이터 뷰, astra 9200·5601 열림, lgtm 5601 막힘), 호스트별 최근 10분 문서 87~1073건 | astra는 재부팅하지 않음(VM·Vault가 같이 내려감). 미리보기(`--check`)에서는 Fluent Bit 저장소 키가 `changed`로 나오는데, `get_url`이 미리보기에서 HEAD만 보내 내용을 비교하지 못해서다. 적용 실행에서는 `ok` |
 
 수집 내용 확인(2026-11-06, astra에서 `kibana_viewer`로 조회):
 
@@ -298,6 +299,6 @@ Kibana에서 `syslog.identifier: sshd and message: "Accepted publickey"`로 찾�
 | --- | --- |
 | 팀원 Mac에서 `https://10.0.0.205:5601` 접속, `kibana_viewer` 로그인, 데이터 뷰 조회 | tailnet 관리자가 ACL에 `10.0.0.205:5601` 추가 |
 | 팀원 Mac에서 `nc -vz -G 5 10.0.0.205 9200` 실패 | 지금도 가능 |
-| VM 재부팅 뒤 Elasticsearch·Kibana·Fluent Bit 자동 시작, `ORBIT-EFK`·`ORBIT-TS-EFK` 유지 | 재부팅 시점 결정 |
+| astra 재부팅 뒤 Fluent Bit 자동 시작, `ORBIT-TS-EFK`가 Tailscale 규칙 뒤에도 유지 | astra를 재부팅할 일이 생길 때 |
 | 첫 주 인덱스별 크기와 하루 증가량, 7일 보관이 디스크 70% 안에 드는지 | 2026-11-13까지 매일 기록 |
 
