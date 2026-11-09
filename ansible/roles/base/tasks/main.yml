@@ -1,4 +1,4 @@
-# 모든 장비 공통: 이름, /etc/hosts
+# 모든 장비 공통: 이름, /etc/hosts. astra에는 호스트 키 목록도
 # 인벤토리에 lan_ip가 있는 장비(노드 5대 + VM 3대)를 전부 /etc/hosts에 넣어서 이름으로 찾게 함
 - name: 호스트 이름
   ansible.builtin.hostname:
@@ -19,3 +19,34 @@
       {% for h in groups['all'] if hostvars[h].lan_ip is defined %}
       {{ hostvars[h].lan_ip }} {{ h }}
       {% endfor %}
+
+# astra에서 개인 계정으로 Ansible을 실행할 때 쓰는 호스트 키 목록 (시스템 공용 known_hosts)
+# 각 장비가 직접 알려 준 SSH 호스트 키(facts)로 만듦. 개인 계정마다 처음 접속할 때 키를 확인할 필요가 없음
+# --limit 등으로 일부 장비의 facts가 없으면 그 장비 키가 빠지므로, 전부 있을 때만 씀
+- name: 호스트 키 목록 (astra)
+  when: inventory_hostname in groups['gateway']
+  block:
+    - name: 모든 장비의 호스트 키를 읽었는지
+      ansible.builtin.set_fact:
+        base_hostkey_missing: >-
+          {{ groups['all'] | reject('in', groups['all'] | map('extract', hostvars) | selectattr('ansible_ssh_host_key_ed25519_public', 'defined')
+             | map(attribute='inventory_hostname') | list) | list }}
+
+    - name: 일부 장비가 빠져 있으면 바꾸지 않음
+      ansible.builtin.debug:
+        msg: "호스트 키를 읽지 못한 장비가 있어 /etc/ssh/ssh_known_hosts를 그대로 둠: {{ base_hostkey_missing | join(', ') }}. 전체 대상으로 다시 실행"
+      when: base_hostkey_missing | length > 0
+
+    - name: /etc/ssh/ssh_known_hosts
+      ansible.builtin.blockinfile:
+        path: /etc/ssh/ssh_known_hosts
+        create: true
+        owner: root
+        group: root
+        mode: "0644"
+        marker: "# {mark} ORBIT (Ansible managed, roles/base)"
+        block: |
+          {% for h in groups['all'] %}
+          {{ h }},{{ hostvars[h].lan_ip }} ssh-ed25519 {{ hostvars[h].ansible_ssh_host_key_ed25519_public }}
+          {% endfor %}
+      when: base_hostkey_missing | length == 0

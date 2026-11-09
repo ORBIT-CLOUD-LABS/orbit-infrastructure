@@ -119,6 +119,47 @@ journalctl _COMM=sudo --since '-30 min' | grep '<나>'
 - SSH 성공 줄은 `Accepted publickey for <나> from <IP> port ... ED25519-CERT ID github-<아이디> (serial ...) CA ...` 형태다.
 - 개인 계정 플레이북은 실행할 때마다 비밀번호 없는 sudo가 거부되는지 검사한다. 그래서 각 개인 계정 이름으로 `TTY=unknown ; ... COMMAND=/usr/bin/true`와 `a password is required` 줄이 남는다. 실제 사용이 아니므로, 플레이북을 실행한 시각과 명령으로 구분한다.
 
+## Ansible 실행
+
+Ansible은 astra에서 각자 개인 계정으로 실행한다. 공용 `orbit`으로 실행하면 대상 호스트 로그에 `orbit`만 남아 누가 실행했는지 알 수 없다. 개인 계정으로 실행하면 대상 호스트마다 `Accepted publickey for <나> ... ID github-<아이디>`와 `sudo: <나> : ...`가 남고, Vault 작업은 Vault 감사 로그에 남는다.
+
+| 구분 | 방식 |
+| --- | --- |
+| 저장소 | 각자 astra 개인 홈에 받는다 (`~/orbit-infrastructure`). 브랜치 상태가 서로 영향을 주지 않는다 |
+| 다른 호스트 접속 | 개인 계정과 그 계정의 Vault SSH 인증서. astra에서 `scripts/orbit-ssh-cert.sh`로 받는다 (8시간) |
+| astra 자신 | 로컬로 실행한다. 인벤토리가 실행한 컴퓨터 이름(`astra`)을 보고 정한다 |
+| sudo | `-K`에 자기 sudo 비밀번호. 한 번만 받으므로 8대 비밀번호를 같게 맞춘다 |
+| 호스트 키 | astra의 `/etc/ssh/ssh_known_hosts`(`base` 플레이북이 각 장비 facts로 만듦)를 쓴다. 개인 계정마다 확인할 필요가 없다 |
+| Vault 토큰 | 인증서를 받을 때 쓴 GitHub 로그인 토큰(`~/.orbit/vault-token`)을 `VAULT_TOKEN`으로 넘긴다. Vault 관리 작업만 root token |
+
+처음 한 번:
+
+```bash
+ssh <나>@astra.orbit-labs.space
+git clone https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure.git ~/orbit-infrastructure
+cd ~/orbit-infrastructure/ansible
+ansible-galaxy collection install -r requirements.yml
+```
+
+작업할 때:
+
+```bash
+cd ~/orbit-infrastructure/ansible
+git pull && git switch <브랜치>
+../scripts/orbit-ssh-cert.sh                      # PAT 숨김 입력. 토큰이 살아 있으면 다시 묻지 않음
+export VAULT_TOKEN=$(cat ~/.orbit/vault-token)    # 비밀값이 필요한 플레이북(efk 등)
+ansible-playbook playbooks/<이름>.yml -K --check --diff
+ansible-playbook playbooks/<이름>.yml -K
+unset VAULT_TOKEN
+```
+
+`orbit` 계정(자동화 키 `orbit_ansible`)은 아래에만 쓴다. `orbit`으로 실행할 때는 `--private-key ~/.ssh/orbit_ansible --ask-vault-pass`를 붙인다. `orbit` 저장소에는 `vault.yml`(ansible-vault)이 있어서, 그 값을 쓰지 않는 플레이북도 시작할 때 복호화 비밀번호가 필요하다.
+
+- 개인 계정이 아직 없는 새 VM의 첫 구성 (`vms.yml`, 첫 `personal-accounts.yml`)
+- `vault.yml`(ansible-vault)이 필요한 작업: network(Wi-Fi), VM 생성, 개인 계정 생성, Vault 비상 계정 생성
+- 개인 인증서를 받을 수 없을 때 (Vault 장애 등)
+- `/etc/ssh/ssh_known_hosts`를 처음 만들 때 (`base.yml`)
+
 ## 온보딩·권한 변경·탈퇴
 
 | 상황 | 관리자 (astra) | 본인 |

@@ -1,0 +1,52 @@
+# 호스트 Fluent Bit (astra, 모니터링 VM). journald와 일부 파일을 efk Elasticsearch orbit-host-YYYY.MM.DD로 보냄
+# k3s 노드는 orbit-gitops의 DaemonSet이 맡음
+fluentbit_version: 5.1.5
+fluentbit_repo_url: https://packages.fluentbit.io/ubuntu/{{ ansible_distribution_release }}
+fluentbit_repo_key_url: https://packages.fluentbit.io/fluentbit.key
+fluentbit_keyring: /etc/apt/keyrings/fluentbit.asc
+
+fluentbit_conf_dir: /etc/fluent-bit
+fluentbit_data_dir: /var/lib/fluent-bit         # 읽기 위치 DB와 파일 버퍼
+fluentbit_ca_path: "{{ fluentbit_conf_dir }}/efk-ca.crt"
+fluentbit_ca_src: /etc/elasticsearch/tls/efk-ca.crt   # efk에서 가져옴 (efk role이 만든 CA)
+
+# 받는 곳: efk Elasticsearch. 계정은 호스트 공용 쓰기 계정(orbit-host-*에 create_doc만)
+fluentbit_es_host: "{{ hostvars['efk'].lan_ip }}"
+fluentbit_es_port: 9200
+fluentbit_es_user: fluentbit_host
+fluentbit_index_prefix: orbit-host
+fluentbit_vault_path: "{{ hvault_kv_infra_prefix }}/efk"   # efk role이 만든 값을 읽기만 함
+fluentbit_vault_key: fluentbit_host_password
+fluentbit_check_user: kibana_viewer             # 확인용 조회 계정
+fluentbit_check_key: kibana_viewer_password
+
+# 파일 버퍼 상한. 닿으면 오래된 청크부터 버림. 재시도는 제한 없음 (efk가 멈춰도 상한까지는 쌓였다가 다시 보냄)
+# efk 자신은 Elasticsearch가 멈추면 보낼 곳이 없으므로 작게. 그때는 efk에서 journalctl로 직접 확인
+fluentbit_buffer_limit: "{{ '64M' if inventory_hostname == 'efk' else '512M' }}"
+
+# journald: 아래 유닛과 식별자의 로그, 커널 warning(PRIORITY 4) 이상. 여러 조건은 OR
+fluentbit_units_common: [ssh.service]
+fluentbit_identifiers_common: [sshd, sudo]
+fluentbit_units_by_host:
+  # systemd-networkd: netplan 설정을 실제로 적용 (유선·br0·와이파이 링크, 주소 변경)
+  # orbit-net-revert: netplan 변경 뒤 확인이 안 끝나면 되돌리는 예약 유닛 (network role의 systemd-run)
+  astra: [vault.service, tailscaled.service, libvirtd.service, virtlogd.service, smartmontools.service,
+          systemd-networkd.service, orbit-net-revert.service]
+  efk: [elasticsearch.service, kibana.service]
+fluentbit_units_by_group:
+  monitoring: [cloud-init-local.service, cloud-init.service, cloud-config.service, cloud-final.service]
+# wpa_supplicant는 netplan-wpa-<장치>.service로 돌아서 유닛 이름이 장치마다 다름. 식별자로 받음
+# orbit-net: network role의 되돌리기 스크립트 (logger -t orbit-net). 평소에는 기록이 없고 되돌릴 때만 남음
+fluentbit_identifiers_by_host:
+  astra: [wpa_supplicant, orbit-net]
+
+# 파일 입력. json: 한 줄이 JSON이면 풀어서 message 등을 꺼냄
+fluentbit_files_by_host:
+  astra:
+    - { path: "/var/log/libvirt/qemu/*.log", db: libvirt-qemu }
+  efk:
+    # efk_cluster_name(orbit-efk)_server.json. Elasticsearch 서버 로그는 journald가 아니라 이 파일에만 남음
+    - { path: "/var/log/elasticsearch/orbit-efk_server.json", db: elasticsearch, json: true }
+
+# Elasticsearch로 보낼 필드 (efk 인덱스 템플릿 이름). 나머지 journald 필드는 버림
+fluentbit_keep_keys: [message, host.name, systemd.unit, syslog.identifier, syslog.priority, file.path]

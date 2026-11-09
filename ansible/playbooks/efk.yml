@@ -1,0 +1,42 @@
+# Elasticsearch, Kibana (efk VM). astra 개인 계정으로 실행 (docs/personal-accounts.md#ansible-실행)
+# 문서: docs/efk.md
+#   먼저: ansible-playbook playbooks/vms.yml -K --ask-vault-pass  (efk VM)
+# 방화벽: 9200·5601은 허용한 출발지만 (roles/efk/defaults의 efk_fw_allow). 확인 단계에서 lgtm에도 접속해 봄
+# astra: tailnet → efk는 22·5601과 ping만 통과 (efk_ts_allow_ports, mangle 표 ORBIT-TS-EFK)
+# 비밀번호와 Kibana 암호화 키는 Vault에 있음. 없는 키는 처음 실행할 때 만들어 저장
+#   secret/orbit/infra/efk: elastic, kibana_system, Kibana 암호화 키, fluentbit_host, kibana_viewer, grafana_viewer
+#   secret/orbit/k3s/fluent-bit: fluentbit_k8s (ESO가 읽어 k3s Secret으로 만듦)
+#   ../scripts/orbit-ssh-cert.sh                       # SSH 인증서와 Vault 토큰 (8시간)
+#   export VAULT_TOKEN=$(cat ~/.orbit/vault-token)    # 팀원 GitHub 로그인 토큰
+#   미리보기: ansible-playbook playbooks/efk.yml -K --check --diff   # -K는 자기 sudo 비밀번호
+#   실행:    ansible-playbook playbooks/efk.yml -K
+#   unset VAULT_TOKEN
+# 설정이나 버전이 바뀌면 Elasticsearch와 Kibana가 재시작됨. 그동안 로그 전송은 송신 측 버퍼에 쌓임
+
+- name: Elasticsearch, Kibana (efk)
+  hosts: efk
+  become: true
+  roles:
+    - efk
+
+# tailnet에서 efk로는 22·5601(과 ping)만 통과. 9200은 astra에서 버림
+- name: astra에서 tailnet → efk 통과 제한
+  hosts: gateway
+  become: true
+  gather_facts: false
+  tasks:
+    - name: tailnet → efk
+      ansible.builtin.include_role:
+        name: efk
+        tasks_from: tailnet-forward.yml
+
+- name: 확인
+  hosts: efk
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Elasticsearch, Kibana 상태
+      ansible.builtin.include_role:
+        name: efk
+        tasks_from: verify.yml
+      when: not ansible_check_mode   # 미리보기에서는 실제로 설치·시작되지 않음

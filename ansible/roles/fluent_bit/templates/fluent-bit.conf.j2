@@ -1,0 +1,96 @@
+# {{ ansible_managed }}
+# 호스트 로그를 efk Elasticsearch {{ fluentbit_index_prefix }}-YYYY.MM.DD로 보냄. 필드 이름은 efk 인덱스 템플릿을 따름
+[SERVICE]
+    Flush                     1
+    Log_Level                 warn
+    Parsers_File              parsers.conf
+    # 상태 확인용. 이 호스트 안에서만 열림
+    HTTP_Server               On
+    HTTP_Listen               127.0.0.1
+    HTTP_Port                 2020
+    Health_Check              On
+    storage.path              {{ fluentbit_data_dir }}/buffer
+    storage.sync              normal
+    storage.backlog.mem_limit 16M
+
+# journald. 처음 시작할 때 이전 기록은 읽지 않음(Read_From_Tail). 이후에는 DB의 읽기 위치부터
+[INPUT]
+    Name                systemd
+    Tag                 host.journal
+    DB                  {{ fluentbit_data_dir }}/journal.db
+    Read_From_Tail      On
+    Systemd_Filter_Type Or
+{% for unit in fluentbit_units %}
+    Systemd_Filter      _SYSTEMD_UNIT={{ unit }}
+{% endfor %}
+{% for ident in fluentbit_identifiers %}
+    Systemd_Filter      SYSLOG_IDENTIFIER={{ ident }}
+{% endfor %}
+    Systemd_Filter      _TRANSPORT=kernel
+    storage.type        filesystem
+{% for f in fluentbit_files %}
+
+[INPUT]
+    Name            tail
+    Tag             host.file.{{ f.db }}
+    Path            {{ f.path }}
+    Path_Key        file.path
+    DB              {{ fluentbit_data_dir }}/tail-{{ f.db }}.db
+    Skip_Long_Lines On
+{% if f.json | default(false) %}
+    Parser          json
+{% endif %}
+    storage.type    filesystem
+{% endfor %}
+
+# 커널은 warning(4) 이상만. 커널이면서 PRIORITY 5~7이면 버림
+[FILTER]
+    Name       grep
+    Match      host.journal
+    Logical_Op and
+    Exclude    _TRANSPORT ^kernel$
+    Exclude    PRIORITY ^[5-7]$
+
+# journald·파일 필드를 템플릿 이름으로. 점이 들어간 이름은 Elasticsearch에서 객체(systemd.unit 등)가 됨
+[FILTER]
+    Name   modify
+    Match  host.*
+    Rename MESSAGE message
+    Rename log message
+    Rename _SYSTEMD_UNIT systemd.unit
+    Rename SYSLOG_IDENTIFIER syslog.identifier
+    Rename PRIORITY syslog.priority
+    Add    host.name {{ inventory_hostname }}
+
+# 템플릿에 있는 필드만 보냄. 나머지 journald 필드(_PID, _CMDLINE 등)와 JSON 로그의 @timestamp는 버림
+[FILTER]
+    Name  record_modifier
+    Match host.*
+{% for key in fluentbit_keep_keys %}
+    Allowlist_key {{ key }}
+{% endfor %}
+
+# 쓰기만 가능한 계정이라 문서 생성(create)으로 보냄. 비밀번호는 /etc/default/fluent-bit의 환경 변수
+# Generate_ID: 레코드 내용(시각 포함)의 해시를 문서 ID로 씀. 저장은 됐는데 응답을 못 받아 다시 보내면
+# 같은 ID라 409(이미 있음)가 되고, Fluent Bit은 이를 성공으로 처리해서 중복 저장되지 않음
+[OUTPUT]
+    Name                     es
+    Match                    host.*
+    Host                     {{ fluentbit_es_host }}
+    Port                     {{ fluentbit_es_port }}
+    HTTP_User                {{ fluentbit_es_user }}
+    HTTP_Passwd              ${FLUENTBIT_ES_PASSWORD}
+    tls                      On
+    tls.verify               On
+    # 인증서가 접속 주소(IP)용인지도 확인. efk 인증서에는 IP SAN {{ fluentbit_es_host }}가 있음 (efk role의 efk_tls_sans)
+    tls.verify_hostname      On
+    tls.ca_file              {{ fluentbit_ca_path }}
+    Logstash_Format          On
+    Logstash_Prefix          {{ fluentbit_index_prefix }}
+    Logstash_DateFormat      %Y.%m.%d
+    Suppress_Type_Name       On
+    Write_Operation          create
+    Generate_ID              On
+    Trace_Error              On
+    Retry_Limit              no_limits
+    storage.total_limit_size {{ fluentbit_buffer_limit }}

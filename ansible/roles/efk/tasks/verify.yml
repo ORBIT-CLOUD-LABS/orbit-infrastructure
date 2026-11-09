@@ -1,0 +1,167 @@
+# 서비스 확인 (HTTPS, elastic 계정). 재시작 직후에는 뜨는 데 시간이 걸림
+- name: Elasticsearch 상태
+  ansible.builtin.uri:
+    url: "{{ efk_url }}/_cluster/health?wait_for_status=green&timeout=60s"
+    ca_path: "{{ efk_ca_path }}"
+    url_username: elastic
+    url_password: "{{ efk_secrets.elastic_password }}"
+    force_basic_auth: true
+  register: efk_es_health
+  retries: 12
+  delay: 10
+  until: efk_es_health.status == 200
+  no_log: true
+
+- name: Elasticsearch 버전
+  ansible.builtin.uri:
+    url: "{{ efk_url }}/"
+    ca_path: "{{ efk_ca_path }}"
+    url_username: elastic
+    url_password: "{{ efk_secrets.elastic_password }}"
+    force_basic_auth: true
+  register: efk_es_root
+  no_log: true
+
+- name: 기대한 값인지
+  ansible.builtin.assert:
+    that:
+      - efk_es_root.json.version.number == efk_version
+      - efk_es_health.json.status == 'green'
+      - efk_es_health.json.number_of_nodes == 1
+    fail_msg: >-
+      실행 중: {{ efk_es_root.json.version.number }} / {{ efk_es_health.json.status }}.
+      기대: {{ efk_version }} / green
+
+- name: 인증 없이는 거부되는지
+  ansible.builtin.uri:
+    url: "{{ efk_url }}/"
+    ca_path: "{{ efk_ca_path }}"
+    status_code: 401
+
+- name: Kibana 상태
+  ansible.builtin.uri:
+    url: "{{ efk_kibana_url }}/api/status"
+    ca_path: "{{ efk_ca_path }}"
+    url_username: elastic
+    url_password: "{{ efk_secrets.elastic_password }}"
+    force_basic_auth: true
+  register: efk_kibana_status
+  retries: 30
+  delay: 10
+  until: >-
+    efk_kibana_status.status == 200
+    and efk_kibana_status.json.status.overall.level == 'available'
+  no_log: true
+
+- name: Kibana 버전
+  ansible.builtin.assert:
+    that: efk_kibana_status.json.version.number == efk_version
+    fail_msg: "실행 중: {{ efk_kibana_status.json.version.number }}. 기대: {{ efk_version }}"
+
+# 계정마다 허용한 것만 되는지. 데이터 없이 권한만 물어봄 (_has_privileges)
+- name: 계정 권한 확인
+  ansible.builtin.uri:
+    url: "{{ efk_url }}/_security/user/_has_privileges"
+    method: POST
+    ca_path: "{{ efk_ca_path }}"
+    url_username: "{{ item.0.name }}"
+    url_password: "{{ (efk_k8s_secrets if item.0.vault == 'k8s' else efk_secrets)[item.0.key] }}"
+    force_basic_auth: true
+    body_format: json
+    body: { index: [{ names: ["{{ item.1.index }}"], privileges: ["{{ item.1.priv }}"] }] }
+  loop: "{{ efk_users | product(efk_privilege_checks) | list }}"
+  loop_control: { label: "{{ item.0.name }} {{ item.1.priv }} {{ item.1.index }}" }
+  register: efk_priv
+  no_log: true
+
+- name: 허용·거부가 기대와 같은지
+  ansible.builtin.assert:
+    that: item.json.has_all_requested == (item.item.1.priv ~ ' ' ~ item.item.1.index in efk_privilege_expect[item.item.0.name])
+    fail_msg: "{{ item.item.0.name }}: {{ item.item.1.priv }} {{ item.item.1.index }} 결과가 {{ item.json.has_all_requested }}"
+    quiet: true
+  loop: "{{ efk_priv.results }}"
+  loop_control: { label: "{{ item.item.0.name }} {{ item.item.1.priv }} {{ item.item.1.index }}" }
+
+# 새 인덱스가 만들어지면 템플릿이 어떻게 적용될지 미리 확인 (인덱스는 만들지 않음)
+- name: 인덱스에 적용될 설정
+  ansible.builtin.uri:
+    url: "{{ efk_url }}/_index_template/_simulate_index/{{ item }}"
+    method: POST
+    ca_path: "{{ efk_ca_path }}"
+    url_username: elastic
+    url_password: "{{ efk_secrets.elastic_password }}"
+    force_basic_auth: true
+  loop: [orbit-k8s-check, orbit-host-check]
+  register: efk_sim
+  no_log: true
+
+- name: 템플릿·ILM이 적용되는지
+  ansible.builtin.assert:
+    that:
+      # 설정은 이 role이 정한 항목만, 매핑은 전체를 비교
+      - >-
+        (item.json.template.settings.index | dict2items
+        | selectattr('key', 'in', efk_index_settings.index.keys() | list) | items2dict)
+        == efk_index_settings.index
+      - item.json.template.mappings == efk_index_mappings
+    fail_msg: "{{ item.item }}: 템플릿 {{ efk_index_template }}가 기대대로 적용되지 않음"
+    quiet: true
+  loop: "{{ efk_sim.results }}"
+  loop_control: { label: "{{ item.item }}" }
+
+- name: ILM 정책
+  ansible.builtin.uri:
+    url: "{{ efk_url }}/_ilm/policy/{{ efk_ilm_policy }}"
+    ca_path: "{{ efk_ca_path }}"
+    url_username: elastic
+    url_password: "{{ efk_secrets.elastic_password }}"
+    force_basic_auth: true
+  register: efk_ilm
+  no_log: true
+
+- name: 단계와 보관 기간이 기대와 같은지
+  ansible.builtin.assert:
+    that:
+      - efk_ilm.json[efk_ilm_policy].policy.phases.delete.min_age == efk_retention
+      - efk_ilm.json[efk_ilm_policy].policy.phases.keys() | sort == ['delete', 'hot']
+      - efk_ilm.json[efk_ilm_policy].policy.phases.hot.actions == {}
+    fail_msg: >-
+      단계: {{ efk_ilm.json[efk_ilm_policy].policy.phases.keys() | sort }},
+      삭제 시점: {{ efk_ilm.json[efk_ilm_policy].policy.phases.delete.min_age | default('없음') }}.
+      기대: hot·delete, {{ efk_retention }}
+
+- name: Kibana 데이터 뷰가 있는지
+  ansible.builtin.uri:
+    url: "{{ efk_kibana_url }}/api/data_views/data_view/{{ item.id }}"
+    ca_path: "{{ efk_ca_path }}"
+    url_username: kibana_viewer   # 조회 계정으로 보이는지까지 확인
+    url_password: "{{ efk_secrets.kibana_viewer_password }}"
+    force_basic_auth: true
+  loop: "{{ efk_data_views }}"
+  loop_control: { label: "{{ item.id }}" }
+  no_log: true
+
+# 방화벽: 허용한 곳에서는 열리고, 허용하지 않은 포트는 막히는지 (다른 호스트에서 접속해 봄)
+- name: astra에서 9200·5601 열림
+  ansible.builtin.wait_for:
+    host: "{{ lan_ip }}"
+    port: "{{ item }}"
+    timeout: 5
+  loop: [9200, 5601]
+  delegate_to: astra
+  become: false
+
+- name: lgtm에서 5601 (허용하지 않음)
+  ansible.builtin.wait_for:
+    host: "{{ lan_ip }}"
+    port: 5601
+    timeout: 5
+  delegate_to: lgtm
+  become: false
+  register: efk_fw_blocked
+  failed_when: false
+
+- name: lgtm에서 5601이 막혀야 함
+  ansible.builtin.assert:
+    that: "'Timeout' in (efk_fw_blocked.msg | default(''))"   # DROP이라 거부 응답 없이 시간 초과
+    fail_msg: "lgtm에서 efk 5601에 접속됨. 방화벽(ORBIT-EFK) 확인"

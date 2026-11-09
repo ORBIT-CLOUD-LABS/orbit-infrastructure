@@ -1,0 +1,70 @@
+# ILM 정책과 인덱스 템플릿. elastic(관리자)으로 씀. 수집 계정에는 관리 권한이 없음
+# 서버의 실제 값 중 이 role이 정하는 항목만 골라 원하는 정의와 비교하고, 다르면 다시 씀
+# Kibana나 API로 보관 기간·매핑·replica를 바꿔도 다음 실행에서 되돌림
+# 원하는 정의는 Elasticsearch가 돌려주는 형식으로 씀 (delete 동작의 기본값, 문자열 설정 값)
+- name: 원하는 정의
+  ansible.builtin.set_fact:
+    efk_ilm_def:
+      phases:
+        hot: { min_age: 0ms, actions: {} }
+        delete: { min_age: "{{ efk_retention }}", actions: { delete: { delete_searchable_snapshot: true } } }
+    efk_template_def:
+      index_patterns: "{{ efk_index_patterns }}"
+      priority: 200   # Elasticsearch 기본 템플릿(logs-*-* 등, 100)보다 높게
+      template:
+        settings: "{{ efk_index_settings }}"
+        mappings: "{{ efk_index_mappings }}"
+    efk_managed_meta: { managed_by: orbit-infrastructure }
+
+- name: ILM 정책과 인덱스 템플릿
+  module_defaults:
+    ansible.builtin.uri:
+      ca_path: "{{ efk_ca_path }}"
+      url_username: elastic
+      url_password: "{{ efk_secrets.elastic_password }}"
+      force_basic_auth: true
+  block:
+    - name: ILM 정책 읽기
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:9200/_ilm/policy/{{ efk_ilm_policy }}"
+        status_code: [200, 404]
+      register: efk_ilm_now
+
+    - name: ILM 정책 (만든 뒤 보관 기간이 지나면 삭제) {{ efk_ilm_policy }}
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:9200/_ilm/policy/{{ efk_ilm_policy }}"
+        method: PUT
+        body_format: json
+        body:
+          policy: "{{ efk_ilm_def | combine({'_meta': efk_managed_meta}) }}"
+      when: >-
+        efk_ilm_now.status == 404 or
+        efk_ilm_now.json[efk_ilm_policy].policy.phases != efk_ilm_def.phases
+      changed_when: true
+
+    - name: 인덱스 템플릿 읽기
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:9200/_index_template/{{ efk_index_template }}"
+        status_code: [200, 404]
+      register: efk_template_now
+
+    # 비교 대상: 인덱스 패턴, 우선순위, 설정, 매핑 (composed_of, _meta 등은 제외)
+    # 우선순위는 따로 비교. vars에서 "{{ }}"로 옮기면 숫자가 문자열이 됨
+    - name: 인덱스 템플릿 {{ efk_index_template }}
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:9200/_index_template/{{ efk_index_template }}"
+        method: PUT
+        body_format: json
+        body: "{{ efk_template_def | combine({'_meta': efk_managed_meta}) }}"
+      vars:
+        efk_t: "{{ efk_template_now.json.index_templates[0].index_template }}"
+        efk_t_managed:
+          index_patterns: "{{ efk_t.index_patterns }}"
+          template:
+            settings: "{{ efk_t.template.settings | default({}) }}"
+            mappings: "{{ efk_t.template.mappings | default({}) }}"
+      when: >-
+        efk_template_now.status == 404 or
+        efk_t.priority != efk_template_def.priority or
+        efk_t_managed != (efk_template_def | dict2items | rejectattr('key', 'eq', 'priority') | items2dict)
+      changed_when: true

@@ -142,6 +142,6 @@ Phase 2 펌웨어 원본(Origin) 저장소다. `orbit-server`가 펌웨어 바�
 
 ### 자격증명 보관
 
-- `orbit-origin-backup` 액세스 키: Vault `secret/orbit/orbit-server`에 `ORIGIN_S3_ACCESS_KEY`, `ORIGIN_S3_SECRET_KEY`로 저장하여 External Secrets Operator(ESO)가 `orbit-server-secret`으로 동기화한다([docs/vault.md](vault.md) 참조).
+- `orbit-origin-backup` 액세스 키: Vault `secret/orbit/k3s/orbit-server`(ESO가 읽는 k3s 구역)에 `ORIGIN_S3_ACCESS_KEY`, `ORIGIN_S3_SECRET_KEY`로 저장하여 External Secrets Operator(ESO)가 `orbit-server-secret`으로 동기화한다([docs/vault.md](vault.md) 참조).
 - `orbit-vault-backup` 액세스 키: `ansible-vault`로 암호화해 `astra`의 `/etc/vault.d/snapshot-aws.env`(`root:root`, `0600`)에 배치한다.
 - 코드, ConfigMap, 공개 저장소에는 평문 키를 저장하지 않는다.

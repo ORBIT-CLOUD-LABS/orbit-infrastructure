@@ -1,0 +1,189 @@
+# 패키지는 처음 설치할 때 보안을 자동 구성함 (자체 인증서 생성, elastic 비밀번호를 만들어 설치 출력과 apt 로그에 남김)
+# elasticsearch.yml에 xpack.security.enabled가 이미 있으면 건너뛰므로, 설정 파일을 패키지보다 먼저 둠
+# 그래서 패키지가 만드는 계정·폴더를 같은 방식(preinst)으로 미리 만듦
+- name: elasticsearch 그룹
+  ansible.builtin.group:
+    name: elasticsearch
+    system: true
+
+- name: elasticsearch 계정
+  ansible.builtin.user:
+    name: elasticsearch
+    group: elasticsearch
+    system: true
+    create_home: false
+    home: /nonexistent
+    shell: /bin/false
+    password: "!"
+
+- name: 설정 폴더
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: elasticsearch
+    mode: "2750"
+  loop:
+    - /etc/elasticsearch
+    - /etc/elasticsearch/jvm.options.d
+    - "{{ efk_es_tls_dir }}"
+
+# 인증서 모듈은 파일을 둘 폴더가 실제로 있어야 함. 미리보기 첫 실행에서는 위 폴더가 아직 없어서 인증서를 건너뜀
+- name: TLS 폴더가 있는지
+  ansible.builtin.stat:
+    path: "{{ efk_es_tls_dir }}"
+  register: efk_es_tls_stat
+
+- name: 미리보기에서 인증서를 건너뛸지
+  ansible.builtin.set_fact:
+    efk_skip_tls: "{{ ansible_check_mode and (efk_pydeb_missing or not efk_es_tls_stat.stat.exists) }}"
+
+- name: 건너뛰는 이유
+  ansible.builtin.debug:
+    msg: 미리보기에서 TLS 폴더가 아직 없어서 CA와 서버 인증서 만들기를 건너뜀. 실제 실행에서는 폴더를 만든 뒤 진행함
+  when: efk_skip_tls and not efk_pydeb_missing
+
+# 내부 CA. 송신기(Fluent Bit)와 Kibana에는 efk-ca.crt만 나눠 줌. 개인키는 efk 밖으로 내보내지 않음
+- name: TLS
+  when: not efk_skip_tls
+  block:
+    - name: CA 개인키
+      community.crypto.openssl_privatekey:
+        path: "{{ efk_es_tls_dir }}/efk-ca.key"
+        type: ECC
+        curve: secp384r1
+        owner: root
+        group: root
+        mode: "0600"
+      register: efk_ca_key
+
+    - name: CA 인증서 요청
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: "{{ efk_es_tls_dir }}/efk-ca.key"
+        common_name: ORBIT EFK CA
+        use_common_name_for_san: false
+        basic_constraints: ["CA:TRUE", "pathlen:0"]
+        basic_constraints_critical: true
+        key_usage: [keyCertSign, cRLSign]
+        key_usage_critical: true
+      register: efk_ca_csr
+      changed_when: false
+      check_mode: false   # tls.yml과 같음
+      when: not (ansible_check_mode and efk_ca_key is changed)
+
+    - name: CA 인증서
+      community.crypto.x509_certificate:
+        path: "{{ efk_ca_path }}"
+        csr_content: "{{ efk_ca_csr.csr }}"
+        privatekey_path: "{{ efk_es_tls_dir }}/efk-ca.key"
+        provider: selfsigned
+        selfsigned_not_after: "+{{ efk_tls_ca_days }}d"
+        owner: root
+        group: elasticsearch
+        mode: "0644"
+      when: not (ansible_check_mode and efk_ca_key is changed)
+
+    - name: Elasticsearch 서버 인증서
+      ansible.builtin.include_tasks: tls.yml
+      vars:
+        efk_tls_name: elasticsearch
+        efk_tls_dir: "{{ efk_es_tls_dir }}"
+        efk_tls_group: elasticsearch
+        efk_tls_notify: restart elasticsearch   # HTTP 인증서는 파일이 바뀌면 다시 읽지만, 키 교체까지 확실히 반영
+
+# 패키지에 같은 이름의 conffile이 있음. apt 모듈은 기본으로 force-confold라 이 파일을 유지함
+- name: Elasticsearch 설정
+  ansible.builtin.template:
+    src: elasticsearch.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    owner: root
+    group: elasticsearch
+    mode: "0660"
+  notify: restart elasticsearch
+
+- name: 힙 크기 (최소 = 최대)
+  ansible.builtin.copy:
+    dest: /etc/elasticsearch/jvm.options.d/orbit-heap.options
+    content: |
+      # Ansible managed (roles/efk)
+      -Xms{{ efk_es_heap }}
+      -Xmx{{ efk_es_heap }}
+    owner: root
+    group: elasticsearch
+    mode: "0660"
+  notify: restart elasticsearch
+
+# 미리보기에서 저장소가 아직 없으면 건너뜀 (main.yml의 efk_skip_install)
+- name: 설치와 버전 고정
+  when: not efk_skip_install
+  block:
+    - name: Elasticsearch 설치 {{ efk_version }}
+      ansible.builtin.apt:
+        name: "elasticsearch={{ efk_version }}"
+        state: present
+        update_cache: true
+        allow_change_held_packages: true   # 버전을 바꿀 때만 hold를 넘어 설치함
+      notify: restart elasticsearch
+
+    - name: apt upgrade로 버전이 바뀌지 않게 고정
+      ansible.builtin.dpkg_selections:
+        name: elasticsearch
+        selection: hold
+
+# 설정 파일이 있어도 자동 구성이 돌았다면 certs 폴더와 keystore 항목이 생김. 그 상태로는 이 role의 TLS와 섞이므로 멈춤
+- name: 보안 자동 구성이 돌지 않았는지
+  ansible.builtin.stat:
+    path: /etc/elasticsearch/certs
+  register: efk_auto_certs
+
+- name: 돌았으면 멈춤
+  ansible.builtin.assert:
+    that: not efk_auto_certs.stat.exists
+    fail_msg: >-
+      /etc/elasticsearch/certs가 있음. 패키지의 보안 자동 구성이 실행된 상태라
+      certs 폴더와 elasticsearch-keystore의 xpack.security.*.ssl.*, autoconfiguration.password_hash 항목을 확인 후 지우고 다시 실행
+
+- name: 설치됐는지 (미리보기에서 처음이면 아직 없음)
+  ansible.builtin.stat:
+    path: /usr/share/elasticsearch/bin/elasticsearch-keystore
+  register: efk_es_bin
+
+# elastic 계정은 보안을 처음 켤 때 keystore의 bootstrap.password로 정해짐 (.security 인덱스가 생긴 뒤에는 쓰이지 않음)
+# 이미 있으면 그대로 둠. 비밀번호가 Vault와 다르면 아래 확인에서 멈춤
+- name: elastic 초기 비밀번호 (keystore)
+  when: efk_es_bin.stat.exists and efk_secrets_ready
+  block:
+    - name: keystore 항목
+      ansible.builtin.command: /usr/share/elasticsearch/bin/elasticsearch-keystore list
+      register: efk_es_keystore
+      changed_when: false
+      check_mode: false   # 읽기만 함
+
+    - name: bootstrap.password 넣기
+      ansible.builtin.command: /usr/share/elasticsearch/bin/elasticsearch-keystore add -x -f bootstrap.password
+      args:
+        stdin: "{{ efk_secrets.elastic_password }}"
+      when: "'bootstrap.password' not in efk_es_keystore.stdout_lines"
+      changed_when: true
+      no_log: true
+      notify: restart elasticsearch
+
+- name: Elasticsearch 서비스 켜기
+  ansible.builtin.systemd_service:
+    name: elasticsearch
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: not ansible_check_mode   # 미리보기 첫 실행에서는 서비스가 아직 없음
+
+# kibana_system 비밀번호는 보안이 켜진 Elasticsearch API로 정함. 설정이 바뀌었으면 여기서 먼저 재시작
+- name: 바뀐 설정 반영 (재시작)
+  ansible.builtin.meta: flush_handlers
+
+- name: 기본 계정
+  ansible.builtin.include_tasks: accounts.yml
+  when: not ansible_check_mode and efk_secrets_ready
+
+- name: ILM 정책과 인덱스 템플릿
+  ansible.builtin.include_tasks: indices.yml
+  when: not ansible_check_mode and efk_secrets_ready

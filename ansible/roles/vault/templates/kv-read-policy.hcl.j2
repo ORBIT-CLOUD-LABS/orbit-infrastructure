@@ -1,5 +1,5 @@
 # {{ ansible_managed }}
-# orbit 앱 공용 읽기. metadata 목록 조회와 쓰기는 허용하지 않음
-path "{{ hvault_kv_mount }}/data/{{ hvault_kv_prefix }}/*" {
+# k3s 앱 공용 읽기 (ESO). 인프라 구역(orbit/infra)과 metadata 목록 조회, 쓰기는 허용하지 않음
+path "{{ hvault_kv_mount }}/data/{{ hvault_kv_k3s_prefix }}/*" {
   capabilities = ["read"]
 }

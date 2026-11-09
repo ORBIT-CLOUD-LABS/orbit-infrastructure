@@ -2,6 +2,7 @@
 
 구현: [#7](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/7).
 KV·Kubernetes 인증: [#13](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/13). 2026-11-02 astra에 적용하고 적용 후 미리보기에서 추가 변경 없음(`changed=0`)을 확인했다. 실제 k3s 로그인·권한 거부와 GitHub 조회·쓰기·부분 수정 및 SSH 서명을 검증했다. 시험 리소스 정리 완료는 별도 확인이 필요하며 root token 폐기는 운영자 요청으로 보류 중이다.
+KV 구역 분리: [#21](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/21). 2026-11-05 `jyvnee`가 astra 개인 계정으로 적용했다(바뀐 설정: `eso-orbit` 읽기 경로 `orbit/*` → `orbit/k3s/*`, `orbit-secrets-write` 설명 주석). 적용 후 미리보기 `changed=0`. `eso-orbit` 정책만 가진 10분 시험 토큰으로 k3s 구역 읽기 허용, 인프라 구역·구역 밖 읽기와 k3s 구역 쓰기 거부(403)를 확인하고 시험 토큰·값을 정리했다. 옮길 기존 값(`orbit/orbit-server`)은 없었다. k3s 로그인 역할(`eso`)은 바뀌지 않아 다시 시험하지 않았다.
 스냅샷 S3 백업: [#11](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/11). 역할·스크립트·systemd 유닛을 작성했고 **astra 적용과 업로드·복원 검증은 아직 하지 않았다.**
 이 문서에는 이름과 절차만 기록한다. unseal 키, 토큰, 비밀번호, GitHub PAT 값은 Git·Issue·PR·문서·채팅 어디에도 남기지 않는다.
 
@@ -20,13 +21,13 @@ KV·Kubernetes 인증: [#13](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastru
 | 인증서 | `orbit` 계정만, 최대 8시간, 인증서 ID는 서버가 정함 (`github-<아이디>`, `userpass-<이름>`) |
 | 로그인 | GitHub (`ORBIT-CLOUD-LABS`의 `orbit` 팀), 비상용 userpass `breakglass1`, `breakglass2`. 토큰 기본 8시간, 최대 24시간 |
 | 노드 | 인벤토리 전체(노드 5대, VM 3대)가 `/etc/ssh/trusted-user-ca-keys.pem`을 신뢰 (`sshd_config.d/10-orbit-ssh-ca.conf`). 기존 `authorized_keys`는 그대로 |
-| 앱 비밀값 | KV v2 `secret/`, 앱 경로 `orbit/<앱 이름>`. 원본은 Vault에서 관리하고 ESO 연동 후 Kubernetes Secret으로 복제 |
+| 비밀값 | KV v2 `secret/`. k3s 앱 `orbit/k3s/<앱 이름>`(ESO 연동 후 Kubernetes Secret으로 복제), 인프라 `orbit/infra/<서비스 이름>`(ESO 접근 불가). 원본은 Vault에서 관리 |
 | Kubernetes 인증 | `auth/kubernetes`, API `https://10.0.0.200:6443`, 별도 reviewer JWT 없이 로그인 JWT로 TokenReview |
 | ESO 역할 | `eso`: `external-secrets/external-secrets`만 허용, `eso-orbit` 정책, 토큰 기본·최대 수명 1시간 |
 
 ## 플레이북
 
-astra에서 실행한다 (`ansible_connection: local`).
+astra 개인 계정으로 실행한다([Ansible 실행](personal-accounts.md#ansible-실행)). `-K`에는 자기 sudo 비밀번호를 넣는다. 비상 계정이 이미 있으면 `--ask-vault-pass`(`vault.yml`)는 필요 없고, 새로 만들어야 할 때만 `vault.yml`이 있는 `orbit` 계정에서 실행한다.
 
 | 플레이북 | 하는 일 |
 | --- | --- |
@@ -40,24 +41,28 @@ astra에서 실행한다 (`ansible_connection: local`).
 - 관리자 토큰으로 실행하면 미리보기에서도 polaris에 SSH·sudo로 접속해 k3s CA를 읽는다. 읽기 실패 시 Vault 내부 설정을 쓰기 전에 멈춘다.
 - `secret/`은 `type=kv`, `options.version=2`여야 한다. KV v1·다른 엔진이나 같은 경로의 다른 인증 방식은 자동 전환하지 않는다. 기존 별도 reviewer JWT가 있어도 중단한다.
 
-## 앱 비밀값 경로와 권한
+## 비밀값 경로와 권한
 
-| 구분 | 값 |
-| --- | --- |
-| CLI 경로 | `vault kv put -mount=secret orbit/<앱 이름> ...` |
-| Vault ACL·API 경로 | `secret/data/orbit/<앱 이름>` |
-| ESO Store | `path: secret`, `version: v2` |
-| ExternalSecret | `remoteRef.key: orbit/<앱 이름>`, `property: <키 이름>` |
+비밀값은 모두 Vault에 둔다. k3s에서 쓰는 값과 인프라 관리용 값은 경로로 나누고, ESO는 k3s 구역만 읽는다. Elasticsearch 관리자 비밀번호처럼 k3s에 노출하면 안 되는 값은 인프라 구역에 둔다.
+
+| 구분 | k3s 앱 | 인프라 |
+| --- | --- | --- |
+| 용도 | k3s 앱·에이전트가 쓰는 값 (예: `orbit-server`, k3s Fluent Bit 쓰기 계정) | Ansible·관리자가 쓰는 값 (예: `efk`의 Elasticsearch 관리자·Kibana·호스트 수집 계정) |
+| CLI 경로 | `vault kv put -mount=secret orbit/k3s/<앱 이름> ...` | `vault kv put -mount=secret orbit/infra/<서비스 이름> ...` |
+| Vault ACL·API 경로 | `secret/data/orbit/k3s/<앱 이름>` | `secret/data/orbit/infra/<서비스 이름>` |
+| ESO | Store `path: secret`, `version: v2`. ExternalSecret `remoteRef.key: orbit/k3s/<앱 이름>`, `property: <키 이름>` | 읽을 수 없음 |
+
+`orbit/` 바로 아래나 두 구역 밖에는 새 경로를 만들지 않는다. 비상 계정 비밀번호처럼 Vault가 없거나 고장 났을 때 필요한 값만 ansible-vault(`vault.yml`)에 둔다.
 
 | 주체 | 정책 | 허용 범위 |
 | --- | --- | --- |
-| GitHub `orbit` 팀 | `ssh-orbit`, `orbit-secrets-write` | 기존 SSH 서명 + `secret/data/orbit/*` 조회·생성·전체 교체·부분 수정 |
+| GitHub `orbit` 팀 | `ssh-orbit`, `orbit-secrets-write` | 기존 SSH 서명 + `secret/data/orbit/*`(k3s·인프라 두 구역) 조회·생성·전체 교체·부분 수정 |
 | GitHub 사용자 (개인 명단) | `ssh-personal-<계정명>` | 본인 역할 `ssh-client-signer/sign/personal-<계정명>`의 서명만. 팀 정책에 더해짐. 명단에서 빠지면 Vault 플레이북이 삭제 ([개인 계정 문서](personal-accounts.md#vault-개인-ssh-역할정책)) |
-| ESO SA | `eso-orbit` | `secret/data/orbit/*` 읽기만. 앱별 격리가 아닌 orbit 앱 공용 권한 |
+| ESO SA | `eso-orbit` | `secret/data/orbit/k3s/*` 읽기만. 앱별 격리가 아닌 k3s 앱 공용 권한. 인프라 구역은 읽지 못함 |
 | 비상 userpass 계정 | `ssh-orbit` | SSH 서명만 |
 | 임시 root | `root` | 엔진·인증·정책 관리와 검증·정리. 완료 후 폐기 |
 
-쓰기 정책은 `create`, `read`, `update`, `patch`를 허용하며 목록·삭제·SSH 서명 권한은 없다. SSH 서명은 별도 `ssh-orbit` 정책으로 허용한다. 이 정책들은 VM의 파일 권한이나 sudo 권한을 바꾸지 않는다. 현재는 orbit 팀원 전원이 모든 orbit 앱의 비밀값을 읽고 바꿀 수 있다.
+쓰기 정책은 `create`, `read`, `update`, `patch`를 허용하며 목록·삭제·SSH 서명 권한은 없다. SSH 서명은 별도 `ssh-orbit` 정책으로 허용한다. 이 정책들은 VM의 파일 권한이나 sudo 권한을 바꾸지 않는다. 현재는 orbit 팀원 전원이 k3s 앱과 인프라의 비밀값을 모두 읽고 바꿀 수 있다.
 
 ### 값 넣기·바꾸기
 
@@ -84,7 +89,7 @@ with open(sys.argv[1], 'w') as output:
     json.dump(values, output)
 PY
 # Python 입력이 성공한 경우에만 실행한다.
-vault kv put -mount=secret orbit/orbit-server @"$ORBIT_SECRET_FILE"
+vault kv put -mount=secret orbit/k3s/orbit-server @"$ORBIT_SECRET_FILE"
 rm -f "$ORBIT_SECRET_FILE"
 unset ORBIT_SECRET_FILE
 ```
@@ -93,11 +98,11 @@ unset ORBIT_SECRET_FILE
 
 ```bash
 read -rsp '새 ADMIN_TOKEN: ' ORBIT_ADMIN_TOKEN; printf '\n'
-printf '%s' "$ORBIT_ADMIN_TOKEN" | vault kv patch -method=patch -mount=secret orbit/orbit-server ADMIN_TOKEN=-
+printf '%s' "$ORBIT_ADMIN_TOKEN" | vault kv patch -method=patch -mount=secret orbit/k3s/orbit-server ADMIN_TOKEN=-
 unset ORBIT_ADMIN_TOKEN
 ```
 
-기존 값 확인이 필요하면 `vault kv get -mount=secret orbit/orbit-server`를 사용한다. 실제 비밀값이 화면에 나오므로 화면 공유·터미널 녹화·출력 저장을 피한다. 여러 사람이 동시에 같은 키를 수정하지 않도록 조율한다.
+기존 값 확인이 필요하면 `vault kv get -mount=secret orbit/k3s/orbit-server`를 사용한다. 실제 비밀값이 화면에 나오므로 화면 공유·터미널 녹화·출력 저장을 피한다. 여러 사람이 동시에 같은 키를 수정하지 않도록 조율한다.
 
 ESO 설치 후에는 동기화 주기 또는 강제 동기화로 반영하며, `envFrom` 환경 변수는 파드 재시작 후 새 값을 읽는다. 기존 Secret이 있는 상태에서 Vault가 멈추면 동기화는 실패하지만 앱은 기존 값을 사용한다. Secret이 없거나 클러스터를 재구축했다면 Vault 복구·unseal 전에는 재생성할 수 없다.
 
@@ -156,7 +161,7 @@ kubectl create clusterrolebinding orbit-vault-auth-check \
 거부 시험용 SA에도 TokenReview 권한을 줘야 단순한 API 권한 부족이 아닌 Vault 역할의 이름·namespace 제한을 검증할 수 있다. 다음은 root가 `VAULT_TOKEN`에 남아 있는 같은 터미널에서 실행한다. 시험 경로는 충돌하지 않는 이름을 만들고 가짜 값만 쓴다.
 
 ```bash
-ORBIT_TEST_PATH="orbit/vault-auth-check-$(date +%s)-$$"
+ORBIT_TEST_PATH="orbit/k3s/vault-auth-check-$(date +%s)-$$"
 vault kv put -mount=secret "$ORBIT_TEST_PATH" CHECK=dev-only-fake-value KEEP=unchanged
 ESO_LOGIN=$(kubectl -n external-secrets create token external-secrets \
   --audience=https://kubernetes.default.svc.cluster.local --duration=10m | \
@@ -166,8 +171,9 @@ ESO_TOKEN=$(printf '%s' "$ESO_LOGIN" | jq -er '.auth.client_token')
 ESO_ACCESSOR=$(printf '%s' "$ESO_LOGIN" | jq -er '.auth.accessor')
 unset ESO_LOGIN
 VAULT_TOKEN="$ESO_TOKEN" vault kv get -mount=secret -field=CHECK "$ORBIT_TEST_PATH"
-# 위는 dev-only-fake-value. 아래 둘은 반드시 403 permission denied
+# 위는 dev-only-fake-value. 아래 셋은 반드시 403 permission denied (구역 밖, 인프라 구역, 쓰기)
 VAULT_TOKEN="$ESO_TOKEN" vault kv get -mount=secret "outside-$ORBIT_TEST_PATH"
+VAULT_TOKEN="$ESO_TOKEN" vault kv get -mount=secret "orbit/infra/${ORBIT_TEST_PATH#orbit/k3s/}"
 VAULT_TOKEN="$ESO_TOKEN" vault kv put -mount=secret "$ORBIT_TEST_PATH" CHECK=denied
 ```
 

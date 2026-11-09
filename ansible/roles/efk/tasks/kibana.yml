@@ -1,0 +1,88 @@
+# Kibana 패키지는 설치할 때 보안을 자동 구성하지 않음. 설치 후 설정을 덮어씀
+- name: 설치와 버전 고정
+  when: not efk_skip_install
+  block:
+    - name: Kibana 설치 {{ efk_version }}
+      ansible.builtin.apt:
+        name: "kibana={{ efk_version }}"
+        state: present
+        update_cache: true
+        allow_change_held_packages: true
+      notify: restart kibana
+
+    - name: apt upgrade로 버전이 바뀌지 않게 고정
+      ansible.builtin.dpkg_selections:
+        name: kibana
+        selection: hold
+
+- name: 설치됐는지 (미리보기에서 처음이면 아직 없음)
+  ansible.builtin.stat:
+    path: /etc/kibana
+  register: efk_kibana_conf
+
+- name: TLS, 설정, 서비스
+  when: efk_kibana_conf.stat.exists   # 미리보기 첫 실행에서는 kibana 그룹과 폴더가 아직 없음
+  block:
+    - name: TLS 폴더
+      ansible.builtin.file:
+        path: "{{ efk_kibana_tls_dir }}"
+        state: directory
+        owner: root
+        group: kibana
+        mode: "2750"
+
+    - name: TLS 폴더가 있는지
+      ansible.builtin.stat:
+        path: "{{ efk_kibana_tls_dir }}"
+      register: efk_kibana_tls_stat
+
+    # Elasticsearch 쪽 인증서를 건너뛰었거나 폴더가 아직 없으면 미리보기에서 건너뜀
+    - name: TLS
+      when: not (efk_skip_tls or (ansible_check_mode and not efk_kibana_tls_stat.stat.exists))
+      block:
+        - name: Elasticsearch 검증용 CA (efk-ca.crt 복사)
+          ansible.builtin.copy:
+            src: "{{ efk_ca_path }}"
+            dest: "{{ efk_kibana_tls_dir }}/efk-ca.crt"
+            remote_src: true
+            owner: root
+            group: kibana
+            mode: "0644"
+          when: not (ansible_check_mode and efk_ca_key is changed)
+          notify: restart kibana
+
+        - name: Kibana 서버 인증서
+          ansible.builtin.include_tasks: tls.yml
+          vars:
+            efk_tls_name: kibana
+            efk_tls_dir: "{{ efk_kibana_tls_dir }}"
+            efk_tls_group: kibana
+            efk_tls_notify: restart kibana
+
+    # 비밀번호와 암호화 키가 들어 있음. 그룹 kibana만 읽음. diff에 값이 나오지 않게 함
+    - name: Kibana 설정
+      ansible.builtin.template:
+        src: kibana.yml.j2
+        dest: /etc/kibana/kibana.yml
+        owner: root
+        group: kibana
+        mode: "0660"
+      diff: false
+      when: efk_secrets_ready
+      notify: restart kibana
+
+    - name: Kibana 서비스 켜기
+      ansible.builtin.systemd_service:
+        name: kibana
+        enabled: true
+        state: started
+        daemon_reload: true
+      when: not ansible_check_mode
+
+# 데이터 뷰는 Kibana API로 만듦. 설정이 바뀌었으면 먼저 재시작
+- name: 바뀐 설정 반영 (재시작)
+  ansible.builtin.meta: flush_handlers
+
+- name: 데이터 뷰
+  ansible.builtin.include_tasks: dataviews.yml
+  when: not ansible_check_mode and efk_secrets_ready

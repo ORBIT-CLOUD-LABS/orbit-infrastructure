@@ -1,0 +1,139 @@
+# 기본 계정 비밀번호를 Vault 값과 맞춤. 비밀번호는 출력에 남기지 않음
+- name: Elasticsearch 응답 대기 (HTTPS)
+  ansible.builtin.uri:
+    url: https://127.0.0.1:9200/_cluster/health
+    ca_path: "{{ efk_ca_path }}"
+    url_username: elastic
+    url_password: "{{ efk_secrets.elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 401]
+  register: efk_es_up
+  retries: 18
+  delay: 10
+  until: efk_es_up.status in [200, 401]
+  no_log: true
+
+- name: elastic 비밀번호가 Vault 값과 같아야 함
+  ansible.builtin.assert:
+    that: efk_es_up.status == 200
+    fail_msg: >-
+      elastic 로그인 실패 (401). Elasticsearch의 elastic 비밀번호가 Vault {{ hvault_kv_mount }}/{{ efk_vault_path }}의 elastic_password와 다름.
+      efk에서 sudo /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -i 로 Vault 값을 입력한 뒤 다시 실행
+    quiet: true
+
+- name: kibana_system 로그인 확인
+  ansible.builtin.uri:
+    url: https://127.0.0.1:9200/_security/_authenticate
+    ca_path: "{{ efk_ca_path }}"
+    url_username: kibana_system
+    url_password: "{{ efk_secrets.kibana_system_password }}"
+    force_basic_auth: true
+    status_code: [200, 401]
+  register: efk_kibana_system_auth
+  no_log: true
+
+- name: kibana_system 비밀번호 정하기
+  ansible.builtin.uri:
+    url: https://127.0.0.1:9200/_security/user/kibana_system/_password
+    method: POST
+    ca_path: "{{ efk_ca_path }}"
+    url_username: elastic
+    url_password: "{{ efk_secrets.elastic_password }}"
+    force_basic_auth: true
+    body_format: json
+    body: { password: "{{ efk_secrets.kibana_system_password }}" }
+  when: efk_kibana_system_auth.status == 401
+  changed_when: true
+  no_log: true
+  notify: restart kibana
+
+# 수집·조회 역할과 계정. elastic(관리자)으로 만들고, 지금 값과 다를 때만 씀
+- name: 수집·조회 역할과 계정
+  module_defaults:
+    ansible.builtin.uri:
+      ca_path: "{{ efk_ca_path }}"
+      url_username: elastic
+      url_password: "{{ efk_secrets.elastic_password }}"
+      force_basic_auth: true
+      # body_format은 본문이 있는 작업에만 씀. 기본값에 두면 GET에도 본문 "null"이 붙어 Elasticsearch가 400으로 거부함
+  block:
+    - name: 역할 읽기
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:9200/_security/role/{{ item.key }}"
+        status_code: [200, 404]
+      loop: "{{ efk_roles | dict2items }}"
+      loop_control: { label: "{{ item.key }}" }
+      register: efk_role_now
+
+    # Elasticsearch가 덧붙이는 항목(metadata 등)은 빼고, 이 role이 정하는 항목만 비교
+    - name: 역할 만들기·고치기 (다를 때만)
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:9200/_security/role/{{ item.item.key }}"
+        method: PUT
+        body_format: json
+        body: "{{ item.item.value }}"
+      loop: "{{ efk_role_now.results }}"
+      loop_control: { label: "{{ item.item.key }}" }
+      when: >-
+        item.status == 404 or
+        (item.json[item.item.key] | dict2items | selectattr('key', 'in', item.item.value.keys() | list) | items2dict) != item.item.value
+      changed_when: true
+
+    - name: 계정 읽기
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:9200/_security/user/{{ item.name }}"
+        status_code: [200, 404]
+      loop: "{{ efk_users }}"
+      loop_control: { label: "{{ item.name }}" }
+      register: efk_user_now
+
+    - name: 계정 만들기 (처음 한 번. 비밀번호는 Vault 값)
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:9200/_security/user/{{ item.item.name }}"
+        method: PUT
+        body_format: json
+        body:
+          password: "{{ (efk_k8s_secrets if item.item.vault == 'k8s' else efk_secrets)[item.item.key] }}"
+          roles: "{{ item.item.roles }}"
+      loop: "{{ efk_user_now.results }}"
+      loop_control: { label: "{{ item.item.name }}" }
+      when: item.status == 404
+      changed_when: true
+      no_log: true
+
+    # 비밀번호 없이 PUT하면 비밀번호는 그대로 두고 역할만 바뀜
+    - name: 계정 역할 고치기 (다를 때만)
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:9200/_security/user/{{ item.item.name }}"
+        method: PUT
+        body_format: json
+        body: { roles: "{{ item.item.roles }}" }
+      loop: "{{ efk_user_now.results }}"
+      loop_control: { label: "{{ item.item.name }}" }
+      when: item.status == 200 and (item.json[item.item.name].roles | sort) != (item.item.roles | sort)
+      changed_when: true
+
+    - name: 계정 로그인 확인 (Vault 비밀번호)
+      ansible.builtin.uri:
+        url: https://127.0.0.1:9200/_security/_authenticate
+        url_username: "{{ item.name }}"
+        url_password: "{{ (efk_k8s_secrets if item.vault == 'k8s' else efk_secrets)[item.key] }}"
+        status_code: [200, 401]
+      loop: "{{ efk_users }}"
+      loop_control: { label: "{{ item.name }}" }
+      register: efk_user_auth
+      no_log: true
+
+    # Vault 값이 바뀌었거나 누가 Elasticsearch에서 직접 바꾼 경우 Vault 값으로 되돌림
+    - name: 계정 비밀번호를 Vault 값으로 맞춤
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:9200/_security/user/{{ item.item.name }}/_password"
+        method: POST
+        body_format: json
+        body:
+          password: "{{ (efk_k8s_secrets if item.item.vault == 'k8s' else efk_secrets)[item.item.key] }}"
+      loop: "{{ efk_user_auth.results }}"
+      loop_control: { label: "{{ item.item.name }}" }
+      when: item.status == 401
+      changed_when: true
+      no_log: true

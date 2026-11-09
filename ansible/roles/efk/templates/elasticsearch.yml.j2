@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+# Elasticsearch 단일 노드 (efk)
+cluster.name: {{ efk_cluster_name }}
+node.name: {{ inventory_hostname }}
+discovery.type: single-node
+
+path.data: {{ efk_es_data_dir }}
+path.logs: {{ efk_es_log_dir }}
+
+# 9200(HTTPS)만 내부망에 엶. 노드 간 통신(9300)은 단일 노드라 efk 안에서만
+http.host: {{ efk_es_http_hosts | to_json }}
+http.port: 9200
+transport.host: 127.0.0.1
+
+# 패키지의 보안 자동 구성을 막으려면 이 키가 있어야 함 (설정 파일을 패키지보다 먼저 둠)
+xpack.security.enabled: true
+xpack.security.enrollment.enabled: false
+xpack.security.http.ssl:
+  enabled: true
+  key: {{ efk_es_tls_dir }}/elasticsearch.key
+  certificate: {{ efk_es_tls_dir }}/elasticsearch.crt
+  certificate_authorities: [{{ efk_ca_path }}]
