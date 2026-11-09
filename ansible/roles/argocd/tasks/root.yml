@@ -1,0 +1,39 @@
+# root Application. projects.yml 다음에 실행해서 AppProject보다 먼저 생기지 않게 함
+- name: root Application 정의
+  ansible.builtin.template:
+    src: argocd-root.yaml.j2
+    dest: "{{ argocd_root_file }}"
+    mode: "0600"
+
+- name: root Application 적용
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, apply, -f, "{{ argocd_root_file }}"]
+  register: argocd_root_apply
+  changed_when: argocd_root_apply.stdout_lines | reject('search', ' unchanged$') | list | length > 0
+  when: not ansible_check_mode
+
+- name: root Application 읽기
+  ansible.builtin.command:
+    argv: [/usr/local/bin/k3s, kubectl, -n, "{{ argocd_namespace }}", get, application, "{{ argocd_root_name }}", -o, json]
+  register: argocd_root
+  changed_when: false
+  when: not ansible_check_mode
+
+# Sync 상태는 보지 않음. orbit-gitops에 경로가 생기기 전에는 "경로 없음" 오류가 정상 (docs/argocd.md)
+- name: root Application의 프로젝트·소스·Sync 정책 확인
+  ansible.builtin.assert:
+    that:
+      - argocd_root_spec.project == argocd_project_root
+      - argocd_root_spec.source.repoURL == argocd_gitops_repo_url
+      - argocd_root_spec.source.targetRevision == argocd_root_revision
+      - argocd_root_spec.source.path == argocd_root_path
+      - argocd_root_spec.destination.namespace == argocd_namespace
+      - argocd_root_spec.syncPolicy.automated is defined
+      - argocd_root_spec.syncPolicy.automated.enabled | default(false) | bool
+      - not (argocd_root_spec.syncPolicy.automated.prune | default(false))
+      - not (argocd_root_spec.syncPolicy.automated.selfHeal | default(false))
+    fail_msg: "root Application이 원하는 설정이 아님: {{ argocd_root_spec | to_json }}"
+    quiet: true
+  vars:
+    argocd_root_spec: "{{ (argocd_root.stdout | from_json).spec }}"
+  when: not ansible_check_mode

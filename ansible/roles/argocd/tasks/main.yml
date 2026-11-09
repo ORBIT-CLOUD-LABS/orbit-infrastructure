@@ -110,3 +110,6 @@
 
 - name: 애드온 namespace와 AppProject
   ansible.builtin.include_tasks: projects.yml
+
+- name: root Application (AppProject 다음)
+  ansible.builtin.include_tasks: root.yml

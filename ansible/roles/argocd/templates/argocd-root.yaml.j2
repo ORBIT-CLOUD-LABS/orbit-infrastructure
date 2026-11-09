@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+# root Application. AppProject를 적용한 뒤 Ansible이 kubectl apply로 적용함
+# 자동 Sync, Prune·Self Heal 끔. 삭제 연쇄 finalizer 없음 (root를 지워도 자식 Application은 남음)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ argocd_root_name | to_json }}
+  namespace: {{ argocd_namespace | to_json }}
+spec:
+  project: {{ argocd_project_root | to_json }}
+  source:
+    repoURL: {{ argocd_gitops_repo_url | to_json }}
+    targetRevision: {{ argocd_root_revision | to_json }}
+    path: {{ argocd_root_path | to_json }}
+  destination:
+    server: {{ argocd_cluster_server | to_json }}
+    namespace: {{ argocd_namespace | to_json }}
+  syncPolicy:
+    automated:
+      enabled: true     # 명시해야 운영 중 false로 멈춘 것을 재실행으로 되돌림 (apply는 없는 필드를 건드리지 않음)
+      prune: false
+      selfHeal: false
+    retry: {{ argocd_root_retry | to_json }}

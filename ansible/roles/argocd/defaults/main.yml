@@ -34,3 +34,10 @@ argocd_addons_cluster_resources:
   - { group: rbac.authorization.k8s.io, kind: ClusterRoleBinding }
   - { group: admissionregistration.k8s.io, kind: ValidatingWebhookConfiguration }   # ESO webhook
   - { group: external-secrets.io, kind: ClusterSecretStore }
+
+# root Application: orbit-gitops develop의 clusters/orbit-k3s/apps에 있는 자식 Application을 argocd namespace에 만듦
+argocd_root_name: orbit-k3s-root
+argocd_root_revision: develop
+argocd_root_path: clusters/orbit-k3s/apps
+argocd_root_file: /var/lib/rancher/k3s/orbit-argocd/root.yaml
+argocd_root_retry: { limit: 5, backoff: { duration: 5s, factor: 2, maxDuration: 3m } }   # 자동 Sync 실패 시 재시도
