@@ -214,10 +214,7 @@ coredns, local-path-provisioner, metrics-server는 control-plane taint를 허용
 
 Vault `auth/kubernetes/config`의 `kubernetes_ca_cert`를 새 CA로 바꾼다. 바꾸기 전에는 ESO 등 앱의 Vault 로그인이 TokenReview 단계에서 실패한다.
 
-원래는 `playbooks/vault.yml`을 관리자 토큰으로 다시 실행하면 된다. 이 플레이북이 polaris의 `/var/lib/rancher/k3s/server/tls/server-ca.crt`를 읽어 넣는다. 다만 2026-11-09 재설치 때는 아래 두 가지 이유로 실행하지 않고 CA만 직접 갱신했다.
-
-- `vault.yml`이 #11 스냅샷 백업 단계(`roles/vault/tasks/snapshot.yml`)에서 멈춘다. Ubuntu 24.04 apt에 `awscli` 패키지가 없다 (`No package matching 'awscli' is available`). 관리자 토큰으로 실행하면 아직 적용하지 않은 #11 설정(스냅샷 정책, AppRole, 백업 타이머)도 함께 운영 Vault에 들어간다.
-- 운영 Vault의 ESO 읽기 정책(`eso-orbit`)은 #21 브랜치 기준으로 `secret/orbit/k3s/*`만 허용한다. **#21이 develop에 머지되기 전의 develop·#28 코드로 `vault.yml`을 실행하면 이 정책이 `secret/orbit/*`로 넓어진다.**
+원래는 `playbooks/vault.yml`을 관리자 토큰으로 다시 실행하면 된다. 이 플레이북이 polaris의 `/var/lib/rancher/k3s/server/tls/server-ca.crt`를 읽어 넣는다. 다만 지금은 `vault.yml`이 #11 스냅샷 백업 단계(`roles/vault/tasks/snapshot.yml`)에서 멈춘다. Ubuntu 24.04 apt에 `awscli` 패키지가 없다 (`No package matching 'awscli' is available`). 또 관리자 토큰으로 실행하면 아직 운영에 적용하지 않은 #11 설정(스냅샷 정책, AppRole, 백업 타이머)도 함께 들어간다. 그래서 #11 문제가 해결될 때까지는 아래처럼 CA만 직접 갱신한다.
 
 직접 갱신은 플레이북이 쓰는 세 필드를 같은 값으로 쓴다. `disable_local_ca_jwt=true`를 빠뜨리면 기본값 `false`로 돌아가니 그대로 쓴다. kubeconfig의 CA는 polaris `server-ca.crt`와 같은 인증서다.
 
@@ -241,7 +238,7 @@ vault read -field=kubernetes_ca_cert auth/kubernetes/config | openssl x509 -noou
 vault read -field=disable_local_ca_jwt auth/kubernetes/config; echo                          # true
 ```
 
-그다음 [실제 k3s 로그인·권한 검증](vault.md#실제-k3s-로그인권한-검증)으로 임시 SA 로그인을 확인하고 시험 리소스를 정리한다. **시험 경로는 ESO 읽기 범위 안인 `orbit/k3s/vault-auth-check-...`를 쓴다.** 이 브랜치 `vault.md`의 `orbit/vault-auth-check-...`는 #21 이전 정책 기준이라 지금은 읽기가 403으로 거부된다.
+그다음 [실제 k3s 로그인·권한 검증](vault.md#실제-k3s-로그인권한-검증)으로 임시 SA 로그인을 확인하고 시험 리소스를 정리한다. 시험 경로는 ESO 읽기 범위 안인 `orbit/k3s/vault-auth-check-...`여야 한다(#21 이후 `vault.md` 기준). `orbit/vault-auth-check-...`처럼 범위 밖 경로를 쓰면 로그인은 성공해도 읽기가 403으로 거부된다.
 
 ### 7. 후속
 
