@@ -1,0 +1,59 @@
+---
+- name: 지원하는 Ubuntu 호스트인지 확인
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == 'Ubuntu'
+      - ansible_facts['architecture'] in wazuh_agent_deb_arches
+    fail_msg: "지원하지 않는 OS 또는 아키텍처입니다."
+
+- name: 설치된 Agent 패키지 상태와 버전 조회
+  ansible.builtin.command:
+    argv:
+      - dpkg-query
+      - -W
+      - '-f=\${Status}\t\${Version}'
+      - wazuh-agent
+  register: wazuh_agent_package
+  changed_when: false
+  failed_when: wazuh_agent_package.rc not in [0, 1]
+  check_mode: false
+
+- name: 기존 패키지가 있으면 설치 상태와 버전 확인
+  ansible.builtin.assert:
+    that:
+      - wazuh_agent_package.stdout.split() == ['install', 'ok', 'installed', wazuh_agent_version]
+    fail_msg: "기존 Agent의 설치 상태 또는 버전이 예상과 다릅니다. 직접 확인하세요."
+  when: wazuh_agent_package.rc == 0
+
+- name: 신규 호스트에 Agent 설치
+  when:
+    - wazuh_agent_package.rc == 1
+    - not ansible_check_mode
+  vars:
+    wazuh_agent_deb_name: "wazuh-agent_{{ wazuh_agent_version }}_{{ wazuh_agent_deb_arches[ansible_facts['architecture']] }}.deb"
+    wazuh_agent_release: "{{ wazuh_agent_version.split('-')[0] }}"
+    wazuh_agent_deb_path: "/var/tmp/{{ wazuh_agent_deb_name }}"
+  block:
+    - name: 공식 DEB 다운로드 및 SHA512 검증
+      ansible.builtin.get_url:
+        url: "{{ wazuh_agent_package_base_url }}/{{ wazuh_agent_deb_name }}"
+        checksum: "sha512:{{ wazuh_agent_checksum_base_url }}/{{ wazuh_agent_release }}/{{ wazuh_agent_deb_name }}.sha512"
+        dest: "{{ wazuh_agent_deb_path }}"
+        mode: "0644"
+
+    - name: Manager 주소와 Agent 이름을 지정해 DEB 설치
+      ansible.builtin.command:
+        argv:
+          - dpkg
+          - -i
+          - "{{ wazuh_agent_deb_path }}"
+      environment:
+        WAZUH_MANAGER: "{{ wazuh_manager_address }}"
+        WAZUH_AGENT_NAME: "{{ inventory_hostname }}"
+
+- name: Agent 서비스 자동 시작 설정 및 실행
+  ansible.builtin.systemd_service:
+    name: wazuh-agent
+    enabled: true
+    state: started
+  when: not ansible_check_mode or wazuh_agent_package.rc == 0
