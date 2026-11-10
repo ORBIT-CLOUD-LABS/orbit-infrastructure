@@ -1,7 +1,7 @@
 # Argo CD와 orbit-gitops root Application
 
 구현: [#27](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/27). 선행: [#28](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/28) (k3s SQLite 재설치).
-코드를 작성했고 **운영 클러스터 적용과 검증은 아직 하지 않았다** ([적용 기록](#적용-기록)).
+운영 클러스터에서 설치 상태·워커 배치·AppProject·root 설정과 재실행 무변경을 확인했다. root의 `Synced`·`Healthy`와 허용 범위 밖 리소스 거부 시험은 아직 확인하지 않았다 ([적용 기록](#적용-기록)).
 이 문서에는 이름과 절차만 기록한다. admin 비밀번호 값은 Git·Issue·PR·문서·채팅 어디에도 남기지 않는다.
 
 이 레포는 Argo CD 설치, AppProject(배포 허용 범위), root Application을 맡는다. orbit-gitops는 root가 읽는 경로에 자식 Application과 실제 선언을 둔다. 허용 범위는 orbit-gitops PR로 넓힐 수 없고 이 레포에서만 바꾼다.
@@ -25,11 +25,13 @@
 | --- | --- | --- | --- | --- |
 | `default` | 쓰지 않음 (잠금) | 없음 | 없음 | 없음 |
 | `orbit-k3s-root` | root Application 전용 | orbit-gitops | `argocd` | Application만 |
-| `orbit-k3s-addons` | 애드온 (ESO, Fluent Bit 등) | orbit-gitops, `https://charts.external-secrets.io`, `https://fluent.github.io/helm-charts` | `external-secrets` | 클러스터: CRD, ClusterRole, ClusterRoleBinding, ValidatingWebhookConfiguration, ClusterSecretStore. namespace 안: Application·ApplicationSet·AppProject를 뺀 전부 |
+| `orbit-k3s-addons` | 애드온 (ESO, Fluent Bit 등) | orbit-gitops, `https://charts.external-secrets.io`, `https://fluent.github.io/helm-charts` | `external-secrets`, `fluent-bit` | 클러스터: CRD, ClusterRole, ClusterRoleBinding, ValidatingWebhookConfiguration, ClusterSecretStore. namespace 안: Application·ApplicationSet·AppProject를 뺀 전부 |
 
 - `default`는 Argo CD가 자동으로 만들고 모든 것을 허용한다. 자식 Application이 `project: default`로 제한을 우회하지 못하게 비워 둔다.
 - 허용 namespace는 플레이북이 미리 만든다. 프로젝트에는 Namespace 생성 권한이 없다.
-- 업무 앱 프로젝트(`orbit-k3s-workloads`)와 Fluent Bit namespace는 아직 정해지지 않아 만들지 않았다. [허용 범위 넓히기](#허용-범위-넓히기)
+- 업무 앱 프로젝트(`orbit-k3s-workloads`)는 앱 namespace가 정해진 뒤 추가한다. [허용 범위 넓히기](#허용-범위-넓히기)
+
+Fluent Bit의 orbit-gitops #45·#46 공통 값은 namespace `fluent-bit`, ExternalSecret·Secret 이름 `fluent-bit-elasticsearch`, Secret 키 `password`다. 이 플레이북은 namespace와 AppProject 허용 범위를 관리하며 ExternalSecret·Secret 선언은 orbit-gitops에서 관리한다.
 
 ### root Application
 
@@ -104,7 +106,7 @@ orbit-gitops가 chart 렌더링 결과로 필요한 namespace·저장소·리소
 
 | 바꿀 것 | 변수 |
 | --- | --- |
-| 애드온 namespace (예: Fluent Bit, #46에서 확정) | `argocd_addons_namespaces` |
+| 애드온 namespace | `argocd_addons_namespaces` |
 | 애드온 chart 저장소 | `argocd_addons_chart_repos` |
 | 애드온 클러스터 리소스 종류 | `argocd_addons_cluster_resources` |
 | 업무 앱 프로젝트 | 앱 namespace가 정해지면 `templates/argocd-projects.yaml.j2`에 `orbit-k3s-workloads` 추가 |
@@ -157,4 +159,13 @@ k3s를 다시 설치하면 Argo CD와 AppProject, root가 모두 사라진다. `
 
 ## 적용 기록
 
-아직 적용하지 않았다.
+아래는 `jyvnee`가 astra에서 실행하고 공유한 플레이북 출력과 orbit-gitops #45 적용·검증 완료 확인을 기준으로 작성했다. 최초 Argo CD 설치 시점은 이번 기록으로 확정하지 않는다.
+
+| 날짜 | 단계 | 결과 |
+| --- | --- | --- |
+| 2026-11-10 | 미리보기 (`--check --diff`) | `changed=1`, `failed=0`, `unreachable=0`. projects.yaml에 `fluent-bit` Namespace와 `orbit-k3s-addons`의 해당 namespace 목적지만 추가. HelmChart·root 파일 변경 없음 |
+| 2026-11-10 | 적용 | `ok=22`, `changed=2`, `failed=0`, `unreachable=0`. namespace·AppProject 정의 파일과 실제 적용 단계만 변경. 원하는 chart·values의 Helm release 배포 상태, 구성요소 5개 rollout, 파드 5개의 워커 배치, default 잠금·프로젝트 존재, root 프로젝트·소스·자동 Sync 정책 검사 통과 |
+| 2026-11-10 | 재실행 | `ok=22`, `changed=0`, `failed=0`, `unreachable=0`, `skipped=0`. 모든 확인 단계 재통과 |
+| 2026-11-10 | orbit-gitops #45 연결 검증 | 사용자 확인: #45 적용 완료, ESO의 Vault 연결·비밀값 읽기와 ExternalSecret 동기화 검증 완료. `fluent-bit` namespace 생성·배포 허용 설정과 함께 기록 |
+
+root의 Sync·Health 상태는 이 플레이북이 검사하지 않는다. orbit-gitops 연결 후 `Synced`·`Healthy` 확인과 허용 범위 밖 리소스 거부 시험을 별도로 기록한다.

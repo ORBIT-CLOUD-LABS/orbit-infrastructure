@@ -21,10 +21,11 @@ argocd_projects_file: /var/lib/rancher/k3s/orbit-argocd/projects.yaml   # Ansibl
 argocd_project_root: orbit-k3s-root          # root Application 전용. argocd namespace에 Application만
 argocd_project_addons: orbit-k3s-addons      # 애드온 (ESO, Fluent Bit 등)
 
-# 애드온 허용 범위. 미확정 값은 넣지 않음 (Fluent Bit namespace는 orbit-gitops#46에서 정해지면 추가)
+# 애드온 허용 범위. Fluent Bit namespace는 orbit-gitops#45·#46에서 함께 사용
 # namespace는 이 플레이북이 만들어 둠. 프로젝트에는 Namespace 생성 권한을 주지 않음
 argocd_addons_namespaces:
   - external-secrets
+  - fluent-bit
 argocd_addons_chart_repos:
   - https://charts.external-secrets.io
   - https://fluent.github.io/helm-charts
