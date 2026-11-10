@@ -1,0 +1,91 @@
+# astra: 내부 리버스 프록시 (nginx). 서비스 이름 → 모니터링 VM 포트
+- name: Kibana 확인용 CA가 있어야 함 (fluent_bit role이 둠)
+  ansible.builtin.stat:
+    path: "{{ rproxy_efk_ca }}"
+  register: rproxy_ca
+
+- name: 없으면 멈춤
+  ansible.builtin.assert:
+    that: rproxy_ca.stat.exists
+    fail_msg: "{{ rproxy_efk_ca }} 없음. 먼저 ansible-playbook playbooks/fluent-bit.yml -K --limit astra"
+
+- name: 방화벽 (nginx가 뜨기 전에 443을 막아 둠)
+  ansible.builtin.include_tasks: firewall.yml
+
+- name: nginx, 인증서 모듈용 파이썬 패키지
+  ansible.builtin.apt:
+    name: [nginx, python3-cryptography]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# 패키지 기본 사이트는 0.0.0.0:80에서 받음. 이 role은 443만 씀
+- name: 기본 사이트 끄기
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+
+- name: 인증서 폴더
+  ansible.builtin.file:
+    path: "{{ rproxy_tls_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: 개인키
+  community.crypto.openssl_privatekey:
+    path: "{{ rproxy_tls_dir }}/proxy.key"
+    type: ECC
+    curve: secp256r1
+    owner: root
+    group: root
+    mode: "0600"
+  register: rproxy_key
+  notify: reload nginx
+
+# 미리보기에서 키를 새로 만드는 경우는 키 파일이 실제로 없어서 CSR과 인증서는 건너뜀 (roles/efk/tasks/tls.yml과 같은 방식)
+- name: 인증서 요청
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: "{{ rproxy_tls_dir }}/proxy.key"
+    common_name: "{{ rproxy_sites[0].name }}.{{ orbit_domain }}"
+    subject_alt_name: "{{ rproxy_sites | map(attribute='name') | map('regex_replace', '$', '.' ~ orbit_domain) | map('regex_replace', '^', 'DNS:') | list }}"
+    extended_key_usage: [serverAuth]
+  register: rproxy_csr
+  changed_when: false
+  check_mode: false
+  when: not (ansible_check_mode and rproxy_key is changed)
+
+- name: 자체 서명 인증서 (이름이 바뀌면 다시 발급)
+  community.crypto.x509_certificate:
+    path: "{{ rproxy_tls_dir }}/proxy.crt"
+    csr_content: "{{ rproxy_csr.csr }}"
+    provider: selfsigned
+    selfsigned_not_after: "+{{ rproxy_tls_days }}d"
+    owner: root
+    group: root
+    mode: "0644"
+  when: not (ansible_check_mode and rproxy_key is changed)
+  notify: reload nginx
+
+- name: 프록시 설정
+  ansible.builtin.template:
+    src: orbit-proxy.conf.j2
+    dest: /etc/nginx/conf.d/orbit-proxy.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: 설정 문법 검사
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  when: not ansible_check_mode # 미리보기 첫 실행에서는 nginx가 아직 없음
+
+- name: nginx 켜기
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: started
+    enabled: true
+  when: not ansible_check_mode

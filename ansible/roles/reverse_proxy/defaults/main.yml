@@ -1,0 +1,24 @@
+# astra 내부 리버스 프록시. 서비스 이름을 보고 각 VM 포트로 넘김 (docs/reverse-proxy.md)
+rproxy_listen_ip: "{{ lan_ip }}" # 10.0.0.201. 와이파이 주소에서는 받지 않음
+rproxy_port: 443
+rproxy_allowed_ifaces: # 443을 받는 인터페이스. 나머지는 차단 (Vault 8200과 같은 방식)
+  - lo
+  - "{{ lan_bridge }}" # br0
+  - tailscale0
+rproxy_tls_dir: /etc/nginx/tls
+rproxy_tls_days: 825
+rproxy_efk_ca: /etc/fluent-bit/efk-ca.crt # fluent_bit role이 둔 efk CA 사본. Kibana 인증서 확인용
+
+# 서비스 이름 → 위쪽(nginx 뒤 서버). name은 앞부분만 쓰고 뒤에 orbit_domain이 붙음 (wazuh-ui → wazuh-ui.orbit-labs.space)
+# 이름은 Cloudflare DNS에 astra 내부망 주소로 등록 (DNS only)
+rproxy_sites:
+  - name: wazuh-ui
+    upstream: "https://{{ hostvars['wazuh'].lan_ip }}:443"
+    verify: false # Wazuh 자체 서명. 가져올 CA가 없음
+  - name: kibana
+    upstream: "https://{{ hostvars['efk'].lan_ip }}:5601"
+    verify: true
+    ca: "{{ rproxy_efk_ca }}"
+    ssl_name: efk # Kibana 인증서 SAN의 이름
+  - name: grafana
+    upstream: "http://{{ hostvars['lgtm'].lan_ip }}:3000"
