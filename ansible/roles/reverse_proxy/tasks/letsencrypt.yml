@@ -1,0 +1,75 @@
+# Let's Encrypt *.orbit-labs.space (DNS-01, Cloudflare). 토큰은 Vault에서 읽음 (orbit-infrastructure#38)
+# 처음 발급만 여기서 하고, 갱신은 패키지의 certbot.timer와 아래 deploy hook이 맡음
+- name: certbot, Cloudflare 플러그인
+  ansible.builtin.apt:
+    name: [certbot, python3-certbot-dns-cloudflare]
+    state: present
+
+- name: Cloudflare 토큰 읽기 (Vault)
+  ansible.builtin.uri:
+    url: "{{ hvault_addr }}/v1/{{ hvault_kv_mount }}/data/{{ rproxy_le_vault_path }}"
+    headers:
+      X-Vault-Token: "{{ lookup('ansible.builtin.env', 'VAULT_TOKEN') }}"
+    ca_path: "{{ hvault_tls_dir }}/vault-ca.crt"
+    status_code: [200, 403, 404, 503]
+  register: rproxy_le_vault
+  check_mode: false   # 읽기만 함
+  no_log: true
+
+- name: 토큰이 있어야 함
+  ansible.builtin.assert:
+    that:
+      - rproxy_le_vault.status == 200
+      - (rproxy_le_vault.json.data.data.dns_api_token | default('')) | length > 0
+    fail_msg: >-
+      {{ 'Vault가 sealed 상태. 먼저 unseal' if rproxy_le_vault.status == 503
+         else ('VAULT_TOKEN이 없거나 만료됨, 또는 ' ~ rproxy_le_vault_path ~ ' 읽기 권한 없음' if rproxy_le_vault.status == 403
+         else (hvault_kv_mount ~ '/' ~ rproxy_le_vault_path ~ '에 dns_api_token이 없음. docs/reverse-proxy.md 토큰 절대로 먼저 넣기')) }}
+    quiet: true
+
+- name: 설정 폴더가 있는지
+  ansible.builtin.stat:
+    path: /etc/letsencrypt
+  register: rproxy_le_dir
+
+# 미리보기 첫 실행에서는 certbot이 실제로 설치되지 않아 폴더가 없으므로 건너뜀
+- name: 자격 증명 파일 (root만 읽음)
+  ansible.builtin.copy:
+    dest: "{{ rproxy_le_credentials }}"
+    content: "dns_cloudflare_api_token = {{ rproxy_le_vault.json.data.data.dns_api_token }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: not (ansible_check_mode and not rproxy_le_dir.stat.exists)
+
+- name: 인증서 발급 (처음 한 번)
+  ansible.builtin.command:
+    argv: >-
+      {{ ['certbot', 'certonly', '--dns-cloudflare',
+          '--dns-cloudflare-credentials', rproxy_le_credentials,
+          '--dns-cloudflare-propagation-seconds', rproxy_le_propagation | string,
+          '-d', rproxy_le_domain, '--cert-name', rproxy_le_cert_name,
+          '--non-interactive', '--agree-tos', '--register-unsafely-without-email']
+         + (['--test-cert'] if rproxy_le_staging else []) }}
+    creates: "{{ rproxy_le_live }}/fullchain.pem"
+  notify: reload nginx
+
+- name: 갱신 뒤 nginx reload (deploy hook)
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+    content: |
+      #!/bin/sh
+      # 인증서가 갱신되면 nginx가 새 인증서를 읽게 함 (roles/reverse_proxy, orbit-infrastructure#38)
+      systemctl reload nginx
+    owner: root
+    group: root
+    mode: "0755"
+  when: not (ansible_check_mode and not rproxy_le_dir.stat.exists)
+
+- name: 갱신 타이머
+  ansible.builtin.systemd_service:
+    name: certbot.timer
+    state: started
+    enabled: true
+  when: not ansible_check_mode

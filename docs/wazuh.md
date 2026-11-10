@@ -31,7 +31,9 @@ mkdir -p ~/wazuh-install &&
 
 ## Dashboard 접속
 
-Tailscale에 연결한 Mac에서 `https://wazuh.orbit-labs.space/`를 열면 Dashboard 로그인 화면으로 이동한다. 접속은 astra의 Tailscale 서브넷 경로를 거쳐 Wazuh VM의 TCP 443으로 전달된다. 최초에는 443 연결이 타임아웃됐으며 Tailnet 정책에 TCP 443을 추가한 뒤 브라우저 접속과 Overview 표시를 확인했다.
+Tailscale에 연결한 Mac에서 `https://wazuh-ui.orbit-labs.space/`를 열면 Dashboard 로그인 화면으로 이동한다. astra nginx가 이름을 보고 Wazuh VM의 TCP 443으로 넘긴다 ([내부 리버스 프록시](reverse-proxy.md)). `wazuh.orbit-labs.space`는 SSH용 기기 이름이며, 팀원 정책에서 VM 443 직접 접속은 막혀 있다.
+
+설치 직후(2026-11-09)에는 VM 직통으로 접속했다. 최초에는 443 연결이 타임아웃됐으며 Tailnet 정책에 TCP 443을 추가한 뒤 브라우저 접속과 Overview 표시를 확인했다.
 
 검증 당시 Chrome 주소창에 인증서 경고가 표시됐다. 최종 접근 허용 범위는 팀 정책에 맞춰 확인한다.
 

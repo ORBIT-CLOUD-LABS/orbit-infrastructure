@@ -8,6 +8,7 @@ efk_es_http_hosts: ["127.0.0.1", "{{ lan_ip }}"]   # 9200 (HTTPS). 노드 간 �
 efk_kibana_host: "{{ lan_ip }}"                    # 5601 (HTTPS)
 efk_url: "https://{{ lan_ip }}:9200"
 efk_kibana_url: "https://{{ lan_ip }}:5601"
+efk_kibana_public_url: "https://kibana.{{ orbit_domain }}"   # Kibana가 링크를 만들 때 쓰는 주소 (astra 내부 리버스 프록시, docs/reverse-proxy.md)
 
 # TLS. 자체 CA로 Elasticsearch·Kibana 서버 인증서를 발급. 송신기(Fluent Bit)와 Kibana는 efk-ca.crt로 검증
 efk_es_tls_dir: /etc/elasticsearch/tls    # Elasticsearch는 설정 폴더 안의 파일만 읽음
