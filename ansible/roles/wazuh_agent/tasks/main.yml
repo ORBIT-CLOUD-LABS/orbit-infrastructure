@@ -8,10 +8,11 @@
 
 - name: 설치된 Agent 패키지 상태와 버전 조회
   ansible.builtin.command:
+    expand_argument_vars: false
     argv:
       - dpkg-query
       - -W
-      - '-f=\${Status}\t\${Version}'
+      - '-f=${Status}\t${Version}'
       - wazuh-agent
   register: wazuh_agent_package
   changed_when: false
