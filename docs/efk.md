@@ -11,7 +11,7 @@
 | 위치 | `efk` VM `10.0.0.205` (astra 안, 4 vCPU, 20GB, 디스크 100GB). 클러스터 장애를 조사할 수 있도록 k3s 밖에 둠 |
 | 버전 | Elasticsearch·Kibana 9.5.6, 호스트 Fluent Bit 5.1.5. 모두 apt hold로 고정 |
 | Elasticsearch | 단일 노드 `orbit-efk`, 힙 4g. HTTPS `9200`은 `127.0.0.1`과 `10.0.0.205`, 노드 간 `9300`은 `127.0.0.1`만 |
-| Kibana | `https://10.0.0.205:5601`. 공개 경로 `kibana.orbit-labs.space`(Cloudflare 프록시 → astra nginx)는 이후 진행. Elasticsearch에는 `127.0.0.1`로 `kibana_system` 계정으로 접속 |
+| Kibana | `https://kibana.orbit-labs.space` (astra nginx 경유, 내부 전용). 직접 주소 `https://10.0.0.205:5601`는 사용하지 않음(관리자만). Elasticsearch에는 `127.0.0.1`로 `kibana_system` 계정으로 접속 |
 | 데이터·로그 | `/var/lib/elasticsearch`, `/var/log/elasticsearch` (서버 로그 `orbit-efk_server.json`), `/var/log/kibana/kibana.log` |
 | TLS | 자체 CA `ORBIT EFK CA` (`/etc/elasticsearch/tls/efk-ca.crt`, 10년). Elasticsearch·Kibana 서버 인증서는 825일, SAN `efk`, `localhost`, `127.0.0.1`, `10.0.0.205`. SAN이 바뀌면 다시 발급 |
 | 비밀값 | Vault KV. 인프라 구역 `secret/orbit/infra/efk`, k3s 구역 `secret/orbit/k3s/fluent-bit` ([Vault 문서](vault.md#비밀값-경로와-권한)) |
