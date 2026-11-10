@@ -34,6 +34,21 @@
     group: root
     mode: "0750"
 
+# 인증서 모듈과 설정 파일은 둘 폴더가 실제로 있어야 함. 미리보기 첫 실행에서는 nginx가 실제로 설치되지 않아 폴더가 없으므로 건너뜀 (efk role과 같은 방식)
+- name: 폴더가 있는지
+  ansible.builtin.stat:
+    path: "{{ rproxy_tls_dir }}"
+  register: rproxy_tls_stat
+
+- name: 미리보기에서 건너뛸지
+  ansible.builtin.set_fact:
+    rproxy_skip: "{{ ansible_check_mode and not rproxy_tls_stat.stat.exists }}"
+
+- name: 건너뛰는 이유
+  ansible.builtin.debug:
+    msg: 미리보기에서 nginx와 인증서 폴더가 아직 없어서 인증서와 설정 만들기를 건너뜀. 실제 실행에서는 만든 뒤 진행함
+  when: rproxy_skip
+
 - name: 개인키
   community.crypto.openssl_privatekey:
     path: "{{ rproxy_tls_dir }}/proxy.key"
@@ -44,6 +59,7 @@
     mode: "0600"
   register: rproxy_key
   notify: reload nginx
+  when: not rproxy_skip
 
 # 미리보기에서 키를 새로 만드는 경우는 키 파일이 실제로 없어서 CSR과 인증서는 건너뜀 (roles/efk/tasks/tls.yml과 같은 방식)
 - name: 인증서 요청
@@ -55,7 +71,7 @@
   register: rproxy_csr
   changed_when: false
   check_mode: false
-  when: not (ansible_check_mode and rproxy_key is changed)
+  when: not (rproxy_skip or (ansible_check_mode and rproxy_key is changed))
 
 - name: 자체 서명 인증서 (이름이 바뀌면 다시 발급)
   community.crypto.x509_certificate:
@@ -66,7 +82,7 @@
     owner: root
     group: root
     mode: "0644"
-  when: not (ansible_check_mode and rproxy_key is changed)
+  when: not (rproxy_skip or (ansible_check_mode and rproxy_key is changed))
   notify: reload nginx
 
 - name: 프록시 설정
@@ -77,11 +93,12 @@
     group: root
     mode: "0644"
   notify: reload nginx
+  when: not rproxy_skip
 
 - name: 설정 문법 검사
   ansible.builtin.command: nginx -t
   changed_when: false
-  when: not ansible_check_mode # 미리보기 첫 실행에서는 nginx가 아직 없음
+  when: not ansible_check_mode   # 미리보기 첫 실행에서는 nginx가 아직 없음
 
 - name: nginx 켜기
   ansible.builtin.systemd_service:
