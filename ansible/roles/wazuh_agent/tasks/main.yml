@@ -26,6 +26,129 @@
     fail_msg: "기존 Agent의 설치 상태 또는 버전이 예상과 다릅니다. 직접 확인하세요."
   when: wazuh_agent_package.rc == 0
 
+- name: 대상에서 Wazuh Manager 포트 확인
+  ansible.builtin.wait_for:
+    host: "{{ wazuh_manager_address }}"
+    port: "{{ item }}"
+    state: started
+    connect_timeout: 3
+    timeout: 5
+  loop: "{{ [1515, 1514] if wazuh_agent_package.rc == 1 else [1514] }}"
+  check_mode: false
+  changed_when: false
+
+- name: astra에서 Vault 토큰 설정 여부 확인
+  ansible.builtin.assert:
+    that:
+      - lookup('ansible.builtin.env', 'VAULT_TOKEN') | length > 0
+    fail_msg: "astra에서 조회용 자격 증명을 읽을 수 있는 VAULT_TOKEN을 설정하세요."
+
+- name: Vault에서 Wazuh API 조회 계정 읽기
+  block:
+    - name: Vault KV v2에서 조회 계정 읽기
+      ansible.builtin.uri:
+        url: "{{ hvault_addr }}/v1/{{ hvault_kv_mount }}/data/{{ wazuh_agent_reader_secret_path }}"
+        headers:
+          X-Vault-Token: "{{ lookup('ansible.builtin.env', 'VAULT_TOKEN') }}"
+        ca_path: "{{ hvault_tls_dir }}/vault-ca.crt"
+        validate_certs: true
+        use_proxy: false
+        follow_redirects: none
+        use_netrc: false
+      register: wazuh_agent_reader_secret
+      delegate_to: "{{ hvault_host }}"
+      become: false
+      check_mode: false
+      no_log: true
+
+    - name: 조회 계정에 필요한 필드 확인
+      ansible.builtin.assert:
+        that:
+          - wazuh_agent_reader_secret.json.data.data.username | default('') | length > 0
+          - wazuh_agent_reader_secret.json.data.data.password | default('') | length > 0
+        quiet: true
+      no_log: true
+  rescue:
+    - name: Vault 조회 실패 시 중단
+      ansible.builtin.fail:
+        msg: "Vault에서 Wazuh 조회 계정을 읽지 못했습니다. Vault 인증서, 토큰의 읽기 권한, 비밀 경로와 필드를 확인하세요."
+
+- name: wazuh VM에서 API 조회 JWT 발급
+  block:
+    - name: Wazuh API에 조회 계정으로 인증
+      ansible.builtin.uri:
+        url: "{{ wazuh_agent_api_url | regex_replace('/+$', '') }}/security/user/authenticate"
+        method: POST
+        url_username: "{{ wazuh_agent_reader_secret.json.data.data.username }}"
+        url_password: "{{ wazuh_agent_reader_secret.json.data.data.password }}"
+        force_basic_auth: true
+        ca_path: "{{ wazuh_agent_api_ca_path }}"
+        validate_certs: true
+        use_proxy: false
+        follow_redirects: none
+        use_netrc: false
+      register: wazuh_agent_api_auth
+      delegate_to: wazuh
+      become: true
+      check_mode: false
+      no_log: true
+
+    - name: Wazuh API 토큰이 반환됐는지 확인
+      ansible.builtin.assert:
+        that:
+          - wazuh_agent_api_auth.json.data.token | default('') | length > 0
+        quiet: true
+      no_log: true
+  rescue:
+    - name: Wazuh API 인증 실패 시 중단
+      ansible.builtin.fail:
+        msg: "Wazuh 조회 JWT를 발급하지 못했습니다. wazuh VM의 SSH·sudo 권한, 로컬 API 인증서와 Vault에 저장된 조회 계정 자격 증명을 확인하세요."
+
+- name: 설치 전에 Manager의 등록 목록 확인
+  block:
+    - name: Manager에서 대상 이름의 Agent 조회
+      ansible.builtin.uri:
+        url: "{{ wazuh_agent_lookup_url }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ wazuh_agent_api_auth.json.data.token }}"
+        ca_path: "{{ wazuh_agent_api_ca_path }}"
+        validate_certs: true
+        use_proxy: false
+        follow_redirects: none
+        use_netrc: false
+        return_content: true
+      register: wazuh_agent_before
+      delegate_to: wazuh
+      become: true
+      check_mode: false
+      no_log: true
+
+    - name: 등록 조회가 정상 응답인지 확인
+      ansible.builtin.assert:
+        that:
+          - (wazuh_agent_before.json.error | default(-1)) == 0
+          - wazuh_agent_before.json.data.affected_items is defined
+          - wazuh_agent_before.json.data.total_affected_items is defined
+        quiet: true
+  rescue:
+    - name: API 조회 실패 시 설치 중단
+      ansible.builtin.fail:
+        msg: "{{ inventory_hostname }}의 Manager 등록을 조회하지 못했습니다. wazuh VM의 SSH·sudo 권한, 로컬 API 인증서 및 토큰 권한·만료를 확인하세요."
+
+- name: 신규 대상은 이름이 비어 있고 기존 대상은 등록이 하나인지 확인
+  ansible.builtin.assert:
+    that:
+      - wazuh_agent_before.json.data.total_affected_items == (0 if wazuh_agent_package.rc == 1 else 1)
+      - >-
+        wazuh_agent_package.rc == 1 or
+        (wazuh_agent_before.json.data.affected_items | map(attribute='name') | list)
+        == [inventory_hostname]
+    quiet: true
+    fail_msg: >-
+      {{ inventory_hostname }}의 로컬 패키지 상태와 Manager 등록이 일치하지 않습니다.
+      동일 이름의 기존 등록 또는 누락된 등록을 확인하세요.
+
 - name: 신규 호스트에 Agent 설치
   when:
     - wazuh_agent_package.rc == 1
@@ -58,3 +181,45 @@
     enabled: true
     state: started
   when: not ansible_check_mode or wazuh_agent_package.rc == 0
+
+- name: 서비스 시작 후 Manager 연결 확인
+  when: not ansible_check_mode
+  block:
+    - name: 같은 이름으로 등록된 Agent가 Active가 될 때까지 확인
+      ansible.builtin.uri:
+        url: "{{ wazuh_agent_lookup_url }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ wazuh_agent_api_auth.json.data.token }}"
+        ca_path: "{{ wazuh_agent_api_ca_path }}"
+        validate_certs: true
+        use_proxy: false
+        follow_redirects: none
+        use_netrc: false
+        return_content: true
+      register: wazuh_agent_after
+      delegate_to: wazuh
+      become: true
+      until: >-
+        (wazuh_agent_after.json.error | default(-1)) == 0
+        and (wazuh_agent_after.json.data.total_affected_items | default(0)) == 1
+        and (wazuh_agent_after.json.data.affected_items | default([])
+             | selectattr('name', 'equalto', inventory_hostname)
+             | selectattr('status', 'equalto', 'active') | list | length) == 1
+      retries: 12
+      delay: 5
+      no_log: true
+  rescue:
+    - name: Active 확인 실패 시 다음 대상 중단
+      ansible.builtin.fail:
+        msg: "{{ inventory_hostname }}의 Active 상태를 확인하지 못했습니다. Agent 실행 로그와 Manager API 연결·인증을 확인하세요."
+
+- name: 기존 Agent의 등록 ID 유지 확인
+  ansible.builtin.assert:
+    that:
+      - wazuh_agent_after.json.data.affected_items[0].id == wazuh_agent_before.json.data.affected_items[0].id
+    quiet: true
+    fail_msg: "{{ inventory_hostname }}의 기존 Agent ID가 변경됐습니다."
+  when:
+    - not ansible_check_mode
+    - wazuh_agent_package.rc == 0
