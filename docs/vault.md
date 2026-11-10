@@ -58,11 +58,19 @@ astra 개인 계정으로 실행한다([Ansible 실행](personal-accounts.md#ans
 | --- | --- | --- |
 | GitHub `orbit` 팀 | `ssh-orbit`, `orbit-secrets-write` | 기존 SSH 서명 + `secret/data/orbit/*`(k3s·인프라 두 구역) 조회·생성·전체 교체·부분 수정 |
 | GitHub 사용자 (개인 명단) | `ssh-personal-<계정명>` | 본인 역할 `ssh-client-signer/sign/personal-<계정명>`의 서명만. 팀 정책에 더해짐. 명단에서 빠지면 Vault 플레이북이 삭제 ([개인 계정 문서](personal-accounts.md#vault-개인-ssh-역할정책)) |
-| ESO SA | `eso-orbit` | `secret/data/orbit/k3s/*` 읽기만. 앱별 격리가 아닌 k3s 앱 공용 권한. 인프라 구역은 읽지 못함 |
+| ESO SA | `eso-orbit` | `secret/data/orbit/k3s/*` 읽기, 자기 토큰 조회·폐기. 앱별 격리가 아닌 k3s 앱 공용 권한. 인프라 구역은 읽지 못함 |
 | 비상 userpass 계정 | `ssh-orbit` | SSH 서명만 |
 | 임시 root | `root` | 엔진·인증·정책 관리와 검증·정리. 완료 후 폐기 |
 
 쓰기 정책은 `create`, `read`, `update`, `patch`를 허용하며 목록·삭제·SSH 서명 권한은 없다. SSH 서명은 별도 `ssh-orbit` 정책으로 허용한다. 이 정책들은 VM의 파일 권한이나 sudo 권한을 바꾸지 않는다. 현재는 orbit 팀원 전원이 k3s 앱과 인프라의 비밀값을 모두 읽고 바꿀 수 있다.
+
+### ESO 자기 토큰 권한
+
+`eso` 역할은 `token_no_default_policy: true`이므로 기본 정책의 자기 토큰 권한도 받지 않는다. `eso-orbit`에는 비밀값 읽기 외에 `auth/token/lookup-self`의 `read`와 `auth/token/revoke-self`의 `update`를 명시한다. ESO의 로그인 후 토큰 확인과 사용한 토큰 정리에 필요하다. 다른 토큰 조회·폐기나 비밀값 읽기 범위를 추가하지 않는다.
+
+정책은 `roles/vault/templates/kv-read-policy.hcl.j2`가 원본이다. 운영에 정책만 반영할 때는 관리자 권한으로 `vault policy read eso-orbit`를 먼저 확인하고, 템플릿을 렌더링한 HCL 파일을 `vault policy write eso-orbit <렌더링한-HCL-파일>`로 적용한다. 이 명령은 정책 전체를 교체하므로 기존 k3s 읽기 블록을 포함해야 한다. Jinja 템플릿 자체를 Vault에 넘기지 않는다. `vault.yml` 전체 실행은 스냅샷 등 다른 설정도 적용하므로 정책만 갱신하는 작업과 구분한다.
+
+검증은 ESO 역할로 로그인한 시험 토큰으로 수행한다. `VAULT_TOKEN="$ESO_TOKEN" vault token lookup -field=ttl`이 성공하고 기존 k3s 읽기 허용·인프라 구역 읽기와 쓰기 거부가 유지되어야 한다. 시험이 끝나면 `VAULT_TOKEN="$ESO_TOKEN" vault token revoke -self`가 성공하는지 확인한다. 자기 조회 응답 전체에는 토큰 값이 포함되므로 출력하지 않는다. 실제 ESO의 Store Ready와 ExternalSecret 동기화도 확인해야 한다.
 
 ### 값 넣기·바꾸기
 
