@@ -1,0 +1,61 @@
+# astra: 443은 허용한 인터페이스에서만 받음 (Vault 8200과 같은 방식, roles/vault/tasks/firewall.yml)
+# nginx를 내부망 주소에만 붙여도, 와이파이로 들어온 패킷이 10.0.0.201을 향하면 리눅스는 받음. 그래서 인터페이스로 막음
+# Vault 연결은 INPUT 맨 앞이어야 함(vault role이 확인). 이 연결은 뒤에 붙이고 하나만 있는지만 봄
+- name: 규칙 저장 도구가 있어야 함 (gateway role이 설치)
+  ansible.builtin.stat:
+    path: /usr/sbin/netfilter-persistent
+  register: rproxy_nfp
+
+- name: 없으면 멈춤
+  ansible.builtin.assert:
+    that: rproxy_nfp.stat.exists
+    fail_msg: "netfilter-persistent 없음. 먼저 ansible-playbook playbooks/network.yml --limit astra"
+
+- name: 원하는 규칙 (iptables -S 형식)
+  ansible.builtin.set_fact:
+    rproxy_fw_chain: >-
+      {{ ['-N ORBIT-PROXY']
+         + (rproxy_allowed_ifaces | map('regex_replace', '^', '-A ORBIT-PROXY -i ') | map('regex_replace', '$', ' -j ACCEPT') | list)
+         + ['-A ORBIT-PROXY -j DROP'] }}
+    rproxy_fw_jump: "-A INPUT -p tcp -m tcp --dport {{ rproxy_port }} -j ORBIT-PROXY"
+
+- name: 지금 규칙 읽기
+  ansible.builtin.command: iptables -S
+  register: rproxy_fw_now
+  changed_when: false
+  check_mode: false
+
+- name: 바꿔야 하는지
+  ansible.builtin.set_fact:
+    rproxy_fw_needs_change: >-
+      {{ (rproxy_fw_now.stdout_lines | select('match', '-(N|A) ORBIT-PROXY( |$)') | list) != rproxy_fw_chain or
+         (rproxy_fw_now.stdout_lines | select('equalto', rproxy_fw_jump) | list | length) != 1 }}
+
+- name: 미리보기 (바뀔 규칙)
+  ansible.builtin.debug:
+    msg: "{{ lookup('ansible.builtin.template', 'proxy-firewall.rules.j2').splitlines() }}"
+  when: ansible_check_mode and rproxy_fw_needs_change
+  changed_when: true
+
+# iptables-restore는 한 번에 적용해서, 바꾸는 사이에 443이 열리는 순간이 없음
+- name: 다르면 한 번에 바꾸기
+  ansible.builtin.command:
+    cmd: iptables-restore --noflush
+    stdin: "{{ lookup('ansible.builtin.template', 'proxy-firewall.rules.j2') }}"
+  when: rproxy_fw_needs_change
+  changed_when: true
+  notify: save proxy firewall
+
+- name: 다시 읽기
+  ansible.builtin.command: iptables -S
+  register: rproxy_fw_after
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: 원하는 모양인지 확인
+  ansible.builtin.assert:
+    that:
+      - (rproxy_fw_after.stdout_lines | select('match', '-(N|A) ORBIT-PROXY( |$)') | list) == rproxy_fw_chain
+      - (rproxy_fw_after.stdout_lines | select('equalto', rproxy_fw_jump) | list | length) == 1
+    fail_msg: "프록시 방화벽 규칙이 원하는 모양이 아님. sudo iptables -S INPUT; sudo iptables -S ORBIT-PROXY 확인"
+  when: not ansible_check_mode

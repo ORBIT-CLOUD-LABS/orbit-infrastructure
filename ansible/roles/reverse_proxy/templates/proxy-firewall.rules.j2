@@ -1,0 +1,11 @@
+*filter
+:ORBIT-PROXY - [0:0]
+-F ORBIT-PROXY
+{% for rule in rproxy_fw_chain[1:] %}
+{{ rule }}
+{% endfor %}
+{% for rule in rproxy_fw_now.stdout_lines if rule == rproxy_fw_jump %}
+{{ rproxy_fw_jump | regex_replace('^-A ', '-D ') }}
+{% endfor %}
+{{ rproxy_fw_jump }}
+COMMIT

@@ -1,0 +1,10 @@
+- name: reload nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
+  when: not ansible_check_mode # 미리보기 첫 실행에서는 nginx가 아직 없음
+
+# 재부팅 뒤에도 유지 (gateway role의 save iptables와 같은 명령)
+- name: save proxy firewall
+  ansible.builtin.command: netfilter-persistent save
+  changed_when: true

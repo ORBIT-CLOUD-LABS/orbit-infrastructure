@@ -11,7 +11,7 @@
 | 위치 | `efk` VM `10.0.0.205` (astra 안, 4 vCPU, 20GB, 디스크 100GB). 클러스터 장애를 조사할 수 있도록 k3s 밖에 둠 |
 | 버전 | Elasticsearch·Kibana 9.5.6, 호스트 Fluent Bit 5.1.5. 모두 apt hold로 고정 |
 | Elasticsearch | 단일 노드 `orbit-efk`, 힙 4g. HTTPS `9200`은 `127.0.0.1`과 `10.0.0.205`, 노드 간 `9300`은 `127.0.0.1`만 |
-| Kibana | `https://10.0.0.205:5601`. 공개 경로 `kibana.orbit-labs.space`(Cloudflare 프록시 → astra nginx)는 이후 진행. Elasticsearch에는 `127.0.0.1`로 `kibana_system` 계정으로 접속 |
+| Kibana | `https://kibana.orbit-labs.space` (astra nginx 경유, 내부 전용). 직접 주소 `https://10.0.0.205:5601`는 사용하지 않음(관리자만). Elasticsearch에는 `127.0.0.1`로 `kibana_system` 계정으로 접속 |
 | 데이터·로그 | `/var/lib/elasticsearch`, `/var/log/elasticsearch` (서버 로그 `orbit-efk_server.json`), `/var/log/kibana/kibana.log` |
 | TLS | 자체 CA `ORBIT EFK CA` (`/etc/elasticsearch/tls/efk-ca.crt`, 10년). Elasticsearch·Kibana 서버 인증서는 825일, SAN `efk`, `localhost`, `127.0.0.1`, `10.0.0.205`. SAN이 바뀌면 다시 발급 |
 | 비밀값 | Vault KV. 인프라 구역 `secret/orbit/infra/efk`, k3s 구역 `secret/orbit/k3s/fluent-bit` ([Vault 문서](vault.md#비밀값-경로와-권한)) |
@@ -84,14 +84,14 @@ unset P
 
 ## Kibana 접속
 
-공개 경로 `kibana.orbit-labs.space`(orbit `docs/infrastructure.md`: Cloudflare 프록시 → astra nginx → efk 5601)는 astra nginx(게이트웨이)를 구성한 뒤 진행한다. 그때 Kibana `server.publicBaseUrl`(efk role `kibana.yml.j2`)도 공개 주소로 바꾼다. `efk_kibana_url`은 Ansible이 Kibana API에 접속할 때도 쓰므로 그대로 둔다. 로그에 SSH 로그인·sudo 기록이 있으므로 공개할 때 Cloudflare Access 같은 앞단 인증을 검토한다. 그전까지는 Tailscale로 접속한다.
+Kibana는 공개하지 않는다. 팀원은 Tailscale에 연결한 뒤 `https://kibana.orbit-labs.space`로 접속하고, astra nginx가 efk 5601로 넘긴다 ([내부 리버스 프록시](reverse-proxy.md)). Kibana `server.publicBaseUrl`은 `efk_kibana_public_url`(이 이름)을 쓴다. `efk_kibana_url`은 Ansible이 Kibana API에 접속할 때 쓰므로 내부망 주소 그대로 둔다.
 
 ```
-팀원 Mac ─Tailscale─▶ astra(서브넷 라우터, SNAT) ─▶ efk 10.0.0.205:5601
+팀원 Mac ─Tailscale─▶ astra nginx 10.0.0.201:443 ─▶ efk 10.0.0.205:5601
 ```
 
 1. Tailscale을 켠다.
-2. 브라우저에서 `https://10.0.0.205:5601`에 접속한다.
+2. 브라우저에서 `https://kibana.orbit-labs.space`에 접속한다.
 3. `kibana_viewer`와 Vault의 `kibana_viewer_password`로 로그인한다.
 4. Discover에서 데이터 뷰 `orbit-k8s (k3s Pod)` 또는 `orbit-host (호스트 journald·파일)`를 고른다.
 
@@ -99,11 +99,11 @@ unset P
 
 | 관문 | 설정 | 관리 |
 | --- | --- | --- |
-| Tailscale ACL | 팀원 기기 → `10.0.0.205:5601` 허용 | Tailscale 관리 콘솔 (tailnet 관리자) |
+| Tailscale ACL | 팀원 기기 → `10.0.0.201:443` 허용 (astra nginx). VM 직통 5601은 막힘 | Tailscale 관리 콘솔 (tailnet 관리자) |
 | astra mangle `ORBIT-TS-EFK` | tailnet → efk는 TCP 22·5601과 ping만 통과 | `efk.yml` |
 | efk `ORBIT-EFK` | 5601은 astra(`10.0.0.201`)에서만 | `efk.yml` |
 
-인증서 경고: Kibana 인증서는 자체 CA로 서명해서 처음에는 브라우저가 경고한다. CA를 신뢰하면 경고가 사라진다. CA는 공개 인증서라 어느 호스트에서 복사해도 된다. 신뢰는 시스템 전체가 아닌 로그인 키체인에만 넣는다.
+인증서 경고: 브라우저가 보는 인증서는 astra nginx의 자체 서명 인증서라 처음에는 경고한다 ([내부 리버스 프록시](reverse-proxy.md)). 아래 efk CA는 관리자가 `https://10.0.0.205:5601`로 직접 접속할 때만 쓴다. CA는 공개 인증서라 어느 호스트에서 복사해도 된다. 신뢰는 시스템 전체가 아닌 로그인 키체인에만 넣는다.
 
 ```bash
 # Mac에서
