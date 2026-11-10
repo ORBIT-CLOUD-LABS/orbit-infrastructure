@@ -10,8 +10,8 @@ map $http_upgrade $connection_upgrade {
 # 모르는 이름은 응답 없이 끊음
 server {
     listen {{ rproxy_listen_ip }}:{{ rproxy_port }} ssl default_server;
-    ssl_certificate     {{ rproxy_tls_dir }}/proxy.crt;
-    ssl_certificate_key {{ rproxy_tls_dir }}/proxy.key;
+    ssl_certificate     {{ rproxy_cert }};
+    ssl_certificate_key {{ rproxy_cert_key }};
     return 444;
 }
 {% for site in rproxy_sites %}
@@ -19,8 +19,8 @@ server {
 server {
     listen {{ rproxy_listen_ip }}:{{ rproxy_port }} ssl;
     server_name {{ site.name }}.{{ orbit_domain }};
-    ssl_certificate     {{ rproxy_tls_dir }}/proxy.crt;
-    ssl_certificate_key {{ rproxy_tls_dir }}/proxy.key;
+    ssl_certificate     {{ rproxy_cert }};
+    ssl_certificate_key {{ rproxy_cert_key }};
 
     location / {
         proxy_pass {{ site.upstream }};

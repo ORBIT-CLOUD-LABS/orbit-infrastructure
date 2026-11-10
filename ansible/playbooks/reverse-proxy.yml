@@ -2,9 +2,11 @@
 # 문서: docs/reverse-proxy.md
 #   먼저: ansible-playbook playbooks/network.yml --limit astra   (규칙 저장 도구)
 #         ansible-playbook playbooks/fluent-bit.yml -K           (astra에 efk CA 사본)
+#   ../scripts/orbit-ssh-cert.sh                       # Vault 토큰 (8시간)
+#   export VAULT_TOKEN=$(cat ~/.orbit/vault-token)    # Cloudflare 토큰을 secret/orbit/infra/cloudflare에서 읽음 (rproxy_tls_mode: letsencrypt일 때)
 #   미리보기: ansible-playbook playbooks/reverse-proxy.yml -K --check --diff
 #   실행:    ansible-playbook playbooks/reverse-proxy.yml -K --diff
-# 비밀값을 쓰지 않으므로 VAULT_TOKEN은 필요 없음
+#   unset VAULT_TOKEN
 
 - name: 내부 리버스 프록시 (astra)
   hosts: gateway
