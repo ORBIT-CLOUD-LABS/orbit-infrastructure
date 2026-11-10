@@ -87,3 +87,4 @@ curl -skI https://kibana.orbit-labs.space/ | head -1   # 팀원 Mac: HTTP/1.1 30
 | 2026-11-10 | 접속 확인 | `wazuh-ui`·`kibana` 302, `grafana` 502(Grafana 설치 전), 모르는 이름 연결 끊김. Kibana `server.publicBaseUrl` 서비스 이름으로 변경 |
 | 2026-11-10 | Cloudflare 토큰 | `orbit-astra-certbot-dns` 발급(만료 2027-11-10), Vault 저장 |
 | 2026-11-?? | Let's Encrypt 적용 | (staging 발급 → 정식 발급, 재실행 `changed=0`, `renew --dry-run` 결과를 적음) |
+| 2026-11-10 | Let's Encrypt 적용 | staging 발급 확인 뒤 정식 발급(`*.orbit-labs.space`, 만료 2027-02-08), 재실행 `changed=0`, staging 인증서 삭제, `renew --dry-run` 성공 |
