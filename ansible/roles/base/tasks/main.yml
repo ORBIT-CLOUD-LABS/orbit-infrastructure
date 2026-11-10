@@ -50,3 +50,30 @@
           {{ h }},{{ hostvars[h].lan_ip }} ssh-ed25519 {{ hostvars[h].ansible_ssh_host_key_ed25519_public }}
           {% endfor %}
       when: base_hostkey_missing | length == 0
+
+
+# 시간대. 시각 자체는 NTP(systemd-timesyncd)가 맞추고, 여기서는 표시 기준만 바꿈 (orbit-infrastructure#39)
+# 바꾸면 그 시점부터 로그 시각 기준이 바뀜. Vault 스냅샷 타이머는 UTC로 고정돼 있어 영향 없음
+- name: 지금 시간대와 NTP 동기화
+  ansible.builtin.command: timedatectl show -p Timezone -p NTPSynchronized
+  register: base_time
+  changed_when: false
+  check_mode: false   # 읽기만 함
+
+- name: NTP 동기화가 돼 있어야 함
+  ansible.builtin.assert:
+    that: "'NTPSynchronized=yes' in base_time.stdout_lines"
+    fail_msg: "{{ inventory_hostname }}: NTP 동기화 안 됨. timedatectl timesync-status 확인"
+    quiet: true
+
+# command는 미리보기에서 건너뛰어서, 바뀔 예정인지 따로 보여 줌
+- name: 바뀔 시간대 (미리보기)
+  ansible.builtin.debug:
+    msg: "{{ base_time.stdout_lines | select('match', 'Timezone=') | first }} → Timezone={{ orbit_timezone }}"
+  when: ansible_check_mode and ('Timezone=' ~ orbit_timezone) not in base_time.stdout_lines
+  changed_when: true
+
+- name: 시간대 바꾸기
+  ansible.builtin.command: timedatectl set-timezone {{ orbit_timezone }}
+  when: ('Timezone=' ~ orbit_timezone) not in base_time.stdout_lines
+  changed_when: true
