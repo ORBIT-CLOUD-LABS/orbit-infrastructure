@@ -4,7 +4,7 @@
 server.host: "{{ efk_kibana_host }}"
 server.port: 5601
 server.name: {{ inventory_hostname }}
-server.publicBaseUrl: "{{ efk_kibana_url }}"
+server.publicBaseUrl: "{{ efk_kibana_public_url }}"
 server.ssl.enabled: true
 server.ssl.key: {{ efk_kibana_tls_dir }}/kibana.key
 server.ssl.certificate: {{ efk_kibana_tls_dir }}/kibana.crt
