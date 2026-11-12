@@ -1,4 +1,3 @@
-
 hvault_repo_url: https://apt.releases.hashicorp.com
 hvault_config_dir: /etc/vault.d
 hvault_data_dir: /opt/vault/data          # Raft. astra NVMe
@@ -28,5 +27,3 @@ hvault_snapshot_oncalendar: "*-*-* 18:30:00 UTC"      # KST 03:30. 타임존 변
 hvault_snapshot_min_bytes: 4096
 # node-exporter textfile collector 경로 (폴더가 있을 때만 지표를 기록함)
 hvault_snapshot_metric_dir: /var/lib/node_exporter/textfile_collector
-'@.Replace("`r`n", "`n").TrimEnd() + "`n"
-[IO.File]::WriteAllText("$PWD\ansible\roles\vault\defaults\main.yml", $defaults, [Text.UTF8Encoding]::new($false))

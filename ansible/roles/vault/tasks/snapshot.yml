@@ -149,5 +149,3 @@
       {{ hvault_snapshot_approle_env }}가 없어 타이머를 켜지 않음.
       VAULT_TOKEN을 설정하고 playbooks/vault.yml을 실행하면 AppRole 생성 후 타이머를 활성화함
   when: not hvault_snapshot_creds.stat.exists
-  '@.Replace("`r`n", "`n").TrimEnd() + "`n"
-[IO.File]::WriteAllText("$PWD\ansible\roles\vault\tasks\snapshot.yml", $snapshot, [Text.UTF8Encoding]::new($false))
