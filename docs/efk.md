@@ -154,12 +154,13 @@ CA를 신뢰하면 이 CA로 서명된 인증서는 모두 믿게 된다. CA 개
 
 | 호스트 | journald | 파일 |
 | --- | --- | --- |
-| 공통 | `ssh.service`, 식별자 `sshd`·`sudo`, 커널 warning(PRIORITY 4) 이상 | |
+| 공통 | `ssh.service`, `prometheus-node-exporter`, 식별자 `sshd`·`sudo`, 커널 warning(PRIORITY 4) 이상 | |
 | astra | `vault`, `tailscaled`, `libvirtd`, `virtlogd`, `smartmontools`, `systemd-networkd`, `orbit-net-revert`, 식별자 `wpa_supplicant`·`orbit-net` | `/var/log/libvirt/qemu/*.log` |
 | VM 3대 | cloud-init 유닛 4개 | |
 | efk | `elasticsearch`, `kibana` | `/var/log/elasticsearch/orbit-efk_server.json` (JSON을 풀어서) |
+| lgtm | `prometheus`, `prometheus-alertmanager`, `grafana-server` | |
 
-- 처음 제외: Vault 감사 로그(Wazuh 연동 계획), astra의 PostgreSQL·Samba·Docker, `systemd-resolved`, 백업 작업. lgtm·wazuh 스택 로그는 각 스택을 설치할 때 `roles/fluent_bit/defaults/main.yml`에 추가한다. astra에는 `orbit-gw-watch`가 없다(워커 노드에만 있어 k3s 쪽에서 수집).
+- 처음 제외: Vault 감사 로그(Wazuh 연동 계획), astra의 PostgreSQL·Samba·Docker, `systemd-resolved`, 백업 작업. wazuh 스택 로그는 스택을 설치할 때 `roles/fluent_bit/defaults/main.yml`에 추가한다(lgtm은 #43에서 추가).
 - journald 조건은 OR로 묶인다. 커널은 `_TRANSPORT=kernel`로 받고, PRIORITY 5~7은 버린다.
 - 보내는 필드는 `message`, `host.name`, `systemd.unit`, `syslog.identifier`, `syslog.priority`, `file.path`뿐이다. 나머지 journald 필드는 버린다.
 - 버퍼: `/var/lib/fluent-bit` (읽기 위치 DB와 파일 버퍼). 상한 512M, efk만 64M. 재시도는 제한 없음. 상한에 닿으면 오래된 청크부터 버린다. 처음 시작할 때 이전 journal은 읽지 않는다.
