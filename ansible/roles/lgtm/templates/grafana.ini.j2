@@ -8,7 +8,7 @@ domain = {{ lgtm_grafana_public_url | urlsplit('hostname') }}
 root_url = {{ lgtm_grafana_public_url }}
 
 [security]
-admin_user = orbit
+admin_user = admin
 # 처음 시작할 때 한 번만 읽음
 admin_password = $__file{% raw %}{{% endraw %}{{ lgtm_grafana_admin_password_file }}{% raw %}}{% endraw %}
 
