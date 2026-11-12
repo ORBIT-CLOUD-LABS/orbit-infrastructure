@@ -1,0 +1,172 @@
+---
+- name: 설치 대상 OS와 아키텍처 확인
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Ubuntu'
+      - ansible_distribution_version == '24.04'
+      - ansible_architecture == 'x86_64'
+
+- name: 중앙 구성요소 패키지 상태 조회
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv:
+      - dpkg-query
+      - -W
+      - '-f=${Status}\t${Version}'
+      - "{{ item.key }}"
+  loop: "{{ wazuh_central_packages | dict2items }}"
+  register: wazuh_packages_before
+  changed_when: false
+  failed_when: wazuh_packages_before.rc not in [0, 1]
+  check_mode: false
+
+- name: 기존 구성 및 데이터 경로 확인
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /var/ossec/etc/ossec.conf
+    - /etc/wazuh-indexer
+    - /var/lib/wazuh-indexer
+    - /etc/wazuh-dashboard
+    - /etc/filebeat
+  register: wazuh_existing_paths
+
+- name: 신규 설치 가능 상태 판별
+  ansible.builtin.set_fact:
+    wazuh_central_empty: >-
+      {{ (wazuh_packages_before.results | selectattr('rc', 'equalto', 0) | list | length == 0)
+         and not (wazuh_existing_paths.results | selectattr('stat.exists') | list) }}
+
+- name: 기존 설치의 상태와 버전 확인
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.stdout.split() == ['install', 'ok', 'installed', item.item.value]
+    fail_msg: "{{ item.item.key }} 설치 상태 또는 버전 불일치. 기존 구성을 확인하세요."
+  loop: "{{ wazuh_packages_before.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when: not wazuh_central_empty | bool
+
+- name: 신규 설치 실행 조건 확인
+  ansible.builtin.assert:
+    that:
+      - wazuh_central_allow_install | bool
+      - wazuh_central_installer_url is match('^https://')
+      - wazuh_central_installer_sha256 is match('^[0-9a-fA-F]{64}$')
+      - ansible_processor_vcpus | int >= 4
+      - ansible_memtotal_mb | int >= 8192
+    fail_msg: 신규 설치 승인, 설치물 또는 VM 자원 기준을 확인하세요.
+  when: wazuh_central_empty | bool
+
+- name: 신규 설치
+  when:
+    - wazuh_central_empty | bool
+    - not ansible_check_mode
+  block:
+    - name: 루트 파일시스템 여유 공간 확인
+      ansible.builtin.assert:
+        that: item.size_available | int >= 50 * 1024 ** 3
+      loop: "{{ ansible_mounts | selectattr('mount', 'equalto', '/') | list }}"
+
+    - name: 신규 설치 포트 충돌 확인
+      ansible.builtin.command:
+        argv:
+          - ss
+          - -H
+          - -lnt
+          - '( sport = :443 or sport = :1514 or sport = :1515 or sport = :9200 or sport = :9300 or sport = :55000 )'
+      register: wazuh_ports
+      changed_when: false
+      failed_when: wazuh_ports.rc != 0 or wazuh_ports.stdout | length > 0
+
+    - name: 설치 도우미 보관 디렉터리 생성
+      ansible.builtin.file:
+        path: /root/wazuh-central-install
+        state: directory
+        mode: '0700'
+
+    - name: 승인된 설치 도우미 다운로드 및 해시 검증
+      ansible.builtin.get_url:
+        url: "{{ wazuh_central_installer_url }}"
+        checksum: "sha256:{{ wazuh_central_installer_sha256 }}"
+        dest: /root/wazuh-central-install/wazuh-install.sh
+        mode: '0700'
+
+    - name: 중앙 구성요소 설치
+      ansible.builtin.command:
+        argv: [bash, ./wazuh-install.sh, '-a']
+        chdir: /root/wazuh-central-install
+      no_log: true
+
+- name: 설치된 구성요소와 서비스 상태 검증
+  when: not ansible_check_mode
+  block:
+    - name: 패키지 버전 확인
+      ansible.builtin.command:
+        expand_argument_vars: false
+        argv:
+          - dpkg-query
+          - -W
+          - '-f=${Status}\t${Version}'
+          - "{{ item.key }}"
+      loop: "{{ wazuh_central_packages | dict2items }}"
+      register: wazuh_package_after
+      changed_when: false
+      failed_when: >-
+        wazuh_package_after.rc != 0 or
+        wazuh_package_after.stdout.split() != ['install', 'ok', 'installed', item.value]
+
+    - name: 서비스가 실행 중인지 확인
+      ansible.builtin.command:
+        argv: [systemctl, is-active, "{{ item }}"]
+      loop: "{{ wazuh_central_packages.keys() | list }}"
+      changed_when: false
+
+    - name: Dashboard 로컬 HTTPS 응답 확인
+      ansible.builtin.uri:
+        url: https://127.0.0.1:443/
+        validate_certs: false
+        follow_redirects: none
+        status_code: [200, 302]
+        use_proxy: false
+
+    - name: Manager API 조회 계정으로 인증
+      ansible.builtin.uri:
+        url: "{{ wazuh_central_api_url }}/security/user/authenticate?raw=true"
+        method: POST
+        url_username: "{{ lookup('ansible.builtin.env', 'WAZUH_API_USER') }}"
+        url_password: "{{ lookup('ansible.builtin.env', 'WAZUH_API_PASSWORD') }}"
+        force_basic_auth: true
+        ca_path: "{{ wazuh_central_api_ca }}"
+        follow_redirects: none
+        use_proxy: false
+        return_content: true
+      register: wazuh_api_login
+      no_log: true
+
+    - name: Manager API에서 Agent 조회
+      ansible.builtin.uri:
+        url: "{{ wazuh_central_api_url }}/agents?limit=1"
+        headers:
+          Authorization: "Bearer {{ wazuh_api_login.content | trim }}"
+        ca_path: "{{ wazuh_central_api_ca }}"
+        follow_redirects: none
+        use_proxy: false
+      no_log: true
+
+    - name: Indexer에서 기존 경보 한 건 조회
+      ansible.builtin.uri:
+        url: "{{ wazuh_central_indexer_url }}/wazuh-alerts-*/_search?size=1"
+        url_username: "{{ lookup('ansible.builtin.env', 'WAZUH_INDEXER_USER') }}"
+        url_password: "{{ lookup('ansible.builtin.env', 'WAZUH_INDEXER_PASSWORD') }}"
+        force_basic_auth: true
+        ca_path: "{{ wazuh_central_indexer_ca }}"
+        follow_redirects: none
+        use_proxy: false
+      register: wazuh_alert_search
+      failed_when: >-
+        wazuh_alert_search.status != 200 or
+        wazuh_alert_search.json.hits.hits | length == 0
+      when: not wazuh_central_empty | bool
+      no_log: true 
