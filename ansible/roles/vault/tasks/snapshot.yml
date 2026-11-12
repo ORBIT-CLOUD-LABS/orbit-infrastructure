@@ -7,49 +7,51 @@
     update_cache: true
     cache_valid_time: 3600
 
-- name: AWS CLI v2가 이미 설치됐는지
-  ansible.builtin.stat:
-    path: /usr/local/bin/aws
-  register: hvault_awscli_bin
+- name: 지금 설치된 AWS CLI 버전
+  ansible.builtin.command: /usr/local/bin/aws --version
+  register: hvault_awscli_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
 
-- name: 설치될 AWS CLI v2 (미리보기)
+- name: 설치될 AWS CLI v2 버전 (미리보기)
   ansible.builtin.debug:
-    msg: "/usr/local/bin/aws가 없어 AWS CLI v2 공식 번들을 설치할 예정"
-  when: ansible_check_mode and not hvault_awscli_bin.stat.exists
+    msg: "AWS CLI {{ hvault_awscli_version }} 설치 예정 (현재: {{ hvault_awscli_installed.stdout | default('없음') | trim }})"
+  when:
+    - ansible_check_mode
+    - ('aws-cli/' ~ hvault_awscli_version ~ ' ') not in (hvault_awscli_installed.stdout | default(''))
   changed_when: true
 
-- name: AWS CLI v2 공식 번들 설치
-  when: not ansible_check_mode and not hvault_awscli_bin.stat.exists
+- name: AWS CLI v2 공식 번들 설치 ({{ hvault_awscli_version }})
+  when:
+    - not ansible_check_mode
+    - ('aws-cli/' ~ hvault_awscli_version ~ ' ') not in (hvault_awscli_installed.stdout | default(''))
   block:
     - name: AWS CLI 설치용 임시 폴더
       ansible.builtin.tempfile:
         state: directory
         prefix: orbit-awscli-
       register: hvault_awscli_tmp
-
     - name: AWS CLI v2 아카이브 내려받기
       ansible.builtin.get_url:
-        url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+        url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{{ hvault_awscli_version }}.zip"
         dest: "{{ hvault_awscli_tmp.path }}/awscliv2.zip"
         mode: "0600"
-
     - name: AWS CLI v2 압축 풀기
       ansible.builtin.unarchive:
         src: "{{ hvault_awscli_tmp.path }}/awscliv2.zip"
         dest: "{{ hvault_awscli_tmp.path }}"
         remote_src: true
-
     - name: AWS CLI v2 설치 실행
       ansible.builtin.command:
         cmd: "{{ hvault_awscli_tmp.path }}/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update"
-        creates: /usr/local/bin/aws
+      changed_when: true
   always:
     - name: AWS CLI 설치용 임시 폴더 정리
       ansible.builtin.file:
         path: "{{ hvault_awscli_tmp.path }}"
         state: absent
       when: hvault_awscli_tmp.path is defined
-
 - name: 스냅샷 작업 폴더 (root만)
   ansible.builtin.file:
     path: "{{ hvault_snapshot_work_dir }}"
@@ -147,3 +149,5 @@
       {{ hvault_snapshot_approle_env }}가 없어 타이머를 켜지 않음.
       VAULT_TOKEN을 설정하고 playbooks/vault.yml을 실행하면 AppRole 생성 후 타이머를 활성화함
   when: not hvault_snapshot_creds.stat.exists
+  '@.Replace("`r`n", "`n").TrimEnd() + "`n"
+[IO.File]::WriteAllText("$PWD\ansible\roles\vault\tasks\snapshot.yml", $snapshot, [Text.UTF8Encoding]::new($false))
