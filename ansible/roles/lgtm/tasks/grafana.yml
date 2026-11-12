@@ -94,7 +94,7 @@
     - name: 대시보드 위치
       ansible.builtin.copy:
         content: |
-          # {{ ansible_managed }}
+          # Ansible managed (roles/lgtm)
           apiVersion: 1
           providers:
             - name: orbit

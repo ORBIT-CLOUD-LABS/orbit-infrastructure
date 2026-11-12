@@ -11,6 +11,7 @@
       {{ ['prometheus-node-exporter']
          + (['prometheus-node-exporter-collectors'] if inventory_hostname in lgtm_node_exporter_collectors_hosts else []) }}
     state: present
+    install_recommends: false   # 추천 패키지인 추가 수집기가 VM에 따라 깔리지 않게. astra는 위 목록에 직접 넣음
     update_cache: true
     cache_valid_time: 3600
 
@@ -24,7 +25,7 @@
 - name: 받는 주소
   ansible.builtin.copy:
     content: |
-      # {{ ansible_managed }}
+      # Ansible managed (roles/lgtm)
       ARGS="--web.listen-address={{ lan_ip }}:{{ lgtm_node_exporter_port }}"
     dest: /etc/default/prometheus-node-exporter
     owner: root
@@ -50,7 +51,7 @@
   when: lgtm_ne_dropin_dir.stat.exists
   ansible.builtin.copy:
     content: |
-      # {{ ansible_managed }}
+      # Ansible managed (roles/lgtm)
       [Unit]
       After=network-online.target
       Wants=network-online.target

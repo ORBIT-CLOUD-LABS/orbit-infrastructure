@@ -24,7 +24,7 @@
     - name: Prometheus 실행 인자
       ansible.builtin.copy:
         content: |
-          # {{ ansible_managed }}
+          # Ansible managed (roles/lgtm)
           ARGS="--storage.tsdb.retention.time={{ lgtm_metrics_retention }} --storage.tsdb.retention.size={{ lgtm_metrics_retention_size }}"
         dest: /etc/default/prometheus
         owner: root
@@ -46,7 +46,7 @@
     - name: Alertmanager 실행 인자
       ansible.builtin.copy:
         content: |
-          # {{ ansible_managed }}
+          # Ansible managed (roles/lgtm)
           ARGS="--cluster.listen-address="
         dest: /etc/default/prometheus-alertmanager
         owner: root
