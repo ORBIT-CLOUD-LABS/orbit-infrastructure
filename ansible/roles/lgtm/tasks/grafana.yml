@@ -1,0 +1,130 @@
+# Grafana (Grafana apt 저장소). 설정, 관리자 비밀번호, 데이터 소스와 대시보드 provisioning
+- name: Grafana apt 저장소 키
+  ansible.builtin.get_url:
+    url: "{{ lgtm_grafana_repo_key_url }}"
+    dest: "{{ lgtm_grafana_keyring }}"
+    mode: "0644"
+
+- name: Grafana apt 저장소
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by={{ lgtm_grafana_keyring }}] {{ lgtm_grafana_repo_url }} stable main"
+    filename: grafana
+    state: present
+  register: lgtm_grafana_repo
+
+# 미리보기에서 저장소를 처음 등록하면 apt가 패키지를 못 찾으므로 설치를 건너뜀
+- name: 설치와 버전 고정
+  when: not (ansible_check_mode and lgtm_grafana_repo is changed)
+  block:
+    - name: Grafana 설치 {{ lgtm_grafana_version }}
+      ansible.builtin.apt:
+        name: "grafana={{ lgtm_grafana_version }}"
+        state: present
+        update_cache: true
+        allow_change_held_packages: true
+      notify: restart grafana
+
+    - name: apt upgrade로 버전이 바뀌지 않게 고정
+      ansible.builtin.dpkg_selections:
+        name: grafana
+        selection: hold
+      when: not ansible_check_mode
+
+- name: 설치됐는지 (미리보기 첫 실행에서는 아직 없음)
+  ansible.builtin.stat:
+    path: /etc/grafana/provisioning/datasources
+  register: lgtm_grafana_conf
+
+- name: 비밀값 폴더가 있는지
+  ansible.builtin.stat:
+    path: "{{ lgtm_grafana_secret_dir }}"
+  register: lgtm_grafana_secret_stat
+
+# 미리보기에서 비밀번호를 새로 만든 경우(Vault에 아직 없음)도 건너뜀
+- name: 설정과 서비스
+  when: lgtm_grafana_conf.stat.exists and lgtm_secrets_ready
+  vars:
+    # 미리보기에서는 아래 폴더가 실제로 만들어지지 않으므로 그 안에 쓰는 단계를 건너뜀
+    lgtm_grafana_dirs_missing: "{{ not lgtm_grafana_secret_stat.stat.exists }}"
+  block:
+    - name: 비밀값 폴더, 대시보드 폴더
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: root
+        group: grafana
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "{{ lgtm_grafana_secret_dir }}", mode: "0750" }
+        - { path: "{{ lgtm_dashboard_dir }}", mode: "0755" }
+
+    # Grafana는 이 값을 처음 시작할 때 한 번만 읽음. 나중에 바꾸려면 docs/lgtm.md의 "관리자 비밀번호 바꾸기"
+    - name: 관리자 비밀번호 파일 (grafana 계정만 읽음)
+      ansible.builtin.copy:
+        content: "{{ lgtm_secrets.grafana_admin_password }}\n"
+        dest: "{{ lgtm_grafana_admin_password_file }}"
+        owner: root
+        group: grafana
+        mode: "0640"
+      diff: false
+      no_log: true
+      when: not (ansible_check_mode and lgtm_grafana_dirs_missing)
+
+    - name: Grafana 설정
+      ansible.builtin.template:
+        src: grafana.ini.j2
+        dest: /etc/grafana/grafana.ini
+        owner: root
+        group: grafana
+        mode: "0640"
+      notify: restart grafana
+
+    # 조회 계정 비밀번호가 들어가므로 내용을 출력하지 않음
+    - name: 데이터 소스 (Prometheus, Elasticsearch)
+      ansible.builtin.template:
+        src: datasources.yaml.j2
+        dest: /etc/grafana/provisioning/datasources/orbit.yaml
+        owner: root
+        group: grafana
+        mode: "0640"
+      diff: false
+      no_log: true
+      notify: restart grafana
+
+    - name: 대시보드 위치
+      ansible.builtin.copy:
+        content: |
+          # {{ ansible_managed }}
+          apiVersion: 1
+          providers:
+            - name: orbit
+              type: file
+              disableDeletion: true
+              allowUiUpdates: false
+              options:
+                path: {{ lgtm_dashboard_dir }}
+        dest: /etc/grafana/provisioning/dashboards/orbit.yaml
+        owner: root
+        group: grafana
+        mode: "0640"
+      notify: restart grafana
+
+    - name: 대시보드 받기
+      ansible.builtin.get_url:
+        url: "{{ item.url }}"
+        dest: "{{ lgtm_dashboard_dir }}/{{ item.file }}"
+        checksum: "{{ item.checksum }}"
+        owner: root
+        group: grafana
+        mode: "0644"
+      loop: "{{ lgtm_dashboards }}"
+      loop_control: { label: "{{ item.file }}" }
+      when: not (ansible_check_mode and lgtm_grafana_dirs_missing)
+
+    - name: Grafana 켜기
+      ansible.builtin.systemd_service:
+        name: grafana-server
+        enabled: true
+        state: started
+        daemon_reload: true
+      when: not ansible_check_mode

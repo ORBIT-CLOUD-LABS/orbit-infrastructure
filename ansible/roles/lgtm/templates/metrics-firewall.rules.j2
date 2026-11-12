@@ -1,0 +1,11 @@
+*filter
+:{{ lgtm_fw_chain_name }} - [0:0]
+-F {{ lgtm_fw_chain_name }}
+{% for rule in lgtm_fw_chain[1:] %}
+{{ rule }}
+{% endfor %}
+{% for rule in lgtm_fw_jumps_now %}
+{{ rule | regex_replace('^-A ', '-D ') }}
+{% endfor %}
+{{ lgtm_fw_jump }}
+COMMIT

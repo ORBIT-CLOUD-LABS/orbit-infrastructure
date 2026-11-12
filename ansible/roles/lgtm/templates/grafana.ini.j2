@@ -1,0 +1,24 @@
+# {{ ansible_managed }}
+# lgtm Grafana. 여기 없는 값은 Grafana 기본값 (문서: docs/lgtm.md)
+
+[server]
+http_port = {{ lgtm_grafana_port }}
+domain = {{ lgtm_grafana_public_url | urlsplit('hostname') }}
+# 링크와 리디렉션에 쓰는 주소. astra 내부 리버스 프록시를 거쳐 들어옴
+root_url = {{ lgtm_grafana_public_url }}
+
+[security]
+admin_user = orbit
+# 처음 시작할 때 한 번만 읽음
+admin_password = $__file{% raw %}{{% endraw %}{{ lgtm_grafana_admin_password_file }}{% raw %}}{% endraw %}
+
+[users]
+allow_sign_up = false
+
+[auth.anonymous]
+enabled = false
+
+[analytics]
+reporting_enabled = false
+check_for_updates = false
+check_for_plugin_updates = false

@@ -1,0 +1,56 @@
+# lgtm VM: Prometheus, Alertmanager, Grafana (메트릭 저장과 화면). 문서: docs/lgtm.md
+# Prometheus·Alertmanager·node-exporter는 Ubuntu 패키지, Grafana는 Grafana apt 저장소 (orbit-infrastructure#43)
+lgtm_grafana_version: 13.2.6                      # 버전 고정
+lgtm_grafana_repo_url: https://apt.grafana.com
+lgtm_grafana_repo_key_url: https://apt.grafana.com/gpg.key
+lgtm_grafana_keyring: /etc/apt/keyrings/grafana.asc
+lgtm_grafana_port: 3000
+lgtm_grafana_public_url: "https://grafana.{{ orbit_domain }}/"   # astra 내부 리버스 프록시 (docs/reverse-proxy.md)
+lgtm_prometheus_port: 9090
+lgtm_alertmanager_port: 9093
+lgtm_node_exporter_port: 9100
+
+# 지표 보관. 로그(efk 7일)와 따로 길게 둠. 기간과 크기 중 먼저 닿는 쪽에서 오래된 것부터 지움
+lgtm_metrics_retention: 60d
+lgtm_metrics_retention_size: 40GB                 # VM 디스크 80GB의 절반
+lgtm_scrape_interval: 30s
+
+# node-exporter를 두는 호스트 (클러스터 밖 4대). k3s 노드는 클러스터 쪽 이슈에서 붙임
+lgtm_node_exporter_hosts: "{{ groups['gateway'] + groups['monitoring'] }}"
+# 이 호스트에는 Ubuntu의 추가 수집기도 둠. 타이머가 디스크(SMART, NVMe)와 apt 대기 업데이트 지표를 textfile로 씀
+# astra만: VM 3대와 Vault의 디스크를 들고 있는 물리 디스크. VM은 가상 디스크라 뺌
+lgtm_node_exporter_collectors_hosts: "{{ groups['gateway'] }}"
+
+# 비밀값: Vault KV 인프라 구역. 없는 키는 처음 실행할 때 무작위로 만들어 저장 (efk role의 vault-secret.yml)
+lgtm_vault_path: "{{ hvault_kv_infra_prefix }}/lgtm"          # secret/orbit/infra/lgtm
+lgtm_secret_keys: [grafana_admin_password]
+lgtm_grafana_secret_dir: /etc/grafana/orbit
+lgtm_grafana_admin_password_file: "{{ lgtm_grafana_secret_dir }}/admin-password"
+
+# Elasticsearch 데이터 소스 (docs/efk.md "Grafana (lgtm)에 필요한 값"). 조회 계정은 efk role이 만든 값을 읽기만 함
+lgtm_efk_url: "https://{{ hostvars['efk'].lan_ip }}:9200"
+lgtm_efk_user: grafana_viewer
+lgtm_efk_vault_path: "{{ hvault_kv_infra_prefix }}/efk"
+lgtm_efk_vault_key: grafana_viewer_password
+lgtm_efk_ca: /etc/fluent-bit/efk-ca.crt            # fluent_bit role이 둔 efk CA 사본
+lgtm_efk_indices:
+  - { uid: efk-host, name: "efk-host (호스트 로그)", index: "orbit-host-*" }
+  - { uid: efk-k8s, name: "efk-k8s (k3s Pod 로그)", index: "orbit-k8s-*" }
+
+# 대시보드. grafana.com에서 정한 판을 받아 둠 (판을 바꾸면 checksum도 같이)
+lgtm_dashboard_dir: /var/lib/grafana/dashboards
+lgtm_dashboards:
+  - file: node-exporter-full.json                 # Node Exporter Full (1860) 46판
+    url: https://grafana.com/api/dashboards/1860/revisions/46/download
+    checksum: sha256:e58ddc5dc535d4c901f94da9648bc3e3d5ae7b6f78e98e185bce8b289961cea3
+
+# 방화벽: 아래 포트는 허용한 출발지에서만 받고 나머지는 버림 (전용 체인 ORBIT-METRICS). 다른 포트는 건드리지 않음
+# 자기 자신(lo)은 항상 허용. 팀원은 astra nginx를 거쳐 Grafana만 봄
+lgtm_fw_chain_name: ORBIT-METRICS
+lgtm_fw_allow_exporter:
+  - { port: "{{ lgtm_node_exporter_port }}", hosts: [lgtm] }      # Prometheus가 긁어 감
+lgtm_fw_allow_stack:
+  - { port: "{{ lgtm_grafana_port }}", hosts: [astra] }           # astra nginx
+  - { port: "{{ lgtm_prometheus_port }}", hosts: [astra] }        # 관리자 확인용
+  - { port: "{{ lgtm_alertmanager_port }}", hosts: [astra] }
+lgtm_fw_allow: "{{ lgtm_fw_allow_exporter + (lgtm_fw_allow_stack if inventory_hostname == 'lgtm' else []) }}"

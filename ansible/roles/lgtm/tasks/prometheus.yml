@@ -1,0 +1,63 @@
+# Prometheus, Alertmanager (Ubuntu 패키지). 설정은 /etc/default의 ARGS와 /etc/prometheus
+- name: Prometheus, Alertmanager 설치
+  ansible.builtin.apt:
+    name: [prometheus, prometheus-alertmanager]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: 설치됐는지 (미리보기 첫 실행에서는 아직 없음)
+  ansible.builtin.stat:
+    path: /usr/bin/promtool
+  register: lgtm_promtool
+
+- name: 설정과 서비스
+  when: lgtm_promtool.stat.exists
+  block:
+    - name: apt upgrade로 버전이 바뀌지 않게 고정
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop: [prometheus, prometheus-alertmanager]
+
+    # 보관 기간과 크기 상한. 지표는 127.0.0.1과 내부망 주소에서 받고 방화벽이 출발지를 제한
+    - name: Prometheus 실행 인자
+      ansible.builtin.copy:
+        content: |
+          # {{ ansible_managed }}
+          ARGS="--storage.tsdb.retention.time={{ lgtm_metrics_retention }} --storage.tsdb.retention.size={{ lgtm_metrics_retention_size }}"
+        dest: /etc/default/prometheus
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart prometheus
+
+    - name: Prometheus 수집 설정
+      ansible.builtin.template:
+        src: prometheus.yml.j2
+        dest: /etc/prometheus/prometheus.yml
+        owner: root
+        group: root
+        mode: "0644"
+        validate: /usr/bin/promtool check config %s
+      notify: restart prometheus
+
+    # 한 대뿐이라 Alertmanager끼리 묶는 포트(9094)는 열지 않음. 알림 채널과 룰은 이후 이슈에서
+    - name: Alertmanager 실행 인자
+      ansible.builtin.copy:
+        content: |
+          # {{ ansible_managed }}
+          ARGS="--cluster.listen-address="
+        dest: /etc/default/prometheus-alertmanager
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart alertmanager
+
+    - name: Prometheus, Alertmanager 켜기
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop: [prometheus, prometheus-alertmanager]
+      when: not ansible_check_mode

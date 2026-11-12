@@ -1,0 +1,40 @@
+# Prometheus, Alertmanager, Grafana (lgtm VM)와 클러스터 밖 4대의 node-exporter. astra 개인 계정으로 실행 (docs/personal-accounts.md#ansible-실행)
+# 문서: docs/lgtm.md
+#   먼저: ansible-playbook playbooks/efk.yml -K          (Elasticsearch 조회 계정 grafana_viewer)
+#         ansible-playbook playbooks/fluent-bit.yml -K   (lgtm의 /etc/fluent-bit/efk-ca.crt)
+# 방화벽: 3000·9090·9093은 astra에서만, 9100은 lgtm에서만 (roles/lgtm/defaults의 lgtm_fw_allow, 체인 ORBIT-METRICS)
+# 비밀번호는 Vault에 있음. 없는 키는 처음 실행할 때 만들어 저장
+#   secret/orbit/infra/lgtm: Grafana 관리자 (grafana_admin_password)
+#   secret/orbit/infra/efk:  Elasticsearch 조회 계정 (grafana_viewer_password, 읽기만)
+#   ../scripts/orbit-ssh-cert.sh                       # SSH 인증서와 Vault 토큰 (8시간)
+#   export VAULT_TOKEN=$(cat ~/.orbit/vault-token)    # 팀원 GitHub 로그인 토큰
+#   미리보기: ansible-playbook playbooks/lgtm.yml -K --check --diff   # -K는 자기 sudo 비밀번호
+#   실행:    ansible-playbook playbooks/lgtm.yml -K
+#   unset VAULT_TOKEN
+# 설정이 바뀌면 해당 서비스가 재시작됨. 그동안의 지표는 비어 있게 됨
+
+- name: node-exporter와 지표 포트 방화벽 (astra, 모니터링 VM)
+  hosts: gateway:monitoring
+  become: true
+  tasks:
+    - name: node-exporter
+      ansible.builtin.include_role:
+        name: lgtm
+        tasks_from: node-exporter.yml
+
+- name: Prometheus, Alertmanager, Grafana (lgtm)
+  hosts: lgtm
+  become: true
+  roles:
+    - lgtm
+
+- name: 확인
+  hosts: lgtm
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Prometheus, Grafana 상태
+      ansible.builtin.include_role:
+        name: lgtm
+        tasks_from: verify.yml
+      when: not ansible_check_mode   # 미리보기에서는 실제로 설치·시작되지 않음
