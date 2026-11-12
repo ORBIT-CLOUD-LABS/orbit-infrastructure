@@ -2,11 +2,56 @@
 # 타이머는 AppRole 자격증명 생성 후 snapshot-approle.yml에서 켬
 - name: 스냅샷 백업에 필요한 패키지
   ansible.builtin.apt:
-    name: [awscli, jq]
+    name: [jq, unzip]
     state: present
     update_cache: true
     cache_valid_time: 3600
 
+- name: 지금 설치된 AWS CLI 버전
+  ansible.builtin.command: /usr/local/bin/aws --version
+  register: hvault_awscli_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: 설치될 AWS CLI v2 버전 (미리보기)
+  ansible.builtin.debug:
+    msg: "AWS CLI {{ hvault_awscli_version }} 설치 예정 (현재: {{ hvault_awscli_installed.stdout | default('없음') | trim }})"
+  when:
+    - ansible_check_mode
+    - ('aws-cli/' ~ hvault_awscli_version ~ ' ') not in (hvault_awscli_installed.stdout | default(''))
+  changed_when: true
+
+- name: AWS CLI v2 공식 번들 설치 ({{ hvault_awscli_version }})
+  when:
+    - not ansible_check_mode
+    - ('aws-cli/' ~ hvault_awscli_version ~ ' ') not in (hvault_awscli_installed.stdout | default(''))
+  block:
+    - name: AWS CLI 설치용 임시 폴더
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: orbit-awscli-
+      register: hvault_awscli_tmp
+    - name: AWS CLI v2 아카이브 내려받기
+      ansible.builtin.get_url:
+        url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{{ hvault_awscli_version }}.zip"
+        dest: "{{ hvault_awscli_tmp.path }}/awscliv2.zip"
+        mode: "0600"
+    - name: AWS CLI v2 압축 풀기
+      ansible.builtin.unarchive:
+        src: "{{ hvault_awscli_tmp.path }}/awscliv2.zip"
+        dest: "{{ hvault_awscli_tmp.path }}"
+        remote_src: true
+    - name: AWS CLI v2 설치 실행
+      ansible.builtin.command:
+        cmd: "{{ hvault_awscli_tmp.path }}/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update"
+      changed_when: true
+  always:
+    - name: AWS CLI 설치용 임시 폴더 정리
+      ansible.builtin.file:
+        path: "{{ hvault_awscli_tmp.path }}"
+        state: absent
+      when: hvault_awscli_tmp.path is defined
 - name: 스냅샷 작업 폴더 (root만)
   ansible.builtin.file:
     path: "{{ hvault_snapshot_work_dir }}"
@@ -15,15 +60,33 @@
     group: root
     mode: "0700"
 
-# vault.yml에 AWS 백업 키가 비어 있으면 중단함
-- name: AWS 백업 키가 ansible-vault에 있는지
+- name: AWS 자격증명 파일이 이미 있는지
+  ansible.builtin.stat:
+    path: "{{ hvault_snapshot_aws_env }}"
+  register: hvault_snapshot_aws_env_stat
+
+# 실제 적용 시 기존 파일도 없고 vault.yml 값도 비어 있으면 중단함 (개인 계정 미리보기에서는 통과)
+- name: AWS 백업 키가 준비됐는지
   ansible.builtin.assert:
     that:
-      - vault_snapshot_aws_access_key_id | default('') | length > 0
-      - vault_snapshot_aws_secret_access_key | default('') | length > 0
+      - >-
+        hvault_snapshot_aws_env_stat.stat.exists or
+        ((vault_snapshot_aws_access_key_id | default('') | length > 0) and
+         (vault_snapshot_aws_secret_access_key | default('') | length > 0))
     fail_msg: >-
       vault_snapshot_aws_access_key_id / vault_snapshot_aws_secret_access_key가 없음.
       inventory/group_vars/all/vault.yml (ansible-vault)에 넣고 --ask-vault-pass로 실행
+  when: not ansible_check_mode
+
+- name: AWS 자격증명 미리보기 안내 (vault.yml 없이 실행할 때)
+  ansible.builtin.debug:
+    msg: >-
+      vault_snapshot_aws_access_key_id가 없어 {{ hvault_snapshot_aws_env }} 렌더링은 건너뜀.
+      실제 적용은 vault.yml이 있는 환경에서 --ask-vault-pass로 실행
+  when:
+    - ansible_check_mode
+    - (vault_snapshot_aws_access_key_id | default('') | length == 0) or
+      (vault_snapshot_aws_secret_access_key | default('') | length == 0)
 
 - name: AWS 자격증명 (root만 읽음)
   ansible.builtin.template:
@@ -32,6 +95,9 @@
     owner: root
     group: root
     mode: "0600"
+  when:
+    - vault_snapshot_aws_access_key_id | default('') | length > 0
+    - vault_snapshot_aws_secret_access_key | default('') | length > 0
   no_log: true   # 평문 키가 diff와 로그에 남지 않게
 
 - name: 백업 스크립트
