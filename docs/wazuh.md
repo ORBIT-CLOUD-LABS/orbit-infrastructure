@@ -48,23 +48,31 @@ Vault PKI를 이용해 `wazuh.orbit-labs.space`가 SAN에 포함된 서버 인�
 
 #### 기존 VM에서 실행
 
-`astra`의 저장소 `ansible/` 디렉터리에서 실행한다. 플레이북은 SSH로 `wazuh` VM에 접속해 상태를 확인한다. 실행 전에 `astra`의 같은 셸에 Manager API와 Indexer 조회 계정의 환경 변수(`WAZUH_API_USER`, `WAZUH_API_PASSWORD`, `WAZUH_INDEXER_USER`, `WAZUH_INDEXER_PASSWORD`)를 준비한다.
+`astra`의 `~/orbit-infrastructure/ansible`에서 실행한다. 플레이북은 `astra`에서 Vault KV v2의 조회 계정을 읽고, `wazuh` VM에서 Manager API와 Indexer를 확인한다. 실행 전에 두 계정 경로에 `read` 권한이 있는 Vault 토큰을 준비한다.
+
+Vault 토큰 파일(`~/.orbit/vault-token`)이 없거나 토큰이 만료됐다면, astra의 `~/orbit-infrastructure/ansible`에서 `../scripts/orbit-ssh-cert.sh`를 실행해 토큰을 준비한 뒤 아래 명령을 실행한다. 자세한 내용은 [개인 계정 운영 문서](personal-accounts.md)를 참고한다.
 
 ```bash
-ansible-playbook playbooks/wazuh-central.yml --limit wazuh -K \
-  -e 'wazuh_central_allow_install=false' \
-  -e 'wazuh_central_indexer_url=https://127.0.0.1:9200' \
-  -e 'wazuh_central_indexer_ca=/etc/filebeat/certs/root-ca.pem'
+(
+  VAULT_TOKEN="$(cat ~/.orbit/vault-token)" &&
+  [ -n "$VAULT_TOKEN" ] &&
+  export VAULT_TOKEN &&
+  ansible-playbook playbooks/wazuh-central.yml --limit wazuh -K \
+    -e 'wazuh_central_allow_install=false' \
+    -e 'wazuh_central_indexer_url=https://127.0.0.1:9200' \
+    -e 'wazuh_central_indexer_ca=/etc/filebeat/certs/root-ca.pem'
+)
 ```
 
-`--limit wazuh`는 실행 대상을 기존 VM 한 대로 제한하고, `-K`는 해당 VM의 `sudo` 비밀번호를 요청한다. `-e`는 이번 실행에 사용할 변수를 전달한다. Indexer URL의 `127.0.0.1`과 CA 경로는 조회가 실행되는 `wazuh` VM 기준이다.
-
+`VAULT_TOKEN`은 괄호 안의 실행 환경에 전달한다. Manager API와 Indexer의 비밀번호는 플레이북이 Vault에서 읽는다. `--limit wazuh`는 대상을 기존 VM 한 대로 제한하고, `-K`는 해당 VM의 `sudo` 비밀번호를 요청한다. `-e`는 이번 실행의 변수 값을 지정한다. Indexer URL과 CA 경로는 조회가 실행되는 `wazuh` VM 기준이다.
 ### 계정
 
-| 용도          | 계정                   | 권한                                              |
-| ----------- | -------------------- | ----------------------------------------------- |
-| Manager API | `orbit-agent-reader` | Agent 조회                                        |
-| Indexer API | `orbit-alert-reader` | `orbit-alerts-readonly` 역할로 `wazuh-alerts-*` 읽기 |
+| 용도 | 계정 | 권한 | Vault KV v2 경로 |
+| --- | --- | --- | --- |
+| Manager API | `orbit-agent-reader` | Agent 조회 | `secret/orbit/infra/wazuh-agent-reader` |
+| Indexer API | `orbit-alert-reader` | `orbit-alerts-readonly` 역할로 `wazuh-alerts-*` 읽기 | `secret/orbit/infra/wazuh-alert-reader` |
+
+두 Vault 항목은 `username`과 `password` 필드를 사용한다. 실행용 Vault 토큰에는 KV v2 데이터 경로 `secret/data/orbit/infra/wazuh-agent-reader`와 `secret/data/orbit/infra/wazuh-alert-reader`에 대한 `read` 권한이 필요하다.
 
 자격 증명은 팀의 비밀 저장소에서 관리한다.
 
@@ -95,13 +103,14 @@ curl -k -sS --max-time 10 -o /dev/null -w 'HTTP %{http_code}\n' https://127.0.0.
 
 ### Ansible 검증 (#48)
 
-| 대상 | 확인 항목 | 결과 |
-| --- | --- | --- |
-| 기존 `wazuh` VM | 신규 설치 조건 확인, 설치 도우미 다운로드 및 실행 | 모두 건너뜀 |
-| 기존 `wazuh` VM | 패키지 버전과 서비스 4개 상태 | Manager·Indexer·Dashboard `4.14.10-1`, Filebeat `7.10.2-2`. 서비스 모두 실행 중 |
-| 기존 `wazuh` VM | Dashboard 로컬 HTTPS 응답 | 통과 |
-| 기존 `wazuh` VM | Manager API 인증 및 Agent 조회 | 통과 |
-| 기존 `wazuh` VM | Indexer에서 기존 경보 한 건 조회 | 통과 |
-| 신규 VM | 최초 설치 및 설치 후 재실행 | 미검증. 후속 작업에서 확인 |
+| 대상            | 확인 항목                                      | 결과                                                                      |
+| ------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
+| 기존 `wazuh` VM | 신규 설치 조건 확인, 설치 도우미 다운로드 및 실행              | 모두 건너뜀                                                                  |
+| 기존 `wazuh` VM | 패키지 버전과 서비스 4개 상태                          | Manager·Indexer·Dashboard `4.14.10-1`, Filebeat `7.10.2-2`. 서비스 모두 실행 중 |
+| 기존 `wazuh` VM | Dashboard 로컬 HTTPS 응답                      | 통과                                                                      |
+| 기존 `wazuh` VM | Manager API 인증 및 Agent 조회                  | 통과                                                                      |
+| 기존 `wazuh` VM | Indexer에서 기존 경보 한 건 조회                     | 통과                                                                      |
+| 신규 VM         | 최초 설치 및 설치 후 재실행                           | 미검증. 후속 작업에서 확인                                                         |
+| 기존 `wazuh` VM | Vault KV v2에서 Manager API·Indexer 조회 계정 읽기 | 두 계정 조회 및 필수 필드 확인 통과                                                   |
 
-기존 `wazuh` VM의 일반 실행 결과는 `ok=12 changed=0 unreachable=0 failed=0 skipped=6`이었다.
+Vault 연동 후 기존 `wazuh` VM의 일반 실행 결과는 `ok=15 changed=0 unreachable=0 failed=0 skipped=6`이었다. 신규 설치 단계는 건너뛰었고, Manager API의 Agent 조회와 Indexer의 기존 경보 조회가 통과했다.
