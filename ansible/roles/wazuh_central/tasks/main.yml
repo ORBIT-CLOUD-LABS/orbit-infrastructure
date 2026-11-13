@@ -99,6 +99,50 @@
         chdir: /root/wazuh-central-install
       no_log: true
 
+- name: Vault에서 Wazuh 조회 계정 준비
+  when: not ansible_check_mode
+  block:
+    - name: astra에서 Vault 토큰 설정 확인
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.env', 'VAULT_TOKEN') | length > 0
+        fail_msg: "astra에서 조회용 VAULT_TOKEN을 설정하세요."
+
+    - name: Vault KV v2에서 조회 계정 읽기
+      ansible.builtin.uri:
+        url: "{{ hvault_addr }}/v1/{{ hvault_kv_mount }}/data/{{ item.path }}"
+        headers:
+          X-Vault-Token: "{{ lookup('ansible.builtin.env', 'VAULT_TOKEN') }}"
+        ca_path: "{{ hvault_tls_dir }}/vault-ca.crt"
+        validate_certs: true
+        use_proxy: false
+        follow_redirects: none
+        use_netrc: false
+      delegate_to: "{{ hvault_host }}"
+      become: false
+      loop:
+        - path: "{{ wazuh_central_manager_secret_path }}"
+          required: true
+        - path: "{{ wazuh_central_indexer_secret_path }}"
+          required: "{{ not (wazuh_central_empty | bool) }}"
+      when: item.required | bool
+      register: wazuh_central_vault_secrets
+      no_log: true
+
+    - name: Vault 조회 계정 필드 확인
+      ansible.builtin.assert:
+        that:
+          - item.json.data.data.username | default('') | length > 0
+          - item.json.data.data.password | default('') | length > 0
+        quiet: true
+      loop: "{{ wazuh_central_vault_secrets.results }}"
+      when: not (item.skipped | default(false))
+      no_log: true
+  rescue:
+    - name: Vault 조회 준비 실패 시 중단
+      ansible.builtin.fail:
+        msg: "Vault 토큰, CA, 조회 경로의 read 권한과 username/password 필드를 확인하세요."
+
 - name: 설치된 구성요소와 서비스 상태 검증
   when: not ansible_check_mode
   block:
@@ -135,8 +179,8 @@
       ansible.builtin.uri:
         url: "{{ wazuh_central_api_url }}/security/user/authenticate?raw=true"
         method: POST
-        url_username: "{{ lookup('ansible.builtin.env', 'WAZUH_API_USER') }}"
-        url_password: "{{ lookup('ansible.builtin.env', 'WAZUH_API_PASSWORD') }}"
+        url_username: "{{ wazuh_central_vault_secrets.results[0].json.data.data.username }}"
+        url_password: "{{ wazuh_central_vault_secrets.results[0].json.data.data.password }}"
         force_basic_auth: true
         ca_path: "{{ wazuh_central_api_ca }}"
         follow_redirects: none
@@ -158,8 +202,8 @@
     - name: Indexer에서 기존 경보 한 건 조회
       ansible.builtin.uri:
         url: "{{ wazuh_central_indexer_url }}/wazuh-alerts-*/_search?size=1"
-        url_username: "{{ lookup('ansible.builtin.env', 'WAZUH_INDEXER_USER') }}"
-        url_password: "{{ lookup('ansible.builtin.env', 'WAZUH_INDEXER_PASSWORD') }}"
+        url_username: "{{ wazuh_central_vault_secrets.results[1].json.data.data.username }}"
+        url_password: "{{ wazuh_central_vault_secrets.results[1].json.data.data.password }}"
         force_basic_auth: true
         ca_path: "{{ wazuh_central_indexer_ca }}"
         follow_redirects: none

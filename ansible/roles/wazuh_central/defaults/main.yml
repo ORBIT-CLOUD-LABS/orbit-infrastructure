@@ -11,3 +11,5 @@ wazuh_central_api_url: https://localhost:55000
 wazuh_central_api_ca: /var/ossec/api/configuration/ssl/server.crt
 wazuh_central_indexer_url: ''
 wazuh_central_indexer_ca: ''
+wazuh_central_manager_secret_path: "{{ hvault_kv_infra_prefix }}/wazuh-agent-reader"
+wazuh_central_indexer_secret_path: "{{ hvault_kv_infra_prefix }}/wazuh-alert-reader"
