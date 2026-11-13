@@ -41,34 +41,12 @@ Tailscale에 연결한 Mac에서 `https://wazuh-ui.orbit-labs.space/`를 열면 
 
 Vault PKI를 이용해 `wazuh.orbit-labs.space`가 SAN에 포함된 서버 인증서를 발급하는 방안을 검토한다. 발급 경로와 브라우저의 CA 신뢰 절차를 확정한 뒤 Dashboard에 인증서를 적용하고, Chrome에서 경고 없이 접속하고 로그인할 수 있는지 검증한다. [Wazuh Dashboard 인증서 설정](https://documentation.wazuh.com/current/user-manual/wazuh-dashboard/configuring-third-party-certs/index.html)
 
-## 상태 확인
-
-아래 명령은 `wazuh` VM에서 실행한다.
-
-```bash
-sudo systemctl is-active wazuh-manager wazuh-indexer wazuh-dashboard filebeat
-dpkg-query -W wazuh-manager wazuh-indexer wazuh-dashboard filebeat
-sudo ss -lntp 'sport = :443'
-curl -k -sS --max-time 10 -o /dev/null -w 'HTTP %{http_code}\n' https://127.0.0.1:443/
-```
-
-마지막 명령은 VM 내부에서 Dashboard가 HTTPS로 응답하는지 확인하는 용도다. 인증서 검증을 생략하는 이 검사에는 로그인 정보를 사용하지 않는다. `HTTP 302`는 리디렉션 응답이며 브라우저 로그인은 별도로 검증한다.
-
-## 검증 기록
-
-| 날짜 | 확인 항목 | 결과 |
-|---|---|---|
-| 2026-11-09 | 설치 도우미 실행 | `Installation finished` 확인 |
-| 2026-11-09 | Manager·Indexer·Dashboard·Filebeat | 모두 `active` |
-| 2026-11-09 | VM 내부 Dashboard HTTPS | `HTTP 302` |
-| 2026-11-09 | Mac에서 Dashboard 접속 | 최초 타임아웃. Tailnet 정책 변경 후 로그인 화면 확인 |
-| 2026-11-09 | Mac 브라우저 로그인 | Dashboard Overview 확인. 브라우저 인증서 경고 표시 |
-
-## Ansible로 중앙 구성요소 설치 및 검증
+## Ansible 이용한 자동화
+### 플레이북
 
 [#48](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/48)에서 수동 설치와 상태 점검 절차를 `ansible/playbooks/wazuh-central.yml`과 `wazuh_central` 역할로 옮겼다. 지원 조건을 충족하는 미설치 VM의 설치 절차를 정의했고, 신규 설치는 기본적으로 비활성화했다. 기존 설치의 패키지 상태나 버전이 예상과 다르면 변경 전에 중단한다.
 
-### 기존 VM 검증 방법
+#### 기존 VM에서 실행
 
 `astra`의 저장소 `ansible/` 디렉터리에서 실행한다. 플레이북은 SSH로 `wazuh` VM에 접속해 상태를 확인한다. 실행 전에 `astra`의 같은 셸에 Manager API와 Indexer 조회 계정의 환경 변수(`WAZUH_API_USER`, `WAZUH_API_PASSWORD`, `WAZUH_INDEXER_USER`, `WAZUH_INDEXER_PASSWORD`)를 준비한다.
 
@@ -81,9 +59,41 @@ ansible-playbook playbooks/wazuh-central.yml --limit wazuh -K \
 
 `--limit wazuh`는 실행 대상을 기존 VM 한 대로 제한하고, `-K`는 해당 VM의 `sudo` 비밀번호를 요청한다. `-e`는 이번 실행에 사용할 변수를 전달한다. Indexer URL의 `127.0.0.1`과 CA 경로는 조회가 실행되는 `wazuh` VM 기준이다.
 
-Manager API는 `orbit-agent-reader`로 Agent를 조회한다. Indexer는 `orbit-alert-reader`로 기존 경보를 조회한다. 이 계정은 `orbit-alerts-readonly` 역할을 통해 `wazuh-alerts-*` 읽기 권한을 받는다. 자격 증명은 팀의 비밀 저장소에서 관리한다.
+### 계정
 
-### 검증 결과
+| 용도          | 계정                   | 권한                                              |
+| ----------- | -------------------- | ----------------------------------------------- |
+| Manager API | `orbit-agent-reader` | Agent 조회                                        |
+| Indexer API | `orbit-alert-reader` | `orbit-alerts-readonly` 역할로 `wazuh-alerts-*` 읽기 |
+
+자격 증명은 팀의 비밀 저장소에서 관리한다.
+
+## 확인
+
+아래 명령은 `wazuh` VM에서 실행한다.
+
+```bash
+sudo systemctl is-active wazuh-manager wazuh-indexer wazuh-dashboard filebeat
+dpkg-query -W wazuh-manager wazuh-indexer wazuh-dashboard filebeat
+sudo ss -lntp 'sport = :443'
+curl -k -sS --max-time 10 -o /dev/null -w 'HTTP %{http_code}\n' https://127.0.0.1:443/
+```
+
+마지막 명령은 VM 내부에서 Dashboard가 HTTPS로 응답하는지 확인하는 용도다. 인증서 검증을 생략하는 이 검사에는 로그인 정보를 사용하지 않는다. `HTTP 302`는 리디렉션 응답이며 브라우저 로그인은 별도로 검증한다.
+
+## 적용 기록
+
+### 수동 설치 (#26)
+
+| 날짜 | 확인 항목 | 결과 |
+|---|---|---|
+| 2026-11-09 | 설치 도우미 실행 | `Installation finished` 확인 |
+| 2026-11-09 | Manager·Indexer·Dashboard·Filebeat | 모두 `active` |
+| 2026-11-09 | VM 내부 Dashboard HTTPS | `HTTP 302` |
+| 2026-11-09 | Mac에서 Dashboard 접속 | 최초 타임아웃. Tailnet 정책 변경 후 로그인 화면 확인 |
+| 2026-11-09 | Mac 브라우저 로그인 | Dashboard Overview 확인. 브라우저 인증서 경고 표시 |
+
+### Ansible 검증 (#48)
 
 | 대상 | 확인 항목 | 결과 |
 | --- | --- | --- |
@@ -94,4 +104,4 @@ Manager API는 `orbit-agent-reader`로 Agent를 조회한다. Indexer는 `orbit-
 | 기존 `wazuh` VM | Indexer에서 기존 경보 한 건 조회 | 통과 |
 | 신규 VM | 최초 설치 및 설치 후 재실행 | 미검증. 후속 작업에서 확인 |
 
-기존 VM(wazuh vm)의 일반 실행 결과는 `ok=12 changed=0 unreachable=0 failed=0 skipped=6`이었다.
+기존 `wazuh` VM의 일반 실행 결과는 `ok=12 changed=0 unreachable=0 failed=0 skipped=6`이었다.
