@@ -1,0 +1,44 @@
+# Argo CD: k3s HelmChart manifest로 설치 (Cilium과 같은 방식). polaris의 k3s helm-controller가 설치함
+argocd_chart_repo: https://argoproj.github.io/argo-helm
+argocd_chart_version: 10.11.6              # Argo CD v3.5.6. 버전 고정
+argocd_namespace: argocd
+argocd_manifest: /var/lib/rancher/k3s/server/manifests/orbit-argocd.yaml
+argocd_ready_retries: 60                   # 설치 대기 (10초 간격, 10분). 처음엔 이미지 받는 시간이 걸림
+
+# 리소스: 합계 요청 약 0.5 CPU / 1Gi, 메모리 상한 약 2Gi (orbit docs/infrastructure.md의 1 CPU / 2Gi 안)
+# CPU는 상한을 두지 않음 (throttling으로 Sync가 느려지는 것을 피함)
+argocd_resources:
+  controller:     { requests: { cpu: 250m, memory: 512Mi }, limits: { memory: 1Gi } }
+  repoServer:     { requests: { cpu: 100m, memory: 256Mi }, limits: { memory: 512Mi } }
+  server:         { requests: { cpu: 50m, memory: 128Mi }, limits: { memory: 256Mi } }
+  redis:          { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 128Mi } }
+  applicationSet: { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 128Mi } }
+
+# AppProject: orbit-gitops가 배포할 수 있는 범위. orbit-gitops PR로 넓힐 수 없게 이 레포에서 관리
+argocd_gitops_repo_url: https://github.com/ORBIT-CLOUD-LABS/orbit-gitops.git   # 공개 저장소라 인증 없음
+argocd_cluster_server: https://kubernetes.default.svc
+argocd_projects_file: /var/lib/rancher/k3s/orbit-argocd/projects.yaml   # Ansible이 직접 apply (k3s 자동 설치 폴더 밖)
+argocd_project_root: orbit-k3s-root          # root Application 전용. argocd namespace에 Application만
+argocd_project_addons: orbit-k3s-addons      # 애드온 (ESO, Fluent Bit 등)
+
+# 애드온 허용 범위. Fluent Bit namespace는 orbit-gitops#45·#46에서 함께 사용
+# namespace는 이 플레이북이 만들어 둠. 프로젝트에는 Namespace 생성 권한을 주지 않음
+argocd_addons_namespaces:
+  - external-secrets
+  - fluent-bit
+argocd_addons_chart_repos:
+  - https://charts.external-secrets.io
+  - https://fluent.github.io/helm-charts
+argocd_addons_cluster_resources:
+  - { group: apiextensions.k8s.io, kind: CustomResourceDefinition }
+  - { group: rbac.authorization.k8s.io, kind: ClusterRole }
+  - { group: rbac.authorization.k8s.io, kind: ClusterRoleBinding }
+  - { group: admissionregistration.k8s.io, kind: ValidatingWebhookConfiguration }   # ESO webhook
+  - { group: external-secrets.io, kind: ClusterSecretStore }
+
+# root Application: orbit-gitops develop의 clusters/orbit-k3s/apps에 있는 자식 Application을 argocd namespace에 만듦
+argocd_root_name: orbit-k3s-root
+argocd_root_revision: develop
+argocd_root_path: clusters/orbit-k3s/apps
+argocd_root_file: /var/lib/rancher/k3s/orbit-argocd/root.yaml
+argocd_root_retry: { limit: 5, backoff: { duration: 5s, factor: 2, maxDuration: 3m } }   # 자동 Sync 실패 시 재시도
