@@ -96,4 +96,6 @@ df -h /var/lib/prometheus          # 지표 디스크 사용량
 
 | 날짜 | 작업 | 결과 |
 | --- | --- | --- |
-| 2026-11-?? | 적용 | (미리보기, 적용, 재실행 `changed=0`, target 수, 재부팅 뒤 확인 결과를 적음) |
+| 2026-11-12 | 적용 | 첫 미리보기가 `copy` 내용의 `ansible_managed`로 실패해 고침(`fca42a9`, VM에 추가 수집기가 따라 깔리지 않게 `install_recommends: false`도 함께). 미리보기, 적용, 재실행 4대 `changed=0`. target 7개 up. 설치 버전: prometheus 2.45.3+ds-2ubuntu0.3, prometheus-alertmanager 0.26.0+ds-1ubuntu0.3, prometheus-node-exporter 1.7.0-1ubuntu0.3, grafana 13.2.6 (모두 hold). 9100은 4대 모두 내부망 주소에만 붙음 |
+| 2026-11-13 | 호스트 Fluent Bit | `playbooks/fluent-bit.yml` 적용, 재실행 4대 `changed=0`. Kibana `orbit-host`에서 lgtm `grafana-server.service` 로그 확인 |
+| 2026-11-13 | 재부팅 확인 | lgtm 재부팅 뒤 Prometheus, Alertmanager, Grafana, node-exporter, Fluent Bit 자동 시작. 9100 `10.0.0.206`, `ORBIT-METRICS` 유지. 재실행 `changed=0` |
