@@ -63,3 +63,35 @@ curl -k -sS --max-time 10 -o /dev/null -w 'HTTP %{http_code}\n' https://127.0.0.
 | 2026-11-09 | VM 내부 Dashboard HTTPS | `HTTP 302` |
 | 2026-11-09 | Mac에서 Dashboard 접속 | 최초 타임아웃. Tailnet 정책 변경 후 로그인 화면 확인 |
 | 2026-11-09 | Mac 브라우저 로그인 | Dashboard Overview 확인. 브라우저 인증서 경고 표시 |
+
+## Ansible로 중앙 구성요소 설치 및 검증
+
+[#48](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/48)에서 수동 설치와 상태 점검 절차를 `ansible/playbooks/wazuh-central.yml`과 `wazuh_central` 역할로 옮겼다. 지원 조건을 충족하는 미설치 VM의 설치 절차를 정의했고, 신규 설치는 기본적으로 비활성화했다. 기존 설치의 패키지 상태나 버전이 예상과 다르면 변경 전에 중단한다.
+
+### 기존 VM 검증 방법
+
+`astra`의 저장소 `ansible/` 디렉터리에서 실행한다. 플레이북은 SSH로 `wazuh` VM에 접속해 상태를 확인한다. 실행 전에 `astra`의 같은 셸에 Manager API와 Indexer 조회 계정의 환경 변수(`WAZUH_API_USER`, `WAZUH_API_PASSWORD`, `WAZUH_INDEXER_USER`, `WAZUH_INDEXER_PASSWORD`)를 준비한다.
+
+```bash
+ansible-playbook playbooks/wazuh-central.yml --limit wazuh -K \
+  -e 'wazuh_central_allow_install=false' \
+  -e 'wazuh_central_indexer_url=https://127.0.0.1:9200' \
+  -e 'wazuh_central_indexer_ca=/etc/filebeat/certs/root-ca.pem'
+```
+
+`--limit wazuh`는 실행 대상을 기존 VM 한 대로 제한하고, `-K`는 해당 VM의 `sudo` 비밀번호를 요청한다. `-e`는 이번 실행에 사용할 변수를 전달한다. Indexer URL의 `127.0.0.1`과 CA 경로는 조회가 실행되는 `wazuh` VM 기준이다.
+
+Manager API는 `orbit-agent-reader`로 Agent를 조회한다. Indexer는 `orbit-alert-reader`로 기존 경보를 조회한다. 이 계정은 `orbit-alerts-readonly` 역할을 통해 `wazuh-alerts-*` 읽기 권한을 받는다. 자격 증명은 팀의 비밀 저장소에서 관리한다.
+
+### 검증 결과
+
+| 대상 | 확인 항목 | 결과 |
+| --- | --- | --- |
+| 기존 `wazuh` VM | 신규 설치 조건 확인, 설치 도우미 다운로드 및 실행 | 모두 건너뜀 |
+| 기존 `wazuh` VM | 패키지 버전과 서비스 4개 상태 | Manager·Indexer·Dashboard `4.14.10-1`, Filebeat `7.10.2-2`. 서비스 모두 실행 중 |
+| 기존 `wazuh` VM | Dashboard 로컬 HTTPS 응답 | 통과 |
+| 기존 `wazuh` VM | Manager API 인증 및 Agent 조회 | 통과 |
+| 기존 `wazuh` VM | Indexer에서 기존 경보 한 건 조회 | 통과 |
+| 신규 VM | 최초 설치 및 설치 후 재실행 | 미검증. 후속 작업에서 확인 |
+
+기존 VM(wazuh vm)의 일반 실행 결과는 `ok=12 changed=0 unreachable=0 failed=0 skipped=6`이었다.
