@@ -16,6 +16,7 @@ hvault_tls_sans: >-
      + (['IP:' ~ tailscale_ip] if tailscale_ip is defined else []) }}
 
 # Raft 스냅샷 S3 백업 (#11). 버킷·접두사 등 프로젝트 값은 group_vars/all/hashicorp-vault.yml
+hvault_awscli_version: 2.40.0                         # 버전 고정 (awscli-exe-linux-x86_64-<버전>.zip)
 hvault_snapshot_bin: /usr/local/bin/vault-snapshot.sh
 hvault_snapshot_restore_bin: /usr/local/bin/vault-snapshot-restore.sh
 hvault_snapshot_work_dir: /var/lib/vault-snapshot     # root 0700. 업로드 성공 후 비움

@@ -16,3 +16,7 @@ metric_backup: 600
 
 # 도메인 (Cloudflare DNS). 서비스 이름은 <앞부분>.{{ orbit_domain }} (docs/reverse-proxy.md)
 orbit_domain: orbit-labs.space
+
+
+# 시간대 (전 장비). 로그·터미널 시각을 한국 시간으로 (orbit-infrastructure#39)
+orbit_timezone: Asia/Seoul
