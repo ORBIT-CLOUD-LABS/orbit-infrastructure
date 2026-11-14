@@ -1,0 +1,29 @@
+- name: restart node-exporter
+  ansible.builtin.systemd_service:
+    name: prometheus-node-exporter
+    state: restarted
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: restart prometheus
+  ansible.builtin.systemd_service:
+    name: prometheus
+    state: restarted
+  when: not ansible_check_mode
+
+- name: restart alertmanager
+  ansible.builtin.systemd_service:
+    name: prometheus-alertmanager
+    state: restarted
+  when: not ansible_check_mode
+
+- name: restart grafana
+  ansible.builtin.systemd_service:
+    name: grafana-server
+    state: restarted
+  when: not ansible_check_mode
+
+# 재부팅 뒤에도 유지 (gateway·vault·efk role과 같은 명령)
+- name: save metrics firewall
+  ansible.builtin.command: netfilter-persistent save
+  changed_when: true

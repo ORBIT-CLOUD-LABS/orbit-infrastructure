@@ -25,7 +25,7 @@ fluentbit_check_key: kibana_viewer_password
 fluentbit_buffer_limit: "{{ '64M' if inventory_hostname == 'efk' else '512M' }}"
 
 # journald: 아래 유닛과 식별자의 로그, 커널 warning(PRIORITY 4) 이상. 여러 조건은 OR
-fluentbit_units_common: [ssh.service]
+fluentbit_units_common: [ssh.service, prometheus-node-exporter.service]   # node-exporter는 4대 모두 (roles/lgtm)
 fluentbit_identifiers_common: [sshd, sudo]
 fluentbit_units_by_host:
   # systemd-networkd: netplan 설정을 실제로 적용 (유선·br0·와이파이 링크, 주소 변경)
@@ -33,6 +33,7 @@ fluentbit_units_by_host:
   astra: [vault.service, tailscaled.service, libvirtd.service, virtlogd.service, smartmontools.service,
           systemd-networkd.service, orbit-net-revert.service]
   efk: [elasticsearch.service, kibana.service]
+  lgtm: [prometheus.service, prometheus-alertmanager.service, grafana-server.service]
 fluentbit_units_by_group:
   monitoring: [cloud-init-local.service, cloud-init.service, cloud-config.service, cloud-final.service]
 # wpa_supplicant는 netplan-wpa-<장치>.service로 돌아서 유닛 이름이 장치마다 다름. 식별자로 받음

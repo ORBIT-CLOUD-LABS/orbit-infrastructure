@@ -1,0 +1,31 @@
+# {{ ansible_managed }}
+# lgtm Prometheus. 대상은 roles/lgtm/defaults의 lgtm_node_exporter_hosts (문서: docs/lgtm.md)
+global:
+  scrape_interval: {{ lgtm_scrape_interval }}
+  evaluation_interval: {{ lgtm_scrape_interval }}
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["127.0.0.1:{{ lgtm_alertmanager_port }}"]
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:{{ lgtm_prometheus_port }}"]
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["127.0.0.1:{{ lgtm_alertmanager_port }}"]
+
+  - job_name: grafana
+    static_configs:
+      - targets: ["127.0.0.1:{{ lgtm_grafana_port }}"]
+
+  # 클러스터 밖 호스트. 대시보드에는 호스트 이름(nodename)으로 보임
+  - job_name: node
+    static_configs:
+      - targets:
+{% for host in lgtm_node_exporter_hosts %}
+          - "{{ hostvars[host].lan_ip }}:{{ lgtm_node_exporter_port }}"   # {{ host }}
+{% endfor %}

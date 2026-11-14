@@ -1,0 +1,83 @@
+# 지표 포트는 허용한 출발지에서만 받음 (efk role의 firewall.yml과 같은 방식)
+# INPUT 기본 정책이 ACCEPT라서 전용 체인에서 허용 후 나머지는 버림. 다른 포트(22 등)는 그대로
+# 연결은 INPUT 맨 뒤에 붙임. astra의 ORBIT-VAULT, efk의 ORBIT-EFK는 자기 연결이 맨 앞인지 확인하므로 앞자리를 다투지 않음
+- name: iptables-persistent 질문 미리 답하기
+  ansible.builtin.debconf:
+    name: iptables-persistent
+    question: "{{ item }}"
+    value: "true"
+    vtype: boolean
+  loop: [iptables-persistent/autosave_v4, iptables-persistent/autosave_v6]
+
+- name: iptables-persistent 설치 (재부팅 뒤에도 규칙 유지. 쓰지 않는 ufw는 지워짐)
+  ansible.builtin.apt:
+    name: iptables-persistent
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: 원하는 규칙 (iptables -S 형식)
+  ansible.builtin.set_fact:
+    # lint는 인벤토리 없이 템플릿을 시험해서 hostvars를 풀지 못함. 실제 렌더링은 확인함
+    lgtm_fw_chain: >-   # noqa: jinja[invalid]
+      {{ ['-N ' ~ lgtm_fw_chain_name, '-A ' ~ lgtm_fw_chain_name ~ ' -i lo -j ACCEPT']
+         + lgtm_fw_accept
+         + ['-A ' ~ lgtm_fw_chain_name ~ ' -j DROP'] }}
+    lgtm_fw_jump: >-
+      -A INPUT -p tcp -m multiport --dports {{ lgtm_fw_allow | map(attribute='port') | map('int') | sort | join(',') }} -j {{ lgtm_fw_chain_name }}
+  vars:
+    # (포트, 호스트) 쌍마다 "-s <lan_ip>/32 --dport <포트>" 허용 규칙 하나
+    lgtm_fw_pairs: "{{ lgtm_fw_allow | subelements('hosts') }}"   # noqa: jinja[invalid]
+    lgtm_fw_accept: >-   # noqa: jinja[invalid]
+      {{ lgtm_fw_pairs | map('last') | map('extract', hostvars, 'lan_ip')
+         | zip(lgtm_fw_pairs | map('first') | map(attribute='port'))
+         | map('join', '/32 -p tcp -m tcp --dport ')
+         | map('regex_replace', '^', '-A ' ~ lgtm_fw_chain_name ~ ' -s ')
+         | map('regex_replace', '$', ' -j ACCEPT')
+         | list }}
+
+- name: 지금 규칙 읽기
+  ansible.builtin.command: iptables -S
+  register: lgtm_fw_now
+  changed_when: false
+  check_mode: false
+
+- name: 지금 규칙 나누기
+  ansible.builtin.set_fact:
+    lgtm_fw_chain_now: "{{ lgtm_fw_now.stdout_lines | select('match', '-(N|A) ' ~ lgtm_fw_chain_name ~ '( |$)') | list }}"
+    # 이 체인으로 가는 연결 전부. 포트 목록이 바뀌면 옛 연결을 지워야 함
+    lgtm_fw_jumps_now: "{{ lgtm_fw_now.stdout_lines | select('match', '-A INPUT .* -j ' ~ lgtm_fw_chain_name ~ '$') | list }}"
+
+- name: 바꿔야 하는지
+  ansible.builtin.set_fact:
+    lgtm_fw_needs_change: "{{ lgtm_fw_chain_now != lgtm_fw_chain or lgtm_fw_jumps_now != [lgtm_fw_jump] }}"
+
+# command는 미리보기에서 건너뛰어서, 바뀔 예정인지와 적용할 내용을 따로 보여 줌
+- name: 미리보기 (바뀔 규칙)
+  ansible.builtin.debug:
+    msg: "{{ lookup('ansible.builtin.template', 'metrics-firewall.rules.j2').splitlines() }}"
+  when: ansible_check_mode and lgtm_fw_needs_change
+  changed_when: true
+
+# iptables-restore는 한 번에 적용해서, 바꾸는 사이에 포트가 열리는 순간이 없음
+- name: 다르면 한 번에 바꾸기
+  ansible.builtin.command:
+    cmd: iptables-restore --noflush
+    stdin: "{{ lookup('ansible.builtin.template', 'metrics-firewall.rules.j2') }}"
+  when: lgtm_fw_needs_change
+  changed_when: true
+  notify: save metrics firewall
+
+- name: 다시 읽기
+  ansible.builtin.command: iptables -S
+  register: lgtm_fw_after
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: 원하는 모양인지 확인
+  ansible.builtin.assert:
+    that:
+      - (lgtm_fw_after.stdout_lines | select('match', '-(N|A) ' ~ lgtm_fw_chain_name ~ '( |$)') | list) == lgtm_fw_chain
+      - (lgtm_fw_after.stdout_lines | select('match', '-A INPUT .* -j ' ~ lgtm_fw_chain_name ~ '$') | list) == [lgtm_fw_jump]
+    fail_msg: "지표 방화벽 규칙이 원하는 모양이 아님. sudo iptables -S INPUT; sudo iptables -S {{ lgtm_fw_chain_name }} 확인"
+  when: not ansible_check_mode

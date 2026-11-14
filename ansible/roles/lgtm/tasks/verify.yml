@@ -1,0 +1,112 @@
+# 서비스 확인. 재시작 직후에는 뜨는 데 시간이 걸림
+- name: Prometheus 상태
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ lgtm_prometheus_port }}/-/ready"
+  register: lgtm_prom_ready
+  retries: 12
+  delay: 5
+  until: lgtm_prom_ready.status == 200
+
+# 첫 수집까지 기다림 (수집 간격 {{ lgtm_scrape_interval }})
+- name: 수집 대상이 모두 up인지
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ lgtm_prometheus_port }}/api/v1/targets?state=active"
+  register: lgtm_targets
+  retries: 12
+  delay: 10
+  until: >-
+    lgtm_targets.status == 200 and
+    (lgtm_targets.json.data.activeTargets | length) == (3 + lgtm_node_exporter_hosts | length) and
+    (lgtm_targets.json.data.activeTargets | rejectattr('health', 'equalto', 'up') | list | length) == 0
+
+- name: 보관 기간과 Alertmanager 연결
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ lgtm_prometheus_port }}/api/v1/{{ item }}"
+  loop: [status/flags, alertmanagers]
+  register: lgtm_prom_api
+
+- name: 기대한 값인지
+  ansible.builtin.assert:
+    that:
+      - lgtm_prom_api.results[0].json.data['storage.tsdb.retention.time'] == lgtm_metrics_retention
+      - lgtm_prom_api.results[1].json.data.activeAlertmanagers | length == 1
+    fail_msg: >-
+      보관 기간: {{ lgtm_prom_api.results[0].json.data['storage.tsdb.retention.time'] }} (기대 {{ lgtm_metrics_retention }}),
+      연결된 Alertmanager: {{ lgtm_prom_api.results[1].json.data.activeAlertmanagers | length }} (기대 1)
+
+- name: Grafana 상태
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ lgtm_grafana_port }}/api/health"
+  register: lgtm_grafana_health
+  retries: 12
+  delay: 5
+  until: lgtm_grafana_health.status == 200 and lgtm_grafana_health.json.database == 'ok'
+
+- name: 로그인 없이는 거부되는지
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ lgtm_grafana_port }}/api/org"
+    status_code: 401
+
+- name: 관리자 비밀번호(Vault)로 로그인되는지
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ lgtm_grafana_port }}/api/org"
+    url_username: admin
+    url_password: "{{ lgtm_secrets.grafana_admin_password }}"
+    force_basic_auth: true
+    status_code: [200, 401]
+  register: lgtm_grafana_login
+  no_log: true
+
+- name: 로그인돼야 함
+  ansible.builtin.assert:
+    that: lgtm_grafana_login.status == 200
+    fail_msg: >-
+      Vault의 관리자 비밀번호로 로그인되지 않음. Grafana는 관리자 비밀번호를 처음 시작할 때만 읽음.
+      docs/lgtm.md의 "관리자 비밀번호 바꾸기"로 맞춤
+
+# efk-k8s는 k3s 로그가 들어오기 전(orbit-gitops#46)에는 인덱스가 없어 확인하지 않음
+- name: 데이터 소스 연결 (Prometheus, Elasticsearch 호스트 로그)
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ lgtm_grafana_port }}/api/datasources/uid/{{ item }}/health"
+    url_username: admin
+    url_password: "{{ lgtm_secrets.grafana_admin_password }}"
+    force_basic_auth: true
+  loop: [prometheus, efk-host]
+  register: lgtm_ds_health
+  failed_when: lgtm_ds_health.status != 200 or lgtm_ds_health.json.status != 'OK'
+  no_log: true
+
+- name: 대시보드가 들어왔는지
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ lgtm_grafana_port }}/api/search?type=dash-db"
+    url_username: admin
+    url_password: "{{ lgtm_secrets.grafana_admin_password }}"
+    force_basic_auth: true
+  register: lgtm_dash
+  failed_when: lgtm_dash.status != 200 or (lgtm_dash.json | length) < (lgtm_dashboards | length)
+  no_log: true
+
+# 방화벽: 허용한 곳에서는 열리고, 허용하지 않은 곳에서는 막히는지 (다른 호스트에서 접속해 봄)
+- name: astra에서 Grafana·Prometheus·Alertmanager 열림
+  ansible.builtin.wait_for:
+    host: "{{ lan_ip }}"
+    port: "{{ item }}"
+    timeout: 5
+  loop: ["{{ lgtm_grafana_port }}", "{{ lgtm_prometheus_port }}", "{{ lgtm_alertmanager_port }}"]
+  delegate_to: astra
+  become: false
+
+- name: efk에서 Prometheus (허용하지 않음)
+  ansible.builtin.wait_for:
+    host: "{{ lan_ip }}"
+    port: "{{ lgtm_prometheus_port }}"
+    timeout: 5
+  delegate_to: efk
+  become: false
+  register: lgtm_fw_blocked
+  failed_when: false
+
+- name: efk에서 Prometheus가 막혀야 함
+  ansible.builtin.assert:
+    that: "'Timeout' in (lgtm_fw_blocked.msg | default(''))"   # DROP이라 거부 응답 없이 시간 초과
+    fail_msg: "efk에서 lgtm {{ lgtm_prometheus_port }}에 접속됨. 방화벽({{ lgtm_fw_chain_name }}) 확인"

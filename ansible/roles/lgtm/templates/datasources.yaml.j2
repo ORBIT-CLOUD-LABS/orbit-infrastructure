@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+# Grafana 데이터 소스. 화면에서 고칠 수 없음 (roles/lgtm에서 고침)
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://127.0.0.1:{{ lgtm_prometheus_port }}
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: {{ lgtm_scrape_interval }}
+{% for ds in lgtm_efk_indices %}
+  - name: "{{ ds.name }}"
+    uid: {{ ds.uid }}
+    type: elasticsearch
+    access: proxy
+    url: {{ lgtm_efk_url }}
+    basicAuth: true
+    basicAuthUser: {{ lgtm_efk_user }}
+    editable: false
+    jsonData:
+      index: "{{ ds.index }}"
+      timeField: "@timestamp"
+      logMessageField: message
+      tlsAuthWithCACert: true
+    secureJsonData:
+      basicAuthPassword: "{{ lgtm_efk_password }}"
+      tlsCACert: |
+        {{ lgtm_efk_ca_pem | trim | indent(8) }}
+{% endfor %}
