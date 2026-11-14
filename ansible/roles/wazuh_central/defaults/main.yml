@@ -13,3 +13,16 @@ wazuh_central_indexer_url: ''
 wazuh_central_indexer_ca: ''
 wazuh_central_manager_secret_path: "{{ hvault_kv_infra_prefix }}/wazuh-agent-reader"
 wazuh_central_indexer_secret_path: "{{ hvault_kv_infra_prefix }}/wazuh-alert-reader"
+
+wazuh_central_install_archive: /root/wazuh-central-install/wazuh-install-files.tar
+wazuh_central_manager_reader_name: orbit-agent-reader
+wazuh_central_manager_reader_role: agents_readonly
+wazuh_central_indexer_reader_name: orbit-alert-reader
+wazuh_central_indexer_reader_role: orbit-alerts-readonly
+wazuh_central_alert_index_pattern: 'wazuh-alerts-*'
+
+# 운영·검증 환경별로 인벤토리나 실행 변수에서 지정한다.
+wazuh_central_manager_admin_secret_path: '{{ hvault_kv_infra_prefix }}/wazuh-manager-admin'
+wazuh_central_dashboard_admin_secret_path: '{{ hvault_kv_infra_prefix }}/wazuh-dashboard-admin'
+wazuh_central_resume_bootstrap: false
+wazuh_central_repair_accounts: false
