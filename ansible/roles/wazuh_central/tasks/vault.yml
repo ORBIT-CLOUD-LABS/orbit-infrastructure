@@ -1,0 +1,61 @@
+---
+# 입력: central_secret_path, central_secret_seed, central_secret_create
+# 출력: central_secret_value
+- name: Vault KV v2에서 자격 증명 준비
+  delegate_to: "{{ hvault_host }}"
+  become: false
+  no_log: true
+  module_defaults:
+    ansible.builtin.uri:
+      headers:
+        X-Vault-Token: "{{ lookup('ansible.builtin.env', 'VAULT_TOKEN') }}"
+      ca_path: "{{ hvault_tls_dir }}/vault-ca.crt"
+      validate_certs: true
+      follow_redirects: none
+      use_proxy: false
+      use_netrc: false
+  vars:
+    central_secret_url: "{{ hvault_addr }}/v1/{{ hvault_kv_mount }}/data/{{ central_secret_path }}"
+  block:
+    - name: 기존 Vault 값 확인
+      ansible.builtin.uri:
+        url: "{{ central_secret_url }}"
+        status_code: [200, 404]
+      register: central_secret_read
+
+    - name: 비어 있는 경로에 자격 증명을 최초 저장
+      ansible.builtin.uri:
+        url: "{{ central_secret_url }}"
+        method: POST
+        body_format: json
+        body:
+          options:
+            cas: 0
+          data: "{{ central_secret_seed }}"
+      when:
+        - central_secret_read.status == 404
+        - central_secret_create | bool
+      changed_when: true
+
+    - name: 저장된 자격 증명 다시 읽기
+      ansible.builtin.uri:
+        url: "{{ central_secret_url }}"
+      register: central_secret_saved
+      when: central_secret_read.status == 404
+
+    - name: 자격 증명 반환
+      ansible.builtin.set_fact:
+        central_secret_value: >-
+          {{ (central_secret_read if central_secret_read.status == 200
+              else central_secret_saved).json.data.data }}
+
+    - name: 필수 필드 확인
+      ansible.builtin.assert:
+        that:
+          - central_secret_value.username | default('') | length > 0
+          - central_secret_value.password | default('') | length > 0
+  rescue:
+    - name: Vault 준비 실패
+      ansible.builtin.fail:
+        msg: "Vault 경로 {{ central_secret_path }}의 값, 접근 권한 또는 동시 저장 여부를 확인하세요."
+      no_log: false

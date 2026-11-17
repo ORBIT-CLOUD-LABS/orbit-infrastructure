@@ -1,0 +1,263 @@
+---
+- name: 초기 구성 입력 확인
+  ansible.builtin.assert:
+    that:
+      - lookup('ansible.builtin.env', 'VAULT_TOKEN') | length > 0
+      - wazuh_central_indexer_url | length > 0
+      - wazuh_central_indexer_ca | length > 0
+      - wazuh_central_dashboard_admin_secret_path | length > 0
+      - wazuh_central_manager_admin_secret_path | length > 0 or central_use_archive
+      - central_paths | unique | length == central_paths | length
+  vars:
+    central_paths:
+      - "{{ wazuh_central_manager_secret_path }}"
+      - "{{ wazuh_central_indexer_secret_path }}"
+      - "{{ wazuh_central_dashboard_admin_secret_path }}"
+      - "{{ wazuh_central_manager_admin_secret_path }}"
+
+- name: 설치 아카이브에서 초기 관리자 두 계정만 읽기
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import json
+        import re
+        import sys
+        import tarfile
+
+        with tarfile.open(sys.argv[1], "r:*") as archive:
+            source = archive.extractfile("wazuh-install-files/wazuh-passwords.txt")
+            content = source.read().decode("utf-8")
+
+        credentials = {}
+        for prefix, username in (("api_", "wazuh"), ("indexer_", "admin")):
+            prefix = "(?:indexer_)?" if username == "admin" else prefix
+            pattern = (
+                rf"(?m)^[ \t]*{prefix}username:[ \t]*'{username}'[ \t]*\r?\n"
+                rf"[ \t]*{prefix}password:[ \t]*'([^\r\n]+)'[ \t]*\r?$"
+            )
+            matches = re.findall(pattern, content)
+            if len(matches) != 1:
+                raise ValueError(f"Unexpected credential format for {username}")
+            credentials[username] = {"username": username, "password": matches[0]}
+        print(json.dumps(credentials))
+      - "{{ wazuh_central_install_archive }}"
+  register: central_archive
+  changed_when: false
+  when: central_use_archive
+  no_log: true
+
+- name: Manager 관리자 정보 읽기
+  ansible.builtin.include_tasks: vault.yml
+  vars:
+    central_secret_path: "{{ wazuh_central_manager_admin_secret_path }}"
+    central_secret_seed: {}
+    central_secret_create: false
+  when: not central_use_archive
+
+- name: Manager 관리자 정보 선택
+  ansible.builtin.set_fact:
+    central_manager_admin: "{{ (central_archive.stdout | from_json).wazuh if central_use_archive else central_secret_value }}"
+  no_log: true
+
+- name: Dashboard 관리자 정보 준비
+  ansible.builtin.include_tasks: vault.yml
+  vars:
+    central_secret_path: "{{ wazuh_central_dashboard_admin_secret_path }}"
+    central_secret_seed: "{{ (central_archive.stdout | from_json).admin if central_use_archive else {} }}"
+    central_secret_create: "{{ central_use_archive }}"
+
+- name: Indexer 관리자 정보 보관
+  ansible.builtin.set_fact:
+    central_indexer_admin: "{{ central_secret_value }}"
+  no_log: true
+
+- name: Manager 계정 및 권한 구성
+  no_log: true
+  module_defaults:
+    ansible.builtin.uri:
+      ca_path: "{{ wazuh_central_api_ca }}"
+      follow_redirects: none
+      use_proxy: false
+      use_netrc: false
+  block:
+    - name: Manager 관리자 인증
+      ansible.builtin.uri:
+        url: "{{ wazuh_central_api_url }}/security/user/authenticate?raw=true"
+        method: POST
+        url_username: "{{ central_manager_admin.username }}"
+        url_password: "{{ central_manager_admin.password }}"
+        force_basic_auth: true
+        return_content: true
+      register: central_manager_login
+
+    - name: Manager 계정과 역할 조회
+      ansible.builtin.uri:
+        url: "{{ wazuh_central_api_url }}/security/{{ item }}"
+        headers:
+          Authorization: "Bearer {{ central_manager_login.content | trim }}"
+      loop: [users, roles]
+      register: central_manager_security
+
+    - name: 조회 계정과 역할 선택
+      ansible.builtin.set_fact:
+        central_manager_users: "{{ central_manager_security.results[0].json.data.affected_items | selectattr('username', 'equalto', wazuh_central_manager_reader_name) | list }}"
+        central_manager_roles: "{{ central_manager_security.results[1].json.data.affected_items | selectattr('name', 'equalto', wazuh_central_manager_reader_role) | list }}"
+
+    - name: 조회 결과 검증
+      ansible.builtin.assert:
+        that:
+          - central_manager_security.results[0].json.data.total_affected_items == central_manager_security.results[0].json.data.affected_items | length
+          - central_manager_security.results[1].json.data.total_affected_items == central_manager_security.results[1].json.data.affected_items | length
+          - central_manager_users | length <= 1
+          - central_manager_roles | length == 1
+
+    - name: Manager 조회 계정의 Vault 값 준비
+      ansible.builtin.include_tasks: vault.yml
+      vars:
+        central_secret_path: "{{ wazuh_central_manager_secret_path }}"
+        central_secret_create: "{{ central_manager_users | length == 0 }}"
+        central_secret_seed:
+          username: "{{ wazuh_central_manager_reader_name }}"
+          password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}!aA1"
+
+    - name: Manager 조회 자격 증명 보관
+      ansible.builtin.set_fact:
+        central_manager_reader: "{{ central_secret_value }}"
+
+    - name: Manager 조회 계정명 확인
+      ansible.builtin.assert:
+        that: central_manager_reader.username == wazuh_central_manager_reader_name
+
+    - name: Manager 조회 계정 생성
+      ansible.builtin.uri:
+        url: "{{ wazuh_central_api_url }}/security/users"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ central_manager_login.content | trim }}"
+        body_format: json
+        body: "{{ central_manager_reader }}"
+        status_code: [200, 201]
+      register: central_manager_created
+      when: central_manager_users | length == 0
+      changed_when: true
+
+    - name: Manager 조회 계정 비밀번호 검증
+      ansible.builtin.uri:
+        url: "{{ wazuh_central_api_url }}/security/user/authenticate?raw=true"
+        method: POST
+        url_username: "{{ central_manager_reader.username }}"
+        url_password: "{{ central_manager_reader.password }}"
+        force_basic_auth: true
+
+    - name: Manager 조회 역할 연결
+      ansible.builtin.uri:
+        url: "{{ wazuh_central_api_url }}/security/users/{{ central_manager_user.id }}/roles?role_ids={{ central_manager_roles[0].id }}"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ central_manager_login.content | trim }}"
+      vars:
+        central_manager_user: "{{ central_manager_users[0] if central_manager_users else central_manager_created.json.data.affected_items[0] }}"
+      when: central_manager_roles[0].id not in (central_manager_user.roles | default([]))
+      changed_when: true
+  rescue:
+    - name: Manager 초기 구성 실패
+      ansible.builtin.fail:
+        msg: Manager 관리자 인증, 조회 계정의 Vault 값 및 역할 연결 상태를 확인하세요.
+      no_log: false
+
+- name: Indexer 계정 및 권한 구성
+  no_log: true
+  module_defaults:
+    ansible.builtin.uri:
+      ca_path: "{{ wazuh_central_indexer_ca }}"
+      follow_redirects: none
+      use_proxy: false
+      use_netrc: false
+  vars:
+    central_security_url: "{{ wazuh_central_indexer_url }}/_plugins/_security/api"
+    central_reader_user_url: "{{ central_security_url }}/internalusers/{{ wazuh_central_indexer_reader_name }}"
+    central_reader_role_url: "{{ central_security_url }}/roles/{{ wazuh_central_indexer_reader_role }}"
+    central_reader_mapping_url: "{{ central_security_url }}/rolesmapping/{{ wazuh_central_indexer_reader_role }}"
+    central_admin_auth:
+      url_username: "{{ central_indexer_admin.username }}"
+      url_password: "{{ central_indexer_admin.password }}"
+      force_basic_auth: true
+  block:
+    - name: Indexer 계정, 역할, 매핑 조회
+      ansible.builtin.uri: "{{ central_admin_auth | combine({'url': item, 'status_code': [200, 404]}) }}"
+      loop:
+        - "{{ central_reader_user_url }}"
+        - "{{ central_reader_role_url }}"
+        - "{{ central_reader_mapping_url }}"
+      register: central_indexer_security
+
+    - name: Indexer 조회 계정의 Vault 값 준비
+      ansible.builtin.include_tasks: vault.yml
+      vars:
+        central_secret_path: "{{ wazuh_central_indexer_secret_path }}"
+        central_secret_create: "{{ central_indexer_security.results[0].status == 404 }}"
+        central_secret_seed:
+          username: "{{ wazuh_central_indexer_reader_name }}"
+          password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}!aA1"
+
+    - name: Indexer 조회 계정명 확인 및 자격 증명 보관
+      ansible.builtin.assert:
+        that: central_secret_value.username == wazuh_central_indexer_reader_name
+
+    - name: Indexer 조회 자격 증명 보관
+      ansible.builtin.set_fact:
+        central_indexer_reader: "{{ central_secret_value }}"
+
+    - name: Indexer 조회 계정 생성
+      ansible.builtin.uri: >-
+        {{ central_admin_auth | combine({'url': central_reader_user_url,
+           'method': 'PUT', 'body_format': 'json',
+           'body': {'password': central_indexer_reader.password},
+           'status_code': [200, 201]}) }}
+      when: central_indexer_security.results[0].status == 404
+      changed_when: true
+
+    - name: Indexer 조회 계정 비밀번호 검증
+      ansible.builtin.uri:
+        url: "{{ wazuh_central_indexer_url }}/_plugins/_security/authinfo"
+        url_username: "{{ central_indexer_reader.username }}"
+        url_password: "{{ central_indexer_reader.password }}"
+        force_basic_auth: true
+
+    - name: 경보 읽기 역할 생성
+      ansible.builtin.uri: >-
+        {{ central_admin_auth | combine({'url': central_reader_role_url,
+           'method': 'PUT', 'body_format': 'json', 'body': {
+             'cluster_permissions': [],
+             'index_permissions': [{'index_patterns': [wazuh_central_alert_index_pattern],
+                                    'allowed_actions': ['read']}],
+             'tenant_permissions': []}, 'status_code': [200, 201]}) }}
+      when: central_indexer_security.results[1].status == 404
+      changed_when: true
+
+    - name: 새 역할 매핑 생성
+      ansible.builtin.uri: >-
+        {{ central_admin_auth | combine({'url': central_reader_mapping_url,
+           'method': 'PUT', 'body_format': 'json',
+           'body': {'users': [wazuh_central_indexer_reader_name]},
+           'status_code': [200, 201]}) }}
+      when: central_indexer_security.results[2].status == 404
+      changed_when: true
+
+    - name: 기존 역할 매핑에 조회 계정 추가
+      ansible.builtin.uri: >-
+        {{ central_admin_auth | combine({'url': central_reader_mapping_url,
+           'method': 'PATCH', 'body_format': 'json',
+           'body': [{'op': 'add', 'path': '/users/-',
+                     'value': wazuh_central_indexer_reader_name}]}) }}
+      when:
+        - central_indexer_security.results[2].status == 200
+        - wazuh_central_indexer_reader_name not in central_indexer_security.results[2].json[wazuh_central_indexer_reader_role].users
+      changed_when: true
+  rescue:
+    - name: Indexer 초기 구성 실패
+      ansible.builtin.fail:
+        msg: Indexer 관리자 인증, Security API 권한과 조회 계정의 Vault 값을 확인하세요.
+      no_log: false
