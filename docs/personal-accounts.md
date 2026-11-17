@@ -1,6 +1,6 @@
 # 개인 Linux 계정과 호스트별 권한
 
-개인 계정 role은 계정·홈·개인 그룹·개인 sudo 규칙과 인증서 전용 SSH 설정을 관리한다. Vault 역할·GitHub 매핑은 별도의 Vault 플레이북으로 적용하고, 팀원 인증서 자동 설정·갱신은 `scripts/orbit-ssh-setup.sh`가 맡는다([Vault 문서의 팀원 접속](vault.md#팀원-접속-자동-갱신-macos)). Linux 계정 role 적용만으로 개인 인증서가 발급되지는 않는다.
+개인 계정 role은 계정·홈·개인 그룹·개인 sudo 규칙과 인증서 전용 SSH 설정을 관리한다. Vault 역할·GitHub 매핑은 별도의 Vault 플레이북으로 적용하고, 팀원 인증서 자동 설정·갱신은 `scripts/orbit-ssh-setup.sh`(Windows는 `scripts/orbit-ssh-setup.ps1`)가 맡는다([Vault 문서의 팀원 접속](vault.md#팀원-접속-자동-갱신)). Linux 계정 role 적용만으로 개인 인증서가 발급되지는 않는다.
 
 ## 초기 비밀번호
 
