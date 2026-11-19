@@ -1,3 +1,9 @@
-# 노트북 5대 기본값. astra는 hosts.yml의 호스트 변수(net_role: gateway)가 우선
-net_role: worker
-net_checks: ["{{ lan_gw }}"]
+# 물리 호스트 6대 기본값. astra는 hosts.yml의 호스트 변수(net_role: gateway, net_checks)가 우선
+lan_bridge: br0     # VM이 붙는 브리지. 유선 주소는 브리지가 가짐
+# 인터넷으로 나가는 경로. wifi: 자기 와이파이 (방화벽 구성 전), fw: 관리 구역 게이트웨이(방화벽 VIP .254)
+net_role: wifi
+# 적용 후 확인: astra(새 주소)와 인터넷(자기 와이파이)
+net_checks: ["{{ hostvars['astra'].lan_ip }}", "{{ probe_ip }}"]
+# mercury·vesper와 새 주소는 astra의 호스트 키 목록(/etc/ssh/ssh_known_hosts)에 아직 없음
+# 처음 보는 키는 받고, 이미 아는 키가 바뀌면 막음. 호스트 키 목록을 새 주소로 다시 만든 뒤 지움
+ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"

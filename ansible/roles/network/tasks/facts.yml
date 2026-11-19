@@ -4,19 +4,30 @@
     lan_if: >-
       {{ ansible_facts.interfaces | map('replace', '-', '_') | map('extract', ansible_facts)
          | selectattr('macaddress', 'defined') | rejectattr('type', 'equalto', 'bridge')
-         | selectattr('macaddress', 'equalto', lan_mac | lower)
+         | selectattr('macaddress', 'equalto', (lan_mac | default('-')) | lower)
          | map(attribute='device') | first | default('') }}
     wifi_if: >-
       {{ ansible_facts.interfaces | map('replace', '-', '_') | map('extract', ansible_facts)
          | selectattr('macaddress', 'defined') | rejectattr('type', 'equalto', 'bridge')
          | selectattr('macaddress', 'equalto', (wifi_mac | default('-')) | lower)
          | map(attribute='device') | first | default('') }}
+    outer_if: >-
+      {{ ansible_facts.interfaces | map('replace', '-', '_') | map('extract', ansible_facts)
+         | selectattr('macaddress', 'defined') | rejectattr('type', 'equalto', 'bridge')
+         | selectattr('macaddress', 'equalto', (outer_mac | default('-')) | lower)
+         | map(attribute='device') | first | default('') }}
 
 - name: 유선 장치가 있어야 함
   ansible.builtin.assert:
     that: lan_if | length > 0
-    fail_msg: "{{ inventory_hostname }}: MAC {{ lan_mac }} 장치를 못 찾음. ip -br link 로 확인"
+    fail_msg: "{{ inventory_hostname }}: 유선 MAC {{ lan_mac | default('(인벤토리에 lan_mac 없음)') }} 장치를 못 찾음. ip -br link 로 확인"
 
-- name: 내부망 장치 이름 (브리지면 br0)
+- name: 바깥 브리지에 넣을 장치 (outer_mac을 적었으면 있어야 함)
+  ansible.builtin.assert:
+    that: outer_if | length > 0
+    fail_msg: "{{ inventory_hostname }}: 바깥 MAC {{ outer_mac | default('') }} 장치를 못 찾음. ip -br link 로 확인"
+  when: outer_mac is defined
+
+- name: 내부망 장치 이름 (브리지)
   ansible.builtin.set_fact:
-    lan_dev: "{{ lan_bridge | default(lan_if) }}"
+    lan_dev: "{{ lan_bridge }}"
