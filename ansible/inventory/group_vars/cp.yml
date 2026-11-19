@@ -1,2 +1,0 @@
-net_role: cp
-net_checks: ["{{ lan_gw }}", "{{ probe_ip }}"]
