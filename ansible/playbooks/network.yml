@@ -1,18 +1,27 @@
-# 네트워크: netplan, 워커 장애 전환 감시, astra NAT
-#   미리보기: ansible-playbook playbooks/network.yml -K --check --diff --limit <노드>
-#   astra 먼저 따로:  --limit astra
-#   나머지 한 대씩:   --limit luna  (또는 --limit 'cp,workers' 로 한 대씩 차례로)
+# 네트워크: 물리 호스트 6대의 netplan(br0, 재설계 주소), astra의 바깥 브리지와 NAT
+# 문서: docs/network.md
+# vault.yml(와이파이 비밀번호)이 필요해서 astra의 orbit 계정으로 실행
+#   미리보기: ansible-playbook playbooks/network.yml -K --ask-vault-pass --private-key ~/.ssh/orbit_ansible --check --diff --limit <호스트>
+#   실행:    ansible-playbook playbooks/network.yml -K --ask-vault-pass --private-key ~/.ssh/orbit_ansible --limit <호스트>
+# 한 번에 한 대만 (--limit). 와이파이 주소가 한 칸씩 밀리므로 재설계 주소를 처음 넣을 때는 이 순서로:
+#   astra → luna → terra → vesper → sol → mercury
 
 - name: 게이트웨이 (astra)
-  hosts: gateway
+  hosts: astra
   become: true
   roles:
     - network
-    - gateway     # 브리지로 바뀌면 NAT 허용 규칙도 br0 기준으로 바로 바꿈
+    - gateway     # 브리지가 생기면 NAT·통과 허용 규칙도 그 브리지 기준으로 바로 넣음
 
-- name: 나머지 노드
-  hosts: cp:workers
+- name: 노트북
+  hosts: vm_hosts:!astra
   become: true
   serial: 1       # 한 대씩. 실패하면 거기서 멈춤
+  pre_tasks:
+    - name: 한 번에 한 대만 적용
+      ansible.builtin.assert:
+        that: ansible_play_hosts_all | length == 1
+        fail_msg: "노트북은 한 대씩 적용: --limit <호스트>. 순서는 이 파일 머리말"
+      run_once: true
   roles:
     - network

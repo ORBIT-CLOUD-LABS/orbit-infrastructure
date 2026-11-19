@@ -1,4 +1,4 @@
-# astra: 내부망 패킷을 와이파이로 내보내는 NAT
+# astra: 안쪽(내부망 br0, 바깥 구역 브리지) 패킷을 와이파이로 내보내는 NAT
 - name: 장치 확인
   ansible.builtin.include_role:
     name: network
@@ -42,59 +42,60 @@
   ansible.builtin.set_fact:
     fwd_chain: "{{ 'DOCKER-USER' if docker_user.rc == 0 else 'FORWARD' }}"
 
-- name: NAT (내부망에서 나가는 패킷의 출발지를 astra 와이파이 주소로)
+# 안쪽 장치와 대역의 짝. 옛 내부망은 br0에서만 (옛 대역 정리 때 old_lan_net과 함께 없어짐)
+# 바깥 브리지로는 fw 쌍이 바깥 VIP로 SNAT한 구역 통신과 io가 나감
+- name: NAT 대상
+  ansible.builtin.set_fact:
+    gw_nets: "{{ [lan_net] + ([old_lan_net] if old_lan_net is defined else []) }}"
+    gw_inner_devs: "{{ [lan_dev] + ([outer_bridge] if outer_bridge is defined else []) }}"
+    gw_pass: >-
+      {{ [{'dev': lan_dev, 'net': lan_net}]
+         + ([{'dev': lan_dev, 'net': old_lan_net}] if old_lan_net is defined else [])
+         + ([{'dev': outer_bridge, 'net': lan_net}] if outer_bridge is defined else []) }}
+
+- name: NAT (안에서 나가는 패킷의 출발지를 astra 와이파이 주소로)
   ansible.builtin.iptables:
     table: nat
     chain: POSTROUTING
-    source: "{{ lan_net }}"
+    source: "{{ item }}"
     out_interface: "{{ wifi_if }}"
     jump: MASQUERADE
+  loop: "{{ gw_nets }}"
   notify: save iptables
 
-- name: 내부망 → 와이파이 허용
+- name: 안 → 와이파이 허용
   ansible.builtin.iptables:
     chain: "{{ fwd_chain }}"
     action: insert
-    in_interface: "{{ lan_dev }}"
+    in_interface: "{{ item.dev }}"
     out_interface: "{{ wifi_if }}"
-    source: "{{ lan_net }}"
+    source: "{{ item.net }}"
     jump: ACCEPT
+  loop: "{{ gw_pass }}"
+  loop_control: { label: "{{ item.dev }} {{ item.net }}" }
   notify: save iptables
 
-- name: 와이파이 → 내부망 응답 허용
+- name: 와이파이 → 안 응답 허용
   ansible.builtin.iptables:
     chain: "{{ fwd_chain }}"
     action: insert
     in_interface: "{{ wifi_if }}"
-    out_interface: "{{ lan_dev }}"
-    destination: "{{ lan_net }}"
+    out_interface: "{{ item.dev }}"
+    destination: "{{ item.net }}"
     ctstate: [RELATED, ESTABLISHED]
     jump: ACCEPT
+  loop: "{{ gw_pass }}"
+  loop_control: { label: "{{ item.dev }} {{ item.net }}" }
   notify: save iptables
 
-# 브리지 안의 통신(VM <-> 내부망). Docker가 있으면 br_netfilter 때문에 브리지 패킷도 FORWARD를 거쳐서 막힐 수 있음
+# 브리지 안의 통신. Docker가 있으면 br_netfilter 때문에 브리지 패킷도 FORWARD를 거쳐서 막힐 수 있음
+# br0: VM과 내부망. 바깥 브리지: io와 fw 쌍의 바깥 NIC
 - name: 브리지 안 통신 허용
   ansible.builtin.iptables:
     chain: "{{ fwd_chain }}"
     action: insert
-    in_interface: "{{ lan_bridge }}"
-    out_interface: "{{ lan_bridge }}"
+    in_interface: "{{ item }}"
+    out_interface: "{{ item }}"
     jump: ACCEPT
-  when: lan_bridge is defined
-  notify: save iptables
-
-- name: 브리지로 바꾸기 전의 옛 규칙 지우기 (유선 장치 이름 기준)
-  ansible.builtin.iptables:
-    chain: "{{ fwd_chain }}"
-    in_interface: "{{ item.i }}"
-    out_interface: "{{ item.o }}"
-    source: "{{ item.s | default(omit) }}"
-    destination: "{{ item.d | default(omit) }}"
-    ctstate: "{{ item.ct | default(omit) }}"
-    jump: ACCEPT
-    state: absent
-  loop:
-    - { i: "{{ lan_if }}", o: "{{ wifi_if }}", s: "{{ lan_net }}" }
-    - { i: "{{ wifi_if }}", o: "{{ lan_if }}", d: "{{ lan_net }}", ct: [RELATED, ESTABLISHED] }
-  when: lan_bridge is defined
+  loop: "{{ gw_inner_devs }}"
   notify: save iptables

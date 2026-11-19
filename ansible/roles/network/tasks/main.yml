@@ -1,33 +1,28 @@
 - name: 장치 확인
   ansible.builtin.include_tasks: facts.yml
 
-# 워커: 감시 서비스를 netplan보다 먼저 (옛 서비스가 apply 중에 경로를 되돌리지 않게)
-- name: 장애 전환 감시 스크립트
-  ansible.builtin.template:
-    src: orbit-gw-watch.sh.j2
-    dest: /usr/local/sbin/orbit-gw-watch.sh
-    mode: "0755"
-  when: net_role == 'worker'
-  notify: restart orbit-gw-watch
+# 옛 장애 전환 감시(orbit-gw-watch) 제거. astra를 거치는 경로와 와이파이 자동 전환을 더 쓰지 않음
+# netplan보다 먼저 멈춤 (apply 중에 옛 서비스가 기본 경로를 바꾸지 않게)
+- name: 옛 감시 서비스가 있는지
+  ansible.builtin.stat:
+    path: /etc/systemd/system/orbit-gw-watch.service
+  register: gw_watch_unit
 
-- name: 장애 전환 감시 서비스
-  ansible.builtin.template:
-    src: orbit-gw-watch.service.j2
-    dest: /etc/systemd/system/orbit-gw-watch.service
-    mode: "0644"
-  when: net_role == 'worker'
-  notify: restart orbit-gw-watch
-
-- name: 감시 서비스 켜기
+- name: 옛 감시 서비스 끄기
   ansible.builtin.systemd_service:
     name: orbit-gw-watch
-    enabled: true
-    state: started
-    daemon_reload: true
-  when: net_role == 'worker'
+    state: stopped
+    enabled: false
+  when: gw_watch_unit.stat.exists
 
-- name: 감시 서비스 새 파일로 재시작 (netplan 적용 전)
-  ansible.builtin.meta: flush_handlers
+- name: 옛 감시 서비스 파일 지우기
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/orbit-gw-watch.service
+    - /usr/local/sbin/orbit-gw-watch.sh
+  notify: reload systemd
 
 - name: cloud-init 있는지
   ansible.builtin.stat:
