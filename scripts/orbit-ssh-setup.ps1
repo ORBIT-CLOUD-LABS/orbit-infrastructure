@@ -22,10 +22,10 @@ $Here = $PSScriptRoot
 $OrbitDir = Join-Path $env:USERPROFILE '.orbit'
 $SshDir = Join-Path $env:USERPROFILE '.ssh'
 $Key = Join-Path $SshDir 'id_ed25519'
-$Astra = '10.0.0.201'
+$Astra = '10.10.0.200'
 # 자동 갱신을 켤 주소와 이름. 내부망(옛 대역, 재설계 대역 10.10.0.0/16), 와이파이, 노드 이름(*.orbit-labs.space, Cloudflare DNS)
 # 노드 Tailscale 주소(예비 경로)는 넣지 않음. 팀원은 Tailscale 정책으로 막혀 있고, 공개 저장소에 두지 않기로 한 값
-$MatchHosts = '10.0.0.20?,10.10.*,192.168.200.20?,*.orbit-labs.space'
+$MatchHosts = '10.10.*,192.168.200.20?,*.orbit-labs.space'
 $PatFile = Join-Path $OrbitDir 'github-pat.dpapi'
 $SshConfig = Join-Path $SshDir 'config'
 $Begin = '# >>> orbit-vault-ssh (orbit-infrastructure/scripts/orbit-ssh-setup.ps1가 관리) >>>'
@@ -185,8 +185,8 @@ if ($until -and $until -gt [datetime]::Now -and $certFp -and $certFp -eq $keyFp 
     $principals.Count -eq 1 -and $principals[0] -ceq $sshUser) {
     $certLines | Where-Object { $_ -match '^\s+(Key ID|Valid):' } | ForEach-Object { Write-Host $_ }
     Write-Host ''
-    Write-Host "완료. 이제 ssh 10.0.0.202 처럼 접속하면 개인 계정($sshUser)으로 들어감 (만료 10분 전부터 접속할 때 자동으로 새로 받음)"
-    Write-Host "인증서로 들어갔는지 확인: ssh -v 10.0.0.202 exit 2>&1 | Select-String 'Server accepts key'  → ED25519-CERT 이면 정상"
+    Write-Host "완료. 이제 ssh 10.10.0.201 처럼 접속하면 개인 계정($sshUser)으로 들어감 (만료 10분 전부터 접속할 때 자동으로 새로 받음)"
+    Write-Host "인증서로 들어갔는지 확인: ssh -v 10.10.0.201 exit 2>&1 | Select-String 'Server accepts key'  → ED25519-CERT 이면 정상"
     Write-Host '개인 계정이 아직 만들어지지 않은 호스트는 거부됨. 그때는 ssh orbit@<호스트> (기존 키)'
     exit 0
 }

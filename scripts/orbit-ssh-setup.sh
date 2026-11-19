@@ -15,10 +15,10 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 ORBIT_DIR=$HOME/.orbit
 KEY=$HOME/.ssh/id_ed25519
-ASTRA=10.0.0.201
+ASTRA=10.10.0.200
 # 자동 갱신을 켤 주소와 이름. 내부망(옛 대역, 재설계 대역 10.10.0.0/16)(노드, VM), 와이파이, Tailscale 주소(예비 경로), 노드 이름(*.orbit-labs.space, Cloudflare DNS)
 # 노드가 바뀌거나 Tailscale 주소가 바뀌면 여기를 고치고 팀원이 이 스크립트를 다시 실행함
-MATCH_HOSTS="10.0.0.20?,10.10.*,192.168.200.20?,100.94.67.18,100.122.168.54,100.104.39.87,100.94.74.17,100.87.222.23,*.orbit-labs.space"
+MATCH_HOSTS="10.10.*,192.168.200.20?,100.94.67.18,100.122.168.54,100.104.39.87,100.94.74.17,100.87.222.23,*.orbit-labs.space"
 PAT_SERVICE=orbit-github-pat
 SSH_CONFIG=$HOME/.ssh/config
 BEGIN='# >>> orbit-vault-ssh (orbit-infrastructure/scripts/orbit-ssh-setup.sh가 관리) >>>'
@@ -141,8 +141,8 @@ if [ "$cert_end" -gt "$(date +%s)" ] && [ -n "$cert_fp" ] && [ "$cert_fp" = "$ke
   printf '%s\n' "$cert_info" | grep -E '^ +(Key ID|Valid):'
   cat <<EOF
 
-완료. 이제 ssh 10.0.0.202 처럼 접속하면 개인 계정($ssh_user)으로 들어감 (만료 10분 전부터 접속할 때 자동으로 새로 받음)
-인증서로 들어갔는지 확인: ssh -v 10.0.0.202 true 2>&1 | grep 'Server accepts key'  → ED25519-CERT 이면 정상
+완료. 이제 ssh 10.10.0.201 처럼 접속하면 개인 계정($ssh_user)으로 들어감 (만료 10분 전부터 접속할 때 자동으로 새로 받음)
+인증서로 들어갔는지 확인: ssh -v 10.10.0.201 true 2>&1 | grep 'Server accepts key'  → ED25519-CERT 이면 정상
 개인 계정이 아직 만들어지지 않은 호스트는 거부됨. 그때는 ssh orbit@<호스트> (기존 키)
 EOF
 else

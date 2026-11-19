@@ -61,17 +61,6 @@ ansible-playbook playbooks/network.yml -K --ask-vault-pass --private-key ~/.ssh/
 - 확인 대상(`net_checks`): astra는 다른 호스트 한 대와 인터넷, 노트북은 astra와 인터넷(`net_role: wifi`) 또는 게이트웨이(`net_role: fw`).
 - 호스트를 새로 넣을 때는 `hosts.yml`에 `lan_mac`, `wifi_mac`을 적는다. role이 MAC으로 장치 이름을 찾는다.
 
-## 이전 중에만 있는 값
-
-옛 내부망 `10.0.0.0/24`에서 옮기는 동안 아래 값을 둔다. 옛 대역을 정리할 때 함께 지운다.
-
-| 값 | 위치 | 내용 |
-| --- | --- | --- |
-| `old_lan_ip` | `hosts.yml` (astra, sol, terra, luna) | `br0`에 옛 주소를 함께 둠 |
-| `old_lan_net` | `group_vars/all/main.yml` | astra NAT·통과 허용에 옛 대역을 함께 둠 |
-| `ansible_host` | `hosts.yml` | 옛 주소. mercury·vesper는 tailnet MagicDNS 이름 |
-| `ansible_ssh_common_args` | `group_vars/vm_hosts.yml` | 호스트 키 목록에 아직 없는 호스트의 첫 접속 |
-
 ## 기록
 
 | 날짜 | 작업 | 결과 |
