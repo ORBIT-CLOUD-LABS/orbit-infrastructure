@@ -1,8 +1,36 @@
-# astra: KVM, libvirt, VM 만들기
-- name: br0가 있어야 함 (network 플레이북을 astra에 먼저)
+# 물리 호스트: KVM, libvirt, 자기 VM 만들기
+# 만들 VM은 vm_pattern(인벤토리 패턴, 예: fw, 'vms:!obs')에 들고 vm_host가 이 호스트인 것만
+- name: 만들 VM을 정했는지 (-e vm_pattern=...)
+  ansible.builtin.assert:
+    that: vm_pattern is defined and vm_pattern | length > 0
+    fail_msg: "만들 VM을 -e vm_pattern=<인벤토리 패턴>으로 정해야 함. 예: fw, 'vms:!obs' (playbooks/vms.yml 머리말)"
+    quiet: true
+
+- name: 이 호스트에 만들 VM 고르기
+  ansible.builtin.set_fact:
+    vm_list: >-
+      {{ query('ansible.builtin.inventory_hostnames', vm_pattern) | map('extract', hostvars)
+         | selectattr('vm_host', 'defined') | selectattr('vm_host', 'equalto', inventory_hostname)
+         | map(attribute='inventory_hostname') | list }}
+
+- name: 만들 VM
+  ansible.builtin.debug:
+    var: vm_list
+
+- name: 만들 VM이 없으면 이 호스트는 건너뜀 (KVM도 설치하지 않음)
+  ansible.builtin.meta: end_host
+  when: vm_list | length == 0
+
+- name: 브리지가 있어야 함 (물리 호스트 네트워크를 먼저)
   ansible.builtin.assert:
     that: vm_bridge in ansible_facts.interfaces
-    fail_msg: "{{ vm_bridge }} 없음. 먼저 ansible-playbook playbooks/network.yml --limit astra"
+    fail_msg: "{{ vm_bridge }} 없음. 먼저 ansible-playbook playbooks/network.yml --limit {{ inventory_hostname }}"
+
+- name: 바깥 NIC가 있는 VM(fw)을 만들면 바깥 브리지도 있어야 함
+  ansible.builtin.assert:
+    that: vm_outer_bridge | length > 0 and vm_outer_bridge in ansible_facts.interfaces
+    fail_msg: "바깥 브리지({{ vm_outer_bridge | default('정하지 않음', true) }}) 없음. astra의 outer_bridge와 network 플레이북 확인"
+  when: vm_list | map('extract', hostvars) | selectattr('outer_mac', 'defined') | list | length > 0
 
 - name: 가상화 지원 확인 (/dev/kvm)
   ansible.builtin.stat:
@@ -79,6 +107,8 @@
 
 - name: VM 만들기
   ansible.builtin.include_tasks: vm.yml
-  loop: "{{ groups['monitoring'] }}"
+  loop: "{{ vm_list }}"
   loop_control:
     loop_var: vm_name
+  vars:
+    vm: "{{ hostvars[vm_name] }}"   # 그 VM의 인벤토리 값. set_fact로 담으면 ansible-core 2.19부터 hostvars를 못 읽어 실패

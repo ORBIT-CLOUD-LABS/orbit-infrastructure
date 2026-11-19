@@ -1,5 +1,6 @@
 # {{ ansible_managed }}
-# VM 첫 부팅 때 cloud-init이 netplan으로 만듦. 기본 경로는 astra(NAT)
+# VM 첫 부팅 때 cloud-init이 netplan으로 만듦. 값은 그 VM의 인벤토리 값(vm)
+# 기본 경로: 자기 구역의 방화벽 VIP(lan_gw, .254). fw 쌍만 바깥 NIC로 astra 바깥 다리
 version: 2
 ethernets:
   lan:
@@ -7,9 +8,38 @@ ethernets:
       macaddress: "{{ vm.vm_mac }}"
     set-name: enp1s0
     dhcp4: false
-    addresses: [{{ vm.lan_ip }}/{{ lan_prefix }}]
+    addresses:
+      - {{ vm.lan_ip }}/{{ lan_prefix }}
+{% for ip in vm.zone_ips | default([]) %}
+      - {{ ip }}/{{ lan_prefix }}
+{% endfor %}
+{% if vm.outer_mac is defined %}
+  # fw 바깥 NIC. 구역 게이트웨이 VIP(.254)는 keepalived가 안쪽 NIC에 붙임
+  outer:
+    match:
+      macaddress: "{{ vm.outer_mac }}"
+    set-name: enp2s0
+    dhcp4: false
+    addresses:
+      - {{ vm.outer_ip }}/{{ lan_prefix }}
     routes:
       - to: default
-        via: {{ lan_gw }}
+        via: {{ vm.lan_gw }}
     nameservers:
       addresses: [{{ dns | join(', ') }}]
+{% else %}
+    routes:
+      - to: default
+        via: {{ vm.lan_gw }}
+{% if vm_name in groups['obs'] %}
+      # 관측 VM: 온프레미스 전체로 직접 보냄 (요청과 응답이 모두 방화벽을 거치지 않게)
+      - to: {{ lan_net }}
+        scope: link
+{% else %}
+      # 관측 구역으로 가는 수집은 방화벽을 거치지 않고 직접 보냄
+      - to: {{ obs_net }}
+        scope: link
+{% endif %}
+    nameservers:
+      addresses: [{{ dns | join(', ') }}]
+{% endif %}
