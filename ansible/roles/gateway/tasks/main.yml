@@ -99,3 +99,30 @@
     jump: ACCEPT
   loop: "{{ gw_inner_devs }}"
   notify: save iptables
+
+# 강의실 공유기가 astra 와이파이 주소로 넘긴 443을 방화벽 바깥 VIP로. 출발지는 그대로 두고, fw가 vip-rp-svc로 다시 넘김
+# 응답(fw → 와이파이)은 위의 "안 → 와이파이 허용"(바깥 브리지, lan_net)이 받음
+- name: 들어온 443을 방화벽 바깥 VIP로 (DNAT)
+  ansible.builtin.iptables:
+    table: nat
+    chain: PREROUTING
+    in_interface: "{{ wifi_if }}"
+    protocol: tcp
+    destination_port: "443"
+    jump: DNAT
+    to_destination: "{{ fw_outer_vip }}"
+  when: outer_bridge is defined
+  notify: save iptables
+
+- name: 와이파이 → 바깥 브리지 443 통과 허용
+  ansible.builtin.iptables:
+    chain: "{{ fwd_chain }}"
+    action: insert
+    in_interface: "{{ wifi_if }}"
+    out_interface: "{{ outer_bridge }}"
+    destination: "{{ fw_outer_vip }}"
+    protocol: tcp
+    destination_port: "443"
+    jump: ACCEPT
+  when: outer_bridge is defined
+  notify: save iptables

@@ -42,6 +42,8 @@ iptables 규칙이다. Docker가 있으면 `DOCKER-USER`, 없으면 `FORWARD` �
 | NAT | `10.10.0.0/16`에서 와이파이로 나가는 패킷의 출발지를 astra 와이파이 주소로 |
 | 통과 허용 | `br0`, `br-outer`에서 와이파이로 나가는 `10.10.0.0/16`, 그 응답 |
 | 브리지 안 | `br0` 안, `br-outer` 안 통신 (Docker의 `br_netfilter` 때문에 필요) |
+| 443 DNAT | 와이파이로 들어온 TCP 443의 목적지를 방화벽 바깥 VIP `10.10.10.254`로. 출발지는 바꾸지 않음 ([reverse-proxy.md](reverse-proxy.md)) |
+| 443 통과 허용 | 와이파이에서 `br-outer`의 `10.10.10.254`로 가는 TCP 443 |
 
 구역 VM의 인터넷 통신은 방화벽 쌍이 바깥 VIP로 SNAT한 뒤 `br-outer`로 들어와 astra NAT를 거친다.
 
