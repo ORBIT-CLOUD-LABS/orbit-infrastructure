@@ -1,15 +1,21 @@
 # {{ ansible_managed }}
-# k3s 서버 (control plane): {{ inventory_hostname }}
+# k3s server: {{ inventory_hostname }} (클러스터 {{ k3s_cluster_name }}, server 3대, 내장 etcd)
+token: {{ hostvars[k3s_cluster_hosts[0]].k3s_token }}
+{% if k3s_init %}
+cluster-init: true                  # 첫 server가 내장 etcd를 만듦
+{% else %}
+server: https://{{ k3s_server_ip }}:6443   # 처음 붙을 때만 씀. 그 뒤로는 etcd 멤버 목록을 따름
+{% endif %}
 node-ip: {{ lan_ip }}
 advertise-address: {{ lan_ip }}
 tls-san:
+  - {{ k3s_vip }}                   # 입구·API VIP. kubeconfig와 Vault가 이 주소로 접속
   - {{ lan_ip }}
   - {{ inventory_hostname }}
-# 데이터 저장소는 k3s 기본값 SQLite (cluster-init 없음). /var/lib/rancher/k3s/server/db/state.db (NVMe)
 cluster-cidr: {{ k3s_pod_cidr }}
 service-cidr: {{ k3s_service_cidr }}
 flannel-backend: none               # CNI는 Cilium
 disable-network-policy: true        # NetworkPolicy도 Cilium이
-node-taint:
-  - {{ k3s_cp_taint }}   # 일반 파드는 워커에만
+disable:
+  - servicelb                       # 입구는 keepalived VIP + Traefik NodePort
 write-kubeconfig-mode: "0600"

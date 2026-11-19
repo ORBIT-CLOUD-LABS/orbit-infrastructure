@@ -27,7 +27,7 @@
 
 | job | 대상 | 내용 |
 | --- | --- | --- |
-| `node` | 물리 호스트 6대와 클러스터 밖 VM의 `:9100` (클러스터 VM은 k3s 작업에서 추가) | 호스트 CPU, 메모리, 디스크, 네트워크. astra는 추가로 `smartmon_*`(SMART), `nvme_*`(NVMe 수명·오류), `apt_*`(대기 업데이트, 재부팅 필요) |
+| `node` | 물리 호스트 6대와 VM 전부(클러스터 VM 12대 포함)의 `:9100` | 호스트 CPU, 메모리, 디스크, 네트워크. astra는 추가로 `smartmon_*`(SMART), `nvme_*`(NVMe 수명·오류), `apt_*`(대기 업데이트, 재부팅 필요) |
 | `prometheus`, `alertmanager`, `grafana` | metric 자신 | 스택 자체 상태 |
 
 astra의 추가 지표는 `prometheus-node-exporter-collectors` 패키지의 타이머(`prometheus-node-exporter-{apt,nvme,smartmon}.timer`, 15분마다)가 `/var/lib/prometheus/node-exporter/*.prom`에 쓰고, node-exporter가 읽어 함께 내놓는다. 이 패키지가 함께 설치하는 `smartmontools`는 호스트 Fluent Bit이 로그를 수집하므로 지우지 않는다(`apt autoremove` 주의).
@@ -73,7 +73,7 @@ unset VAULT_TOKEN
 ```
 
 - 먼저 `efk.yml`과 `fluent-bit.yml`이 적용돼 있어야 한다 (조회 계정, metric의 `/etc/fluent-bit/efk-ca.crt`).
-- node-exporter와 방화벽은 물리 호스트 6대와 클러스터 밖 VM(`vm_hosts:vms:!k3s`)에 적용된다. fw 쌍은 방화벽 단계를 건너뛴다.
+- node-exporter와 방화벽은 물리 호스트 6대와 VM 전부(`vm_hosts:vms`, 클러스터 VM 12대 포함)에 적용된다. fw 쌍은 방화벽 단계를 건너뛴다.
 - 마지막에 수집 대상이 모두 up인지, 관리자 로그인, 데이터 소스 연결, 방화벽을 확인한다.
 
 ## 관리자 비밀번호 바꾸기

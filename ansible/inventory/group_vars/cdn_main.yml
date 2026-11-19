@@ -1,0 +1,6 @@
+# 클러스터 cdn-main (Cluster Mesh 이름·ID, 내부 대역은 docs/k3s.md "클러스터 4개")
+k3s_cluster_name: cdn-main
+k3s_cluster_id: 3
+k3s_pod_cidr: 10.51.0.0/16         # Cilium IPAM과 같아야 함
+k3s_service_cidr: 10.151.0.0/16
+k3s_vrrp_id: 51                 # keepalived VRRP ID. 구역 번호와 같게

@@ -1,26 +1,55 @@
-# k3s 클러스터: polaris(control plane) → 워커 3대 → 확인
-#   ansible-playbook playbooks/cluster.yml -K --ask-vault-pass
-# 여기까지가 클러스터 구성. 앱, 모니터링 수집기, Argo CD 등은 이 위에 따로
+# k3s 클러스터 4개 (ota_main, ota_sub, cdn_main, cdn_sub). 클러스터마다 server 3대, 내장 etcd, Cilium Cluster Mesh
+# 문서: docs/k3s.md. astra 개인 계정으로 실행 (docs/personal-accounts.md#ansible-실행)
+#   ../scripts/orbit-ssh-cert.sh                       # SSH 인증서와 Vault 토큰 (8시간)
+#   export VAULT_TOKEN=$(cat ~/.orbit/vault-token)    # join 토큰·Cilium CA를 secret/orbit/infra에서 읽고, 없으면 만듦
+#   미리보기: ansible-playbook playbooks/cluster.yml -K --check --diff
+#   실행:    ansible-playbook playbooks/cluster.yml -K
+#   unset VAULT_TOKEN
+# 순서: 비밀값 → 클러스터마다 -1(cluster-init) → -2 → -3 → 클러스터마다 확인 → Cluster Mesh 확인
+# 한 클러스터만: --limit ota_main (Cluster Mesh 확인은 4개가 모두 있어야 통과)
 
-- name: control plane (polaris)
-  hosts: cp
+- name: 비밀값 (join 토큰, Cilium CA)
+  hosts: ota_main[0]:ota_sub[0]:cdn_main[0]:cdn_sub[0]
+  serial: 1            # efk role의 vault-secret.yml이 run_once라 클러스터마다 따로 돌게 함
+  gather_facts: false
+  tasks:
+    - name: Vault에서 읽기 (없으면 만듦)
+      ansible.builtin.include_role:
+        name: k3s
+        tasks_from: secrets.yml
+
+- name: 첫 server (-1, cluster-init)
+  hosts: ota_main[0]:ota_sub[0]:cdn_main[0]:cdn_sub[0]
   become: true
   roles:
     - k3s
 
-- name: 워커 (sol, terra, luna)
-  hosts: workers
+# etcd에 한 번에 한 대씩 붙도록 -2와 -3을 나눔 (클러스터끼리는 동시에)
+- name: 두 번째 server (-2)
+  hosts: ota_main[1]:ota_sub[1]:cdn_main[1]:cdn_sub[1]
   become: true
   roles:
     - k3s
 
-- name: 확인
-  hosts: cp
+- name: 세 번째 server (-3)
+  hosts: ota_main[2]:ota_sub[2]:cdn_main[2]:cdn_sub[2]
+  become: true
+  roles:
+    - k3s
+
+- name: 확인 (클러스터마다)
+  hosts: ota_main[0]:ota_sub[0]:cdn_main[0]:cdn_sub[0]
   become: true
   gather_facts: false
   tasks:
-    - name: 노드와 Cilium 확인
+    - name: etcd, 노드, Cilium, VIP
       ansible.builtin.include_role:
         name: k3s
         tasks_from: verify.yml
       when: not ansible_check_mode   # 미리보기에서는 k3s가 설치되지 않아 확인할 것이 없음
+
+    - name: Cluster Mesh
+      ansible.builtin.include_role:
+        name: k3s
+        tasks_from: verify-mesh.yml
+      when: not ansible_check_mode

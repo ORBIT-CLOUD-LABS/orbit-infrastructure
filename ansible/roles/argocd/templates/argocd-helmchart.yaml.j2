@@ -18,7 +18,7 @@ spec:
       enabled: false          # SSO 안 씀. admin 계정만
     notifications:
       enabled: false          # 알림 안 씀
-    # polaris의 control-plane NoSchedule taint 때문에 모든 파드가 워커에 배치됨 (toleration을 주지 않음)
+    # 클러스터의 server 3대 어디에나 배치됨 (taint 없음)
 {% for component, res in argocd_resources.items() %}
     {{ component }}:
       resources:

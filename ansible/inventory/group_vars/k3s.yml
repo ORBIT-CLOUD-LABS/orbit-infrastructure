@@ -1,9 +1,14 @@
-# k3s 클러스터 4개(ota_main, ota_sub, cdn_main, cdn_sub) 공통 값
+# k3s 클러스터 4개(ota_main, ota_sub, cdn_main, cdn_sub) 공통 값. 클러스터마다 다른 값은 group_vars/<클러스터 그룹>.yml
 k3s_version: v1.35.9+k3s1          # 버전 고정. 바꾸면 다시 실행할 때 노드마다 설치 스크립트가 다시 돎
 cilium_version: 1.20.4
-k3s_server_ip: "{{ hostvars[groups['cp'][0]].lan_ip }}"
-k3s_pod_cidr: 10.42.0.0/16         # k3s 기본값. Cilium IPAM과 같아야 함
-k3s_service_cidr: 10.43.0.0/16     # k3s 기본값
+
+# 이 VM이 속한 클러스터. 클러스터 그룹 하나에 server 3대, 첫 번째(-1)가 cluster-init
+k3s_cluster_groups: [ota_main, ota_sub, cdn_main, cdn_sub]
+k3s_cluster_group: "{{ group_names | intersect(k3s_cluster_groups) | first }}"
+k3s_cluster_hosts: "{{ groups[k3s_cluster_group] }}"
+k3s_server_ip: "{{ hostvars[k3s_cluster_hosts[0]].lan_ip }}"   # -1. 나머지 두 대가 처음 붙을 때만 씀
+k3s_vip: "{{ lan_ip | regex_replace('\\.[0-9]+$', '.100') }}"   # 클러스터 입구·API VIP (keepalived). 10.10.41.100 등
+k3s_api_url: "https://{{ k3s_vip }}:6443"
 
 # 클러스터 VM 자원 (모두 같음)
 vm_cpu: 4

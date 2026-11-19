@@ -1,7 +1,6 @@
 k3s_install_url: https://get.k3s.io
 k3s_install_script: /usr/local/bin/k3s-install.sh
-k3s_data_mount: /var/lib/rancher          # polaris는 NVMe가 여기 붙어 있어야 함 (SQLite)
-k3s_skip_bpf_check: false                 # polaris 커널 BPF 확인을 건너뛸 때만 true
+k3s_skip_bpf_check: false                 # 커널 BPF 확인을 건너뛸 때만 true
 k3s_kernel_opts:                          # Cilium(eBPF)에 필요한 커널 기능. =y 또는 =m
   - BPF
   - BPF_SYSCALL
@@ -13,6 +12,26 @@ k3s_kernel_opts:                          # Cilium(eBPF)에 필요한 커널 기
   - VXLAN
   - CRYPTO_USER_API_HASH
   - PERF_EVENTS
-k3s_cp_taint: node-role.kubernetes.io/control-plane=true:NoSchedule   # polaris에만. 일반 파드는 워커에만
 k3s_nodes_ready_retries: 30              # 노드 Ready 대기 (10초 간격)
-k3s_kubeconfig_local: "{{ lookup('env', 'HOME') }}/.kube/orbit-k3s.yaml"   # 실행하는 쪽(astra)에 받아 둘 kubeconfig
+k3s_kubeconfig_local: "{{ lookup('env', 'HOME') }}/.kube/orbit-{{ k3s_cluster_name }}.yaml"   # 실행하는 쪽(astra)에 받아 둘 kubeconfig. 클러스터마다 한 파일
+
+# join 토큰: 클러스터마다 Vault KV 인프라 구역에 둠. 없으면 처음 실행할 때 무작위로 만들어 저장 (efk role의 vault-secret.yml)
+k3s_token_vault_path: "{{ hvault_kv_infra_prefix }}/k3s-{{ k3s_cluster_name }}"   # secret/orbit/infra/k3s-ota-main 등
+
+# keepalived: server 3대가 클러스터 입구·API VIP(k3s_vip)를 나눠 가짐. -1이 평소 주인
+k3s_vrrp_iface: enp1s0                   # VM NIC 이름 (roles/libvirt/templates/network-config.j2의 set-name)
+k3s_vrrp_priority_base: 150              # -1 150, -2 140, -3 130
+k3s_vrrp_check_interval: 5               # API 서버 확인 간격(초). 두 번 연속 실패하면 VIP를 내려놓음
+
+# Cilium Cluster Mesh: 4개 클러스터가 같은 Cilium CA를 씀. Vault KV 인프라 구역에 하나 (처음 실행할 때 만듦)
+k3s_cilium_ca_vault_path: "{{ hvault_kv_infra_prefix }}/cilium-ca"
+k3s_cilium_ca_days: 3650
+k3s_clustermesh_port: 32379              # clustermesh-apiserver NodePort. 다른 클러스터가 VIP의 이 포트로 붙음
+
+# Hubble UI: 한 클러스터에만 둠. Cluster Mesh로 4개 클러스터의 흐름을 함께 봄. rp-core의 hubble 도메인이 VIP의 이 포트로
+k3s_hubble_ui_cluster: ota-main
+k3s_hubble_ui_port: 31235                # NodePort
+
+# 클러스터 입구: k3s 기본 Traefik을 NodePort로 열고 servicelb(klipper)는 끔. rp-ota·rp-cdn이 VIP의 이 포트로
+k3s_ingress_http_port: 30080
+k3s_ingress_https_port: 30443

@@ -17,6 +17,7 @@
 | `wazuh.orbit-labs.space` | `10.10.20.101` | `vip-rp-int` | secure `https://10.10.30.3:443` (자체 서명, 확인 안 함) |
 | `kibana.orbit-labs.space` | `10.10.20.101` | `vip-rp-int` | log `https://10.10.30.1:5601` (log의 efk CA로 확인, 이름 `log`) |
 | `grafana.orbit-labs.space` | `10.10.20.101` | `vip-rp-int` | metric `http://10.10.30.2:3000` |
+| `hubble.orbit-labs.space` | `10.10.20.101` | `vip-rp-int` | ota-main Hubble UI `http://10.10.41.100:31235` (클러스터 4개를 Cluster Mesh로 함께 봄) |
 
 - `ota`, `cdn`은 지금 내부(io, Tailscale을 켠 팀원)에서만 쓴다. 바깥 공개(Cloudflare 프록시, Origin Rules)는 나중에 정한다.
 - 서비스 도메인은 `vip-rp-svc`에서만, 관제 도메인은 `vip-rp-int`에서만 받는다. 바깥에서 들어온 443은 `vip-rp-svc`로만 오므로 관제 화면에 닿지 않는다.

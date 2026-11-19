@@ -1,0 +1,16 @@
+# 클러스터마다 -1에서 실행: Cilium 에이전트가 나머지 클러스터에 모두 붙었는지 (4개 클러스터를 다 설치한 뒤)
+- name: Cluster Mesh 연결 대기 (나머지 클러스터 모두 ready)
+  ansible.builtin.command: >-
+    /usr/local/bin/k3s kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status
+  register: k3s_mesh_status
+  changed_when: false
+  retries: "{{ k3s_nodes_ready_retries }}"
+  delay: 10
+  until: k3s_mesh_status.rc == 0 and k3s_mesh_status.stdout is search(k3s_mesh_ready)
+  vars:
+    k3s_mesh_remote: "{{ k3s_cluster_groups | length - 1 }}"   # 3
+    k3s_mesh_ready: "ClusterMesh:\\s+{{ k3s_mesh_remote }}/{{ k3s_mesh_remote }} remote clusters ready"
+
+- name: Cluster Mesh 상태
+  ansible.builtin.debug:
+    msg: "{{ k3s_mesh_status.stdout_lines | select('search', 'ClusterMesh') | list }}"

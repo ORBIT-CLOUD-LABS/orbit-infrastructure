@@ -1,12 +1,19 @@
-# k3s 서버(cp) 또는 에이전트(workers) 설치. 서버를 먼저 실행해야 에이전트가 토큰을 받음
-- name: 역할 정하기
-  ansible.builtin.set_fact:
-    k3s_role: "{{ 'server' if inventory_hostname in groups['cp'] else 'agent' }}"
-    k3s_service: "{{ 'k3s' if inventory_hostname in groups['cp'] else 'k3s-agent' }}"
-
-- name: 서버 사전 확인
+# k3s 서버 설치. 클러스터마다 server 3대, 내장 etcd. -1이 cluster-init, -2·-3은 -1에 붙음
+# playbooks/cluster.yml이 secrets.yml(토큰, Cilium CA) → -1 → -2 → -3 순서로 실행함
+- name: 사전 확인
   ansible.builtin.include_tasks: preflight.yml
-  when: k3s_role == 'server'
+
+- name: 첫 server(-1)인지
+  ansible.builtin.set_fact:
+    k3s_init: "{{ inventory_hostname == k3s_cluster_hosts[0] }}"
+
+- name: 토큰과 Cilium CA가 있어야 함 (secrets.yml 먼저)
+  ansible.builtin.assert:
+    that:
+      - hostvars[k3s_cluster_hosts[0]].k3s_token is defined
+      - hostvars[groups['k3s'][0]].k3s_cilium_ca is defined
+    fail_msg: "join 토큰이나 Cilium CA를 Vault에서 읽지 않았음. playbooks/cluster.yml은 비밀값 단계부터 순서대로 실행함"
+    quiet: true
 
 - name: 설정 폴더
   ansible.builtin.file:
@@ -14,22 +21,15 @@
     state: directory
     mode: "0755"
 
-- name: 에이전트는 서버 토큰이 있어야 함 (cp 먼저 실행)
-  ansible.builtin.assert:
-    that: hostvars[groups['cp'][0]].k3s_token is defined
-    fail_msg: "polaris(cp)를 먼저 실행해야 함. playbooks/cluster.yml은 순서대로 실행함"
-  when: k3s_role == 'agent' and not ansible_check_mode
-
 - name: k3s 설정 (/etc/rancher/k3s/config.yaml)
   ansible.builtin.template:
-    src: "config-{{ k3s_role }}.yaml.j2"
+    src: config-server.yaml.j2
     dest: /etc/rancher/k3s/config.yaml
     mode: "0600"
-  diff: "{{ k3s_role == 'server' }}"   # 워커 설정에는 서버 토큰이 있어서 diff를 숨김
+  diff: false   # join 토큰이 들어 있어서 diff를 숨김
   notify: restart k3s
 
-- name: Cilium 설치 정의 (k3s가 시작하면 자동 설치)
-  when: k3s_role == 'server'
+- name: k3s 자동 설치 정의 (k3s가 시작하면 helm-controller가 설치)
   block:
     - name: k3s 자동 설치 폴더
       ansible.builtin.file:
@@ -37,10 +37,17 @@
         state: directory
         mode: "0700"
 
-    - name: Cilium HelmChart
+    - name: Cilium HelmChart (Cluster Mesh, Hubble)
       ansible.builtin.template:
         src: cilium-helmchart.yaml.j2
         dest: /var/lib/rancher/k3s/server/manifests/orbit-cilium.yaml
+        mode: "0600"
+      diff: false   # Cilium CA 키가 들어 있어서 diff를 숨김
+
+    - name: Traefik 설정 (NodePort로 클러스터 입구)
+      ansible.builtin.template:
+        src: traefik-config.yaml.j2
+        dest: /var/lib/rancher/k3s/server/manifests/orbit-traefik-config.yaml
         mode: "0600"
 
 - name: 지금 설치된 k3s 버전
@@ -60,20 +67,18 @@
         mode: "0755"
         force: true
 
-    - name: k3s 설치 {{ k3s_role ~ " " ~ k3s_version }}
+    # 토큰과 붙을 서버 주소는 config.yaml에 있음
+    - name: k3s 설치 server {{ k3s_version }}
       ansible.builtin.command: "{{ k3s_install_script }}"
       environment:
         INSTALL_K3S_VERSION: "{{ k3s_version }}"
-        INSTALL_K3S_EXEC: "{{ k3s_role }}"
-        # environment에는 omit이 안 먹어서 빈 값으로 둠. 설치 스크립트는 K3S_URL이 비어 있으면 서버로 설치함
-        K3S_URL: "{{ ('https://' ~ k3s_server_ip ~ ':6443') if k3s_role == 'agent' else '' }}"
-        K3S_TOKEN: "{{ hostvars[groups['cp'][0]].k3s_token if k3s_role == 'agent' else '' }}"
+        INSTALL_K3S_EXEC: server
       changed_when: true
       when: not ansible_check_mode
 
 - name: k3s 서비스 켜기
   ansible.builtin.systemd_service:
-    name: "{{ k3s_service }}"
+    name: k3s
     enabled: true
     state: started
   when: not ansible_check_mode
@@ -81,25 +86,12 @@
 - name: 설정이 바뀌었으면 지금 재시작
   ansible.builtin.meta: flush_handlers
 
-- name: 서버 토큰 (에이전트가 씀)
-  when: k3s_role == 'server' and not ansible_check_mode
+- name: 클러스터 입구·API VIP (keepalived)
+  ansible.builtin.include_tasks: keepalived.yml
+
+- name: kubeconfig를 astra로 (-1에서만, 서버 주소는 VIP)
+  when: k3s_init and not ansible_check_mode
   block:
-    - name: 토큰 파일이 생길 때까지 대기
-      ansible.builtin.wait_for:
-        path: /var/lib/rancher/k3s/server/node-token
-        timeout: 300
-
-    - name: 토큰 읽기
-      ansible.builtin.slurp:
-        src: /var/lib/rancher/k3s/server/node-token
-      register: k3s_token_file
-      no_log: true
-
-    - name: 토큰 기억
-      ansible.builtin.set_fact:
-        k3s_token: "{{ k3s_token_file.content | b64decode | trim }}"
-      no_log: true
-
     - name: kubeconfig 읽기
       ansible.builtin.slurp:
         src: /etc/rancher/k3s/k3s.yaml
@@ -114,9 +106,13 @@
       delegate_to: localhost
       become: false
 
-    - name: kubeconfig를 astra로 (서버 주소는 polaris 내부망 주소로)
+    # 이름 default를 클러스터 이름으로 바꿔 여러 파일을 KUBECONFIG에 함께 넣어도 겹치지 않게 함
+    - name: kubeconfig 저장 ({{ k3s_kubeconfig_local }})
       ansible.builtin.copy:
-        content: "{{ k3s_kubeconfig_file.content | b64decode | replace('https://127.0.0.1:6443', 'https://' ~ k3s_server_ip ~ ':6443') }}"
+        content: >-
+          {{ k3s_kubeconfig_file.content | b64decode
+             | replace('https://127.0.0.1:6443', k3s_api_url)
+             | regex_replace('(?m)^(\s*(?:- )?(?:name|cluster|user|current-context)): default$', '\1: ' ~ k3s_cluster_name) }}
         dest: "{{ k3s_kubeconfig_local }}"
         mode: "0600"
       delegate_to: localhost

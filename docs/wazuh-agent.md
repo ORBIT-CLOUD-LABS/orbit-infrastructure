@@ -77,7 +77,7 @@ ansible astra,sol,terra,luna -b -K -m ansible.builtin.command -a 'ls /var/ossec'
 ```
 
 - 두 번째 명령은 모두 `No such file or directory`로 실패해야 한다. 남아 있으면 옛 등록 키(`client.keys`)를 다시 쓰지 않게 그 호스트에서 `/var/ossec`를 지운다.
-- 대상은 `wazuh_agents` 그룹이다: 물리 호스트 6대, vault, fw 쌍, rp VM 6대, log, metric. 클러스터 VM은 k3s 작업에서 추가한다.
+- 대상은 `wazuh_agents` 그룹이다: 물리 호스트 6대, vault, fw 쌍, rp VM 6대, log, metric, 클러스터 VM 12대.
 - fw 쌍은 관측 구역 주소(`.252`·`.253`)에서 Manager에 접속한다.
 
 ## Ansible 배포 및 검증
