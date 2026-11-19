@@ -13,9 +13,8 @@
 #   unset VAULT_TOKEN
 # 설정이 바뀌면 해당 서비스가 재시작됨. 그동안의 지표는 비어 있게 됨
 
-# 클러스터 VM은 k3s 작업에서 붙임
-- name: node-exporter와 지표 포트 방화벽 (물리 호스트, 클러스터 밖 VM)
-  hosts: vm_hosts:vms:!k3s
+- name: node-exporter와 지표 포트 방화벽 (물리 호스트, VM)
+  hosts: vm_hosts:vms
   become: true
   tasks:
     - name: node-exporter

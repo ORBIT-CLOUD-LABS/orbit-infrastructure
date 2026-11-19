@@ -26,3 +26,6 @@ rproxy_sites:
   - name: grafana
     listen: 10.10.20.101
     upstream: "http://{{ hostvars['metric'].lan_ip }}:3000"
+  - name: hubble
+    listen: 10.10.20.101
+    upstream: "http://{{ hostvars['ota-main-1'].k3s_vip }}:31235"   # ota-main VIP의 Hubble UI NodePort (docs/k3s.md)

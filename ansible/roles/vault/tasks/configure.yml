@@ -46,24 +46,25 @@
         fail_msg: "{{ 'Vault가 sealed 상태. 먼저 unseal' if hvault_self.status == 503 else 'VAULT_TOKEN이 맞지 않음 (403)' }}"
 
     # 미리보기에서도 읽음. SSH·sudo·파일 조회가 실패하면 Vault에 쓰기 전에 멈춤
-    # 클러스터가 없을 때(hvault_k8s_clusters: [])는 읽지 않고, 아래 Kubernetes 항목도 원하는 설정에 넣지 않음
-    - name: k3s API CA 읽기와 확인
-      when: hvault_k8s_clusters | length > 0
-      block:
-        - name: k3s server에서 API CA 읽기
-          ansible.builtin.slurp:
-            src: "{{ hvault_k8s_ca_file }}"
-          delegate_to: "{{ groups['cp'][0] }}"
-          become: true
-          check_mode: false
-          register: hvault_k8s_ca
+    # server 3대가 같은 CA를 쓰므로 클러스터마다 -1에서 읽음
+    - name: 클러스터마다 k3s API CA 읽기
+      ansible.builtin.slurp:
+        src: "{{ hvault_k8s_ca_file }}"
+      delegate_to: "{{ groups[item][0] }}"
+      become: true
+      check_mode: false
+      register: hvault_k8s_ca
+      loop: "{{ hvault_k8s_clusters }}"
 
-        - name: k3s CA가 PEM 인증서인지 확인
-          ansible.builtin.assert:
-            that:
-              - "'-----BEGIN CERTIFICATE-----' in (hvault_k8s_ca.content | b64decode)"
-              - "'-----END CERTIFICATE-----' in (hvault_k8s_ca.content | b64decode)"
-            fail_msg: k3s CA 파일이 PEM 인증서가 아님. Vault 설정을 변경하지 않음
+    - name: k3s CA가 PEM 인증서인지 확인
+      ansible.builtin.assert:
+        that:
+          - "'-----BEGIN CERTIFICATE-----' in (item.content | b64decode)"
+          - "'-----END CERTIFICATE-----' in (item.content | b64decode)"
+        fail_msg: "{{ item.item }}의 k3s CA 파일이 PEM 인증서가 아님. Vault 설정을 변경하지 않음"
+        quiet: true
+      loop: "{{ hvault_k8s_ca.results }}"
+      loop_control: { label: "{{ item.item }}" }
 
     # id: 항목 이름, read: 읽을 경로, write: 쓸 경로(없으면 read)
     # exists_key: 이 키가 있으면 됨 (종류·경로·KV 버전이 다르면 멈춤). 없으면 body가 지금 값에 다 들어 있으면 됨
@@ -169,39 +170,41 @@
               secret_id_num_uses: 0
               secret_id_ttl: 0
 
-    # 클러스터가 있을 때만 Kubernetes 로그인 설정을 더함. 없으면 Vault에 있는 기존 값을 읽지도 바꾸지도 않음
-    - name: Kubernetes 로그인 설정 (클러스터가 있을 때만)
+    # 클러스터마다 로그인 경로 하나 (auth/kubernetes-<클러스터 이름>). ESO는 자기 클러스터의 경로로 로그인
+    - name: 클러스터별 Kubernetes 로그인
       ansible.builtin.set_fact:
-        hvault_cfg: "{{ hvault_cfg + hvault_cfg_k8s }}"
+        hvault_cfg: >-
+          {{ hvault_cfg + [
+               { 'id': 'k8s_mount_' ~ hvault_k8s_name,
+                 'name': 'Kubernetes 로그인 켜기 (' ~ hvault_k8s_name ~ ')',
+                 'read': 'sys/auth',
+                 'exists_key': hvault_k8s_mount ~ '/',
+                 'write': 'sys/auth/' ~ hvault_k8s_mount,
+                 'body': { 'type': 'kubernetes' } },
+               { 'id': 'k8s_config_' ~ hvault_k8s_name,
+                 'name': 'Kubernetes API와 CA (' ~ hvault_k8s_name ~ ', 로그인 JWT로 TokenReview)',
+                 'read': 'auth/' ~ hvault_k8s_mount ~ '/config',
+                 'body': { 'kubernetes_host': hostvars[groups[item.item][0]].k3s_api_url,
+                           'kubernetes_ca_cert': item.content | b64decode,
+                           'disable_local_ca_jwt': true } },
+               { 'id': 'eso_role_' ~ hvault_k8s_name,
+                 'name': 'ESO Kubernetes 로그인 역할 (' ~ hvault_k8s_name ~ ')',
+                 'read': 'auth/' ~ hvault_k8s_mount ~ '/role/' ~ hvault_eso_role,
+                 'body': { 'bound_service_account_names': [hvault_eso_service_account],
+                           'bound_service_account_namespaces': [hvault_eso_namespace],
+                           'bound_service_account_namespace_selector': '',
+                           'audience': hvault_eso_audience,
+                           'token_policies': [hvault_kv_read_policy],
+                           'token_no_default_policy': true,
+                           'token_ttl': hvault_eso_token_ttl_s,
+                           'token_max_ttl': hvault_eso_token_max_ttl_s,
+                           'token_period': 0 } } ] }}
+      loop: "{{ hvault_k8s_ca.results }}"
+      loop_control: { label: "{{ item.item }}" }
       vars:
-        hvault_cfg_k8s:
-          - id: k8s_mount
-            name: Kubernetes 로그인 켜기
-            read: sys/auth
-            exists_key: "{{ hvault_k8s_mount }}/"
-            write: "sys/auth/{{ hvault_k8s_mount }}"
-            body: { type: kubernetes }
-          - id: k8s_config
-            name: Kubernetes API와 CA (로그인 JWT로 TokenReview)
-            read: "auth/{{ hvault_k8s_mount }}/config"
-            body:
-              kubernetes_host: "{{ hvault_k8s_host }}"
-              kubernetes_ca_cert: "{{ hvault_k8s_ca.content | b64decode }}"
-              disable_local_ca_jwt: true
-          - id: eso_role
-            name: ESO Kubernetes 로그인 역할
-            read: "auth/{{ hvault_k8s_mount }}/role/{{ hvault_eso_role }}"
-            body:
-              bound_service_account_names: ["{{ hvault_eso_service_account }}"]
-              bound_service_account_namespaces: ["{{ hvault_eso_namespace }}"]
-              bound_service_account_namespace_selector: ""
-              audience: "{{ hvault_eso_audience }}"
-              token_policies: ["{{ hvault_kv_read_policy }}"]
-              token_no_default_policy: true
-              token_ttl: "{{ hvault_eso_token_ttl_s }}"
-              token_max_ttl: "{{ hvault_eso_token_max_ttl_s }}"
-              token_period: 0
-      when: hvault_k8s_clusters | length > 0
+        hvault_k8s_name: "{{ hostvars[groups[item.item][0]].k3s_cluster_name }}"
+        hvault_k8s_mount: "{{ hvault_k8s_mount_prefix }}-{{ hvault_k8s_name }}"
+      no_log: true
 
     - name: 개인 SSH 설정 항목 추가
       ansible.builtin.import_tasks: personal-ssh.yml
@@ -280,7 +283,7 @@
         that: not (item.data.token_reviewer_jwt_set | default(false))
         fail_msg: Kubernetes 인증에 별도 reviewer JWT가 있음. 확인 후 수동으로 제거하고 재실행
         quiet: true
-      when: item.id == 'k8s_config' and item.status == 200
+      when: item.id.startswith('k8s_config_') and item.status == 200
       loop: "{{ hvault_seen }}"
       loop_control: { label: "{{ item.name }}" }
 

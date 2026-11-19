@@ -1,20 +1,13 @@
-# polaris에서 실행: 데이터 저장소 SQLite, 노드 4대 Ready, control plane 라벨·taint, Cilium 정상
-- name: SQLite 데이터 파일
-  ansible.builtin.stat:
-    path: /var/lib/rancher/k3s/server/db/state.db
-  register: k3s_sqlite_db
-
+# 클러스터마다 -1에서 실행: 내장 etcd, server 3대 Ready, taint 없음, Cilium·Hubble 정상, VIP 한 대, VIP로 API 응답
 - name: 내장 etcd 데이터 폴더
   ansible.builtin.stat:
     path: /var/lib/rancher/k3s/server/db/etcd
   register: k3s_etcd_dir
 
-- name: 데이터 저장소가 SQLite인지 (etcd 미사용)
+- name: 데이터 저장소가 내장 etcd인지
   ansible.builtin.assert:
-    that:
-      - k3s_sqlite_db.stat.exists
-      - not k3s_etcd_dir.stat.exists
-    fail_msg: "state.db가 없거나 db/etcd가 있음. k3s가 SQLite가 아닌 etcd로 떠 있을 수 있음 (docs/k3s.md)"
+    that: k3s_etcd_dir.stat.isdir | default(false)
+    fail_msg: "/var/lib/rancher/k3s/server/db/etcd가 없음. k3s가 SQLite로 떠 있을 수 있음 (config.yaml의 cluster-init 확인)"
 
 - name: 노드가 전부 Ready가 될 때까지 대기
   ansible.builtin.command: /usr/local/bin/k3s kubectl get nodes --no-headers
@@ -24,53 +17,62 @@
   delay: 10
   until: >-
     k3s_nodes.rc == 0 and
-    (k3s_nodes.stdout_lines | length) == (groups['k3s'] | length) and
-    (k3s_nodes.stdout_lines | select('search', ' Ready ') | list | length) == (groups['k3s'] | length)
+    (k3s_nodes.stdout_lines | length) == (k3s_cluster_hosts | length) and
+    (k3s_nodes.stdout_lines | select('search', ' Ready ') | list | length) == (k3s_cluster_hosts | length)
 
 - name: 노드 라벨과 taint 읽기
   ansible.builtin.command: /usr/local/bin/k3s kubectl get nodes -o json
   register: k3s_node_meta
   changed_when: false
 
-# cp: 라벨 키가 있고 값이 true, k3s_cp_taint와 똑같은 taint가 있음
-# 워커: 라벨 키 자체가 없고, 같은 키의 taint도 (값·effect와 상관없이) 없음
-- name: control plane 라벨과 taint는 polaris에만
+# 3대 모두 control-plane·etcd 라벨이 true이고, 파드가 뜰 수 있게 control-plane taint가 없음
+- name: 3대 모두 server (control-plane, etcd)이고 taint 없음
   ansible.builtin.assert:
     that:
       - k3s_node | length > 0
-      # assert는 조건을 {% if ... %}로 감싸므로 'A if c else B'는 전체를 괄호로 묶어야 함
-      - >-
-        ((k3s_cp_label in k3s_node_labels and k3s_node_labels[k3s_cp_label] == 'true')
-        if item in groups['cp'] else (k3s_cp_label not in k3s_node_labels))
-      - >-
-        ((k3s_node_taints | selectattr('key', 'equalto', k3s_cp_taint_key)
-          | selectattr('value', 'defined') | selectattr('value', 'equalto', k3s_cp_taint_value)
-          | selectattr('effect', 'equalto', k3s_cp_taint_effect) | list | length > 0)
-        if item in groups['cp'] else
-        (k3s_node_taints | selectattr('key', 'equalto', k3s_cp_taint_key) | list | length == 0))
+      - k3s_node_labels['node-role.kubernetes.io/control-plane'] | default('') == 'true'
+      - k3s_node_labels['node-role.kubernetes.io/etcd'] | default('') == 'true'
+      - k3s_node_taints | selectattr('key', 'equalto', 'node-role.kubernetes.io/control-plane') | list | length == 0
     fail_msg: >-
-      {{ item }}: control-plane 라벨·taint({{ k3s_cp_taint }})가
-      {{ 'cp에는 있어야 함' if item in groups['cp'] else '워커에는 없어야 함 (키 자체가 없어야 함)' }}.
-      현재: {{ ('라벨=' ~ (k3s_node_labels[k3s_cp_label] | default('(없음)')) ~ ', taint=' ~ (k3s_node_taints | to_json))
-               if k3s_node | length > 0 else '노드 없음' }}
+      {{ item }}: control-plane·etcd 라벨이 true이고 control-plane taint가 없어야 함.
+      현재: {{ ('라벨=' ~ (k3s_node_labels | dict2items | selectattr('key', 'search', 'node-role') | items2dict | to_json)
+               ~ ', taint=' ~ (k3s_node_taints | to_json)) if k3s_node | length > 0 else '노드 없음' }}
     quiet: true
-  loop: "{{ groups['k3s'] }}"
+  loop: "{{ k3s_cluster_hosts }}"
   vars:
-    k3s_cp_label: node-role.kubernetes.io/control-plane
-    k3s_cp_taint_key: "{{ k3s_cp_taint.split('=')[0] }}"
-    k3s_cp_taint_value: "{{ k3s_cp_taint.split('=')[1].split(':')[0] }}"
-    k3s_cp_taint_effect: "{{ k3s_cp_taint.split(':')[-1] }}"
     k3s_node: "{{ (k3s_node_meta.stdout | from_json)['items'] | selectattr('metadata.name', 'equalto', item) | first | default({}) }}"
     k3s_node_labels: "{{ (k3s_node.metadata | default({})).labels | default({}) }}"
     k3s_node_taints: "{{ (k3s_node.spec | default({})).taints | default([]) }}"
 
-- name: Cilium 에이전트 (노드마다 하나)
-  ansible.builtin.command: /usr/local/bin/k3s kubectl -n kube-system rollout status ds/cilium --timeout=300s
+- name: Cilium, Hubble, Cluster Mesh 구성요소 rollout
+  ansible.builtin.command: /usr/local/bin/k3s kubectl -n kube-system rollout status {{ item }} --timeout=300s
+  loop: >-
+    {{ ['ds/cilium', 'deploy/cilium-operator', 'deploy/hubble-relay', 'deploy/clustermesh-apiserver']
+       + (['deploy/hubble-ui'] if k3s_cluster_name == k3s_hubble_ui_cluster else []) }}
   changed_when: false
 
-- name: Cilium operator
-  ansible.builtin.command: /usr/local/bin/k3s kubectl -n kube-system rollout status deploy/cilium-operator --timeout=300s
+- name: VIP를 가진 server
+  ansible.builtin.command: ip -o -4 addr show dev {{ k3s_vrrp_iface }} to {{ k3s_vip }}/32
+  register: k3s_vip_owner
   changed_when: false
+  delegate_to: "{{ item }}"
+  loop: "{{ k3s_cluster_hosts }}"
+
+- name: VIP는 한 대에만 있어야 함
+  ansible.builtin.assert:
+    that: k3s_vip_holders | length == 1
+    fail_msg: "{{ k3s_vip }}를 가진 server: {{ k3s_vip_holders | join(', ') if k3s_vip_holders else '없음' }} (한 대여야 함)"
+    quiet: true
+  vars:
+    k3s_vip_holders: "{{ k3s_vip_owner.results | selectattr('stdout', 'search', k3s_vip) | map(attribute='item') | list }}"
+
+- name: astra에서 VIP로 API 응답 (받아 둔 kubeconfig)
+  ansible.builtin.command: kubectl --kubeconfig {{ k3s_kubeconfig_local }} --request-timeout=10s get --raw /readyz
+  register: k3s_vip_api
+  changed_when: false
+  failed_when: k3s_vip_api.stdout != 'ok'
+  delegate_to: localhost
+  become: false
 
 - name: 결과
   ansible.builtin.command: /usr/local/bin/k3s kubectl get nodes -o wide

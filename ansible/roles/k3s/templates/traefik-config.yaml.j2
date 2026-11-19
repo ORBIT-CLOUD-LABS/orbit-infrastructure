@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# k3s 기본 Traefik을 NodePort로 염. 클러스터 입구 VIP({{ k3s_vip }})의 이 포트로 rp-ota·rp-cdn이 보냄
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      type: NodePort
+    ports:
+      web:
+        nodePort: {{ k3s_ingress_http_port }}
+      websecure:
+        nodePort: {{ k3s_ingress_https_port }}

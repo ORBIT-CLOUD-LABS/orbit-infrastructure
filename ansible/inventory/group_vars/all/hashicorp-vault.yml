@@ -37,13 +37,11 @@ hvault_kv_infra_prefix: "{{ hvault_kv_prefix }}/infra"     # 인프라: secret/o
 hvault_kv_read_policy: eso-orbit             # k3s 구역 읽기만. ESO에 줌
 hvault_kv_write_policy: orbit-secrets-write  # 두 구역 쓰기. GitHub orbit 팀에 SSH 정책과 함께 줌
 
-# Kubernetes 인증. ESO가 자기 ServiceAccount 토큰으로 로그인하고, Vault가 k3s API로 진위를 확인
-# Vault Kubernetes 인증을 둘 클러스터 그룹. 비어 있으면 configure.yml이 k3s CA 읽기와 Kubernetes 인증 설정을 건너뜀 (Vault에 있는 기존 설정은 그대로 둠)
-# 클러스터가 생길 때까지 비워 둠. 클러스터 4개 구성 때 채움
-hvault_k8s_clusters: []
-hvault_k8s_mount: kubernetes
-hvault_k8s_host: "https://{{ hostvars[groups['cp'][0]].lan_ip }}:6443"   # 옛 polaris. 클러스터 4개 구성 때 바꿈 (hvault_k8s_clusters가 비어 있으면 읽지 않음)
-hvault_k8s_ca_file: /var/lib/rancher/k3s/server/tls/server-ca.crt     # API 서버 인증서를 서명한 k3s-server-ca
+# Kubernetes 인증. 클러스터마다 로그인 경로 하나(auth/kubernetes-<클러스터 이름>)
+# ESO가 자기 ServiceAccount 토큰으로 로그인하고, Vault가 그 클러스터 API(VIP, k3s_api_url)로 진위를 확인
+hvault_k8s_mount_prefix: kubernetes
+hvault_k8s_clusters: [ota_main, ota_sub, cdn_main, cdn_sub]          # 클러스터 그룹. 비워 두면 Kubernetes 인증 설정을 건너뜀
+hvault_k8s_ca_file: /var/lib/rancher/k3s/server/tls/server-ca.crt     # 각 클러스터 -1. API 서버 인증서를 서명한 k3s-server-ca
 hvault_eso_role: eso
 hvault_eso_namespace: external-secrets
 hvault_eso_service_account: external-secrets

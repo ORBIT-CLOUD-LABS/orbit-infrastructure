@@ -1,0 +1,35 @@
+# {{ ansible_managed }}
+# 클러스터 {{ k3s_cluster_name }} 입구·API VIP {{ k3s_vip }}. 평소 주인은 {{ k3s_cluster_hosts[0] }}
+global_defs {
+    router_id {{ inventory_hostname }}
+    enable_script_security
+    script_user root
+}
+
+vrrp_script k3s_api {
+    script "/etc/keepalived/k3s-api-check.sh"
+    interval {{ k3s_vrrp_check_interval }}
+    timeout {{ k3s_vrrp_check_interval - 1 }}
+    fall 2
+    rise 2
+}
+
+vrrp_instance {{ k3s_cluster_name }} {
+    state BACKUP
+    interface {{ k3s_vrrp_iface }}
+    virtual_router_id {{ k3s_vrrp_id }}
+    priority {{ k3s_vrrp_priority_base - 10 * k3s_cluster_hosts.index(inventory_hostname) }}
+    advert_int 1
+    unicast_src_ip {{ lan_ip }}
+    unicast_peer {
+{% for h in k3s_cluster_hosts if h != inventory_hostname %}
+        {{ hostvars[h].lan_ip }}
+{% endfor %}
+    }
+    virtual_ipaddress {
+        {{ k3s_vip }}/{{ lan_prefix }} dev {{ k3s_vrrp_iface }}
+    }
+    track_script {
+        k3s_api
+    }
+}

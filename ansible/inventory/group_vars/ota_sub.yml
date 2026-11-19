@@ -1,0 +1,6 @@
+# 클러스터 ota-sub (Cluster Mesh 이름·ID, 내부 대역은 docs/k3s.md "클러스터 4개")
+k3s_cluster_name: ota-sub
+k3s_cluster_id: 2
+k3s_pod_cidr: 10.42.0.0/16         # Cilium IPAM과 같아야 함
+k3s_service_cidr: 10.142.0.0/16
+k3s_vrrp_id: 42                 # keepalived VRRP ID. 구역 번호와 같게
