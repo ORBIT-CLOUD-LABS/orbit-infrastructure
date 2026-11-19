@@ -1,0 +1,109 @@
+# 방화벽 쌍: 패킷 전달, nftables 구역 규칙, keepalived VIP, conntrackd, strongSwan(설치만). 문서: docs/fw.md
+- name: 쌍이 두 대여야 함 (fw 그룹)
+  ansible.builtin.assert:
+    that:
+      - groups['fw'] | length == 2
+      - zone_ips | length > 0
+      - outer_ip is defined
+    fail_msg: "fw 그룹에 두 대(fw-1, fw-2)와 각 호스트의 outer_ip, zone_ips가 있어야 함 (hosts.yml)"
+    quiet: true
+
+- name: NIC 이름 확인 (libvirt role이 정한 이름)
+  ansible.builtin.assert:
+    that:
+      - fw_inner_if in ansible_facts.interfaces
+      - fw_outer_if in ansible_facts.interfaces
+    fail_msg: "{{ inventory_hostname }}: {{ fw_inner_if }}, {{ fw_outer_if }}가 있어야 함. ip -br link 로 확인"
+    quiet: true
+
+- name: 패키지
+  ansible.builtin.apt:
+    name: [nftables, keepalived, conntrackd, conntrack, charon-systemd]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# 패킷 전달. 모든 구역이 안쪽 NIC 하나에 있어서, ICMP redirect를 보내면 상대에게 직접 보내라고 알려 통신이 fw를 건너뜀
+# send_redirects는 all과 장치 값 중 하나라도 1이면 보내므로 둘 다 0
+- name: 커널 설정 (재부팅 후에도 유지)
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-orbit-fw.conf
+    content: |
+      # {{ ansible_managed }}
+      net.ipv4.ip_forward=1
+      net.ipv4.conf.all.send_redirects=0
+      net.ipv4.conf.default.send_redirects=0
+      net.ipv4.conf.{{ fw_inner_if }}.send_redirects=0
+      net.ipv4.conf.{{ fw_outer_if }}.send_redirects=0
+      net.ipv4.conf.all.accept_redirects=0
+      net.ipv4.conf.default.accept_redirects=0
+    mode: "0644"
+  notify: apply sysctl
+
+# 설정 파일 폴더는 패키지가 만듦. 미리보기 첫 실행에서는 패키지가 실제로 설치되지 않아 없으므로 건너뜀 (reverse_proxy role과 같은 방식)
+- name: 패키지가 설치돼 있는지
+  ansible.builtin.stat:
+    path: /usr/sbin/keepalived
+  register: fw_keepalived_bin
+
+- name: 미리보기에서 건너뛸지
+  ansible.builtin.set_fact:
+    fw_skip: "{{ ansible_check_mode and not fw_keepalived_bin.stat.exists }}"
+
+- name: 건너뛰는 이유
+  ansible.builtin.debug:
+    msg: 미리보기에서 패키지가 아직 없어서 설정 파일 만들기를 건너뜀. 실제 실행에서는 설치한 뒤 진행함
+  when: fw_skip
+
+- name: 설정 파일
+  when: not fw_skip
+  block:
+    # 문법이 틀리면 파일을 바꾸지 않음 (nft -c는 적용하지 않고 검사만)
+    - name: nftables 규칙
+      ansible.builtin.template:
+        src: nftables.conf.j2
+        dest: /etc/nftables.conf
+        mode: "0600"
+        validate: nft -c -f %s
+      notify: reload nftables
+
+    - name: 상태 전환 스크립트 (keepalived가 실행)
+      ansible.builtin.template:
+        src: orbit-fw-notify.sh.j2
+        dest: /usr/local/sbin/orbit-fw-notify.sh
+        mode: "0700"
+
+    - name: conntrackd 설정
+      ansible.builtin.template:
+        src: conntrackd.conf.j2
+        dest: /etc/conntrackd/conntrackd.conf
+        mode: "0644"
+      notify: restart conntrackd
+
+    - name: keepalived 설정
+      ansible.builtin.template:
+        src: keepalived.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+        mode: "0644"
+        validate: keepalived -t -f %s
+      notify: restart keepalived
+
+# 순서: 규칙 → 연결 상태 동기화 → VIP. VIP가 붙기 전에 규칙과 동기화가 먼저 있어야 함
+- name: 규칙과 동기화 먼저 적용
+  ansible.builtin.meta: flush_handlers
+
+- name: nftables, conntrackd, keepalived 켜기
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop: [nftables, conntrackd, keepalived]
+  when: not fw_skip
+
+# strongSwan은 VIP를 가진 쪽에서만 돎. 부팅할 때 켜지지 않게 하고, 켜고 끄는 것은 상태 전환 스크립트가 함
+# 터널 설정(/etc/swanctl/conf.d)은 AWS 쪽 VPN 연결을 만든 뒤 따로 넣음
+- name: strongSwan 자동 시작 끄기
+  ansible.builtin.systemd_service:
+    name: "{{ fw_strongswan_service }}"
+    enabled: false
+  when: not fw_skip

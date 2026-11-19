@@ -1,0 +1,13 @@
+# 방화벽 쌍 (fw-1, fw-2): 구역 사이 규칙(nftables), 게이트웨이 VIP(keepalived), 연결 상태 동기화(conntrackd), strongSwan(설치만)
+# 문서: docs/fw.md
+#   미리보기: ansible-playbook playbooks/fw.yml -K --check --diff
+#   실행:    ansible-playbook playbooks/fw.yml -K
+# 한 대씩, 대기 쪽(fw-2)부터. 바꾸는 동안 다른 한 대가 VIP를 맡음
+
+- name: 방화벽 쌍
+  hosts: fw
+  become: true
+  serial: 1
+  order: reverse_inventory
+  roles:
+    - fw

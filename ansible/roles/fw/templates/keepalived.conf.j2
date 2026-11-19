@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+# 방화벽 쌍 VIP. 구역 게이트웨이 VIP(.254) 7개와 바깥 VIP를 한 인스턴스에 넣어 함께 넘어감 (docs/fw.md)
+global_defs {
+    router_id {{ inventory_hostname }}
+    enable_script_security
+    script_user root
+}
+
+vrrp_instance ORBIT_FW {
+    state {{ 'MASTER' if fw_is_primary else 'BACKUP' }}
+    interface {{ fw_inner_if }}
+    virtual_router_id {{ fw_vrid }}
+    priority {{ fw_priority_primary if fw_is_primary else fw_priority_backup }}
+    advert_int 1
+    # 멀티캐스트 대신 쌍끼리만 (같은 L2에 다른 VRRP 쌍이 있음)
+    unicast_src_ip {{ lan_ip }}
+    unicast_peer {
+        {{ hostvars[fw_peer].lan_ip }}
+    }
+    # 바깥 NIC가 끊겨도 FAULT로 VIP를 내려놓음 (안쪽 NIC는 위 interface라서 keepalived가 이미 봄)
+    track_interface {
+        {{ fw_outer_if }}
+    }
+    virtual_ipaddress {
+{% for vip in fw_inner_vips %}
+        {{ vip }}/{{ lan_prefix }} dev {{ fw_inner_if }}
+{% endfor %}
+        {{ fw_outer_vip }}/{{ lan_prefix }} dev {{ fw_outer_if }}
+    }
+    # 상태가 바뀌면 연결 상태 동기화 전환, strongSwan 켜고 끄기
+    notify /usr/local/sbin/orbit-fw-notify.sh
+}

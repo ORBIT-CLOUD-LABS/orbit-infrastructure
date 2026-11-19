@@ -1,0 +1,148 @@
+#!/usr/sbin/nft -f
+# {{ ansible_managed }}
+# 방화벽 쌍 {{ inventory_hostname }}. 직접 고치지 말고 fw role을 고친 뒤 fw 플레이북 실행 (docs/fw.md)
+# 다시 읽으면 전체를 지우고 새로 넣음 (iptables로 넣은 규칙도 지워짐)
+flush ruleset
+
+define INNER = "{{ fw_inner_if }}"
+define OUTER = "{{ fw_outer_if }}"
+
+table inet orbit_fw {
+	# astra (관리 주소, 바깥 다리 주소). Tailscale 접속도 바깥 다리 주소로 보임
+	set admin_src {
+		type ipv4_addr
+		elements = { {{ fw_admin_src | join(', ') }} }
+	}
+
+	# fw가 다리를 둔 구역 (관리, 리버스 프록시, 관측, 클러스터 4개). 바깥 구역은 넣지 않음
+	set zone_nets {
+		type ipv4_addr
+		flags interval
+		elements = { {{ fw_zone_nets | join(', ') }} }
+	}
+
+	set cluster_nets {
+		type ipv4_addr
+		flags interval
+		elements = { {{ fw_cluster_nets | join(', ') }} }
+	}
+
+	set rp_core {
+		type ipv4_addr
+		elements = { {{ fw_rp_core_ips | join(', ') }} }
+	}
+
+	set rp_ota {
+		type ipv4_addr
+		elements = { {{ fw_rp_ota_ips | join(', ') }} }
+	}
+
+	set rp_cdn {
+		type ipv4_addr
+		elements = { {{ fw_rp_cdn_ips | join(', ') }} }
+	}
+
+	# 클러스터 입구 VIP (클러스터 구역의 .100). OTA는 Main·Sub, CDN은 Main·Sub
+	set ota_ingress {
+		type ipv4_addr
+		elements = { {{ fw_ota_ingress_vips | join(', ') }} }
+	}
+
+	set cdn_ingress {
+		type ipv4_addr
+		elements = { {{ fw_cdn_ingress_vips | join(', ') }} }
+	}
+
+	# 사설 대역. 인터넷 허용과 바깥 VIP SNAT에서 뺌 (AWS 대역이 인터넷으로 새지 않게)
+	set private_nets {
+		type ipv4_addr
+		flags interval
+		elements = { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 }
+	}
+
+	chain input {
+		type filter hook input priority filter; policy drop;
+		ct state established,related accept
+		ct state invalid drop
+		iif "lo" accept
+		icmp type echo-request accept
+		# 쌍끼리: VRRP(keepalived), 연결 상태 동기화(conntrackd)
+		iifname $INNER ip saddr {{ hostvars[fw_peer].lan_ip }} ip protocol vrrp accept
+		iifname $INNER ip saddr {{ hostvars[fw_peer].lan_ip }} udp dport {{ fw_conntrackd_port }} accept
+		tcp dport 22 ip saddr @admin_src accept
+		# 관측: metric이 node-exporter 수집 (관측 구역 주소로 직접 닿음)
+		iifname $INNER ip saddr {{ fw_metric_ip }} tcp dport {{ fw_metric_scrape_port }} accept
+	}
+
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+		ct state established,related accept
+		ct state invalid drop
+
+		# AWS는 VPN 터널을 지나는 것만 (터널이 없을 때 인터넷 쪽으로 나가지 않게)
+		ip daddr {{ fw_aws_net }} jump to_aws
+
+		# 바깥 VIP로 들어온 443 (아래 prerouting에서 vip-rp-svc로 DNAT)
+		ct status dnat ip daddr {{ fw_rp_svc_vip }} tcp dport 443 accept
+
+		# astra → 각 구역 SSH, 클러스터 API (kubectl, 클러스터 VIP .100), ping
+		ip saddr @admin_src ip daddr @zone_nets tcp dport 22 accept
+		ip saddr @admin_src ip daddr @cluster_nets tcp dport 6443 accept
+		ip saddr @admin_src ip daddr @zone_nets icmp type echo-request accept
+
+		# Tailscale 접속 → 관제 화면 입구
+		ip saddr {{ fw_tailscale_src }} ip daddr {{ fw_rp_int_vip }} tcp dport 443 accept
+
+		# 바깥 구역(io 부하, astra·Tailscale 접속) → 서비스 입구. ota·cdn은 지금 내부에서만 씀 (DNS가 vip-rp-svc를 바로 가리킴)
+		ip saddr {{ outer_net }} ip daddr {{ fw_rp_svc_vip }} tcp dport 443 accept
+
+		# 클러스터 → Vault (ESO, SSH 인증서), Vault → 클러스터 API (Kubernetes 인증)
+		ip saddr @cluster_nets ip daddr {{ fw_vault_ip }} tcp dport {{ hvault_port }} accept
+		ip saddr {{ fw_vault_ip }} ip daddr @cluster_nets tcp dport 6443 accept
+
+		# nginx 쌍 → 클러스터 입구 VIP (rp-ota는 OTA, rp-cdn은 CDN 클러스터만), rp-core → Hubble UI
+		ip saddr @rp_ota ip daddr @ota_ingress tcp dport { {{ fw_cluster_ingress_ports | join(', ') }} } accept
+		ip saddr @rp_cdn ip daddr @cdn_ingress tcp dport { {{ fw_cluster_ingress_ports | join(', ') }} } accept
+		ip saddr @rp_core ip daddr {{ fw_hubble_ui_vip }} tcp dport {{ fw_hubble_ui_port }} accept
+
+		# Cluster Mesh (클러스터 구역 사이)
+		ip saddr @cluster_nets ip daddr @cluster_nets tcp dport { {{ fw_mesh_tcp_ports | join(', ') }} } accept
+		ip saddr @cluster_nets ip daddr @cluster_nets udp dport { {{ fw_mesh_udp_ports | join(', ') }} } accept
+		ip saddr @cluster_nets ip daddr @cluster_nets icmp type echo-request accept
+
+		# 구역 → 인터넷 (바깥 VIP로 SNAT)
+		oifname $OUTER ip saddr @zone_nets ip daddr != @private_nets jump to_internet
+
+		# 버리기 전에 기록 (검증할 때 journalctl -k로 봄)
+		limit rate 10/minute log prefix "orbit-fw drop: " level info
+	}
+
+	chain to_internet {
+		tcp dport { {{ fw_internet_tcp_ports | join(', ') }} } accept
+		udp dport { {{ fw_internet_udp_ports | join(', ') }} } accept
+		icmp type echo-request accept
+		# 관리 구역(물리 호스트)의 Tailscale 직접 연결
+		ip saddr {{ fw_zone_nets[0] }} udp dport { {{ fw_tailscale_udp_dports | join(', ') }} } accept
+		ip saddr {{ fw_zone_nets[0] }} udp sport { {{ fw_tailscale_udp_sports | join(', ') }} } accept
+	}
+
+	chain to_aws {
+		rt ipsec missing drop
+		ip saddr @cluster_nets tcp dport { {{ fw_aws_tcp_ports | join(', ') }} } accept
+		drop
+	}
+
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		# astra가 넘긴 443 (와이파이 → 바깥 VIP)과 io의 요청
+		iifname $OUTER ip daddr {{ fw_outer_vip }} tcp dport 443 dnat ip to {{ fw_rp_svc_vip }}
+	}
+
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		# DNAT한 443은 리버스 프록시 구역 VIP로 SNAT (응답이 fw를 거쳐 돌아오고, fw가 넘어가도 같은 주소)
+		ct status dnat ip daddr {{ fw_rp_svc_vip }} tcp dport 443 snat ip to {{ fw_rp_zone_vip }}
+		# 구역 → 인터넷은 바깥 VIP로 SNAT (astra가 관리·관측 구역에 직접 닿아 있어, 없으면 응답이 fw를 건너뜀)
+		oifname $OUTER ip saddr @zone_nets ip daddr != @private_nets snat ip to {{ fw_outer_vip }}
+	}
+}

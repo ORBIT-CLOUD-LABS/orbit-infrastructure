@@ -1,0 +1,44 @@
+# {{ ansible_managed }}
+# 방화벽 쌍 연결 상태 동기화 (FTFW). VIP가 넘어가도 이어 받은 쪽이 연결을 알고 있게 함 (docs/fw.md)
+Sync {
+    Mode FTFW {
+        DisableExternalCache Off
+        StartupResync on
+    }
+    UDP {
+        IPv4_address {{ lan_ip }}
+        IPv4_Destination_Address {{ hostvars[fw_peer].lan_ip }}
+        Port {{ fw_conntrackd_port }}
+        Interface {{ fw_inner_if }}
+        SndSocketBuffer 1249280
+        RcvSocketBuffer 1249280
+        Checksum on
+    }
+}
+
+General {
+    Systemd on
+    HashSize 32768
+    HashLimit 131072
+    Syslog on
+    LockFile /var/lock/conntrackd.lock
+    UNIX {
+        Path /var/run/conntrackd.sock
+    }
+    NetlinkBufferSize 2097152
+    NetlinkBufferSizeMaxGrowth 8388608
+    Filter From Userspace {
+        Protocol Accept {
+            TCP
+            UDP
+            ICMP
+        }
+        # fw 자신이 주고받는 연결(SSH, VRRP, 동기화)은 맞추지 않음
+        Address Ignore {
+            IPv4_address 127.0.0.1
+{% for ip in [lan_ip, outer_ip] + zone_ips + fw_inner_vips + [fw_outer_vip] %}
+            IPv4_address {{ ip }}
+{% endfor %}
+        }
+    }
+}
