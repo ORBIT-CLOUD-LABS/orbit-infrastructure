@@ -23,7 +23,7 @@ VM 이전: [#58](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues
 | 로그인 | GitHub (`ORBIT-CLOUD-LABS`의 `orbit` 팀), 비상용 userpass `breakglass1`, `breakglass2`. 토큰 기본 8시간, 최대 24시간 |
 | 노드 | 인벤토리 전체(노드 5대, VM 3대)가 `/etc/ssh/trusted-user-ca-keys.pem`을 신뢰 (`sshd_config.d/10-orbit-ssh-ca.conf`). 기존 `authorized_keys`는 그대로 |
 | 비밀값 | KV v2 `secret/`. k3s 앱 `orbit/k3s/<앱 이름>`(ESO 연동 후 Kubernetes Secret으로 복제), 인프라 `orbit/infra/<서비스 이름>`(ESO 접근 불가). 원본은 Vault에서 관리 |
-| Kubernetes 인증 | `auth/kubernetes`, API `https://10.0.0.200:6443`, 별도 reviewer JWT 없이 로그인 JWT로 TokenReview |
+| Kubernetes 인증 | 클러스터마다 `auth/kubernetes-<클러스터 이름>`(`ota-main` 등 4개), API는 그 클러스터 VIP `https://10.10.<구역>.100:6443`, 별도 reviewer JWT 없이 로그인 JWT로 TokenReview ([k3s 문서](k3s.md)) |
 | ESO 역할 | `eso`: `external-secrets/external-secrets`만 허용, `eso-orbit` 정책, 토큰 기본·최대 수명 1시간 |
 
 ## 플레이북
@@ -39,7 +39,7 @@ astra 개인 계정으로 실행한다([Ansible 실행](personal-accounts.md#ans
 - **버전(`hvault_version`)이나 `vault.hcl`이 바뀌면 Vault가 재시작되어 sealed가 된다.** unseal할 사람 2명이 있을 때 실행한다.
 - SSH CA 키는 없을 때만 만들고 다시 만들지 않는다. 같은 경로에 다른 종류의 엔진·감사 장치가 있으면 덮어쓰지 않고 멈춘다.
 - 비상 계정 비밀번호는 `inventory/group_vars/all/vault.yml`(ansible-vault)의 `vault_breakglass1_password`, `vault_breakglass2_password`. 계정을 처음 만들 때만 쓰인다.
-- 관리자 토큰으로 실행하면 미리보기에서도 polaris에 SSH·sudo로 접속해 k3s CA를 읽는다. 읽기 실패 시 Vault 내부 설정을 쓰기 전에 멈춘다. 클러스터가 없는 동안은 `hvault_k8s_clusters: []`라서 k3s CA를 읽지 않고 Kubernetes 인증 설정(`auth/kubernetes`, `eso` 역할)을 읽지도 바꾸지도 않는다.
+- 관리자 토큰으로 실행하면 미리보기에서도 `hvault_k8s_clusters`의 클러스터마다 `-1`에 SSH·sudo로 접속해 k3s CA를 읽는다. 읽기 실패 시 Vault 내부 설정을 쓰기 전에 멈춘다. `hvault_k8s_clusters`를 비우면 k3s CA를 읽지 않고 Kubernetes 인증 설정을 읽지도 바꾸지도 않는다.
 - CA 개인키(`/opt/vault/tls/vault-ca.key`)가 없으면 새 CA를 만들지 않고 멈춘다. 새로 만들어야 할 때만 `-e hvault_ca_create=true`를 붙인다.
 - `secret/`은 `type=kv`, `options.version=2`여야 한다. KV v1·다른 엔진이나 같은 경로의 다른 인증 방식은 자동 전환하지 않는다. 기존 별도 reviewer JWT가 있어도 중단한다.
 

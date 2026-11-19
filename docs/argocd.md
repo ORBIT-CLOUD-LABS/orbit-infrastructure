@@ -1,7 +1,7 @@
 # Argo CD와 orbit-gitops root Application
 
 구현: [#27](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/27). 선행: [#28](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/28) (k3s SQLite 재설치).
-운영 클러스터에서 설치 상태·워커 배치·AppProject·root 설정과 재실행 무변경을 확인했다. root의 `Synced`·`Healthy`와 허용 범위 밖 리소스 거부 시험은 아직 확인하지 않았다 ([적용 기록](#적용-기록)).
+재설계([#61](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/61))부터 k3s 클러스터 4개(ota-main, ota-sub, cdn-main, cdn-sub)에 하나씩 둔다. 아래 [적용 기록](#적용-기록)은 옛 단일 클러스터(polaris) 기준이다.
 이 문서에는 이름과 절차만 기록한다. admin 비밀번호 값은 Git·Issue·PR·문서·채팅 어디에도 남기지 않는다.
 
 이 레포는 Argo CD 설치, AppProject(배포 허용 범위), root Application을 맡는다. orbit-gitops는 root가 읽는 경로에 자식 Application과 실제 선언을 둔다. 허용 범위는 orbit-gitops PR로 넓힐 수 없고 이 레포에서만 바꾼다.
@@ -10,12 +10,12 @@
 
 | 항목 | 값 |
 | --- | --- |
-| 설치 방식 | k3s HelmChart manifest (Cilium과 같음). polaris `/var/lib/rancher/k3s/server/manifests/orbit-argocd.yaml`을 k3s helm-controller가 설치 |
+| 설치 방식 | k3s HelmChart manifest (Cilium과 같음). 클러스터마다 `-1` server의 `/var/lib/rancher/k3s/server/manifests/orbit-argocd.yaml`을 k3s helm-controller가 설치 |
 | 버전 | chart `argo-cd` 10.11.6 (Argo CD v3.5.6). `roles/argocd/defaults/main.yml`의 `argocd_chart_version` |
 | namespace | `argocd` |
 | 구성요소 | application-controller, repo-server, server, redis, applicationset-controller. dex(SSO)·notifications는 끔 |
 | 리소스 | 요청 합계 약 0.5 CPU / 1Gi, 메모리 상한 합계 약 2Gi. CPU 상한 없음 (orbit `docs/infrastructure.md`의 1 CPU / 2Gi 안) |
-| 배치 | 워커(sol, terra, luna)만. polaris는 control-plane NoSchedule taint로 제외되고, 플레이북이 taint와 실제 배치 노드를 확인 |
+| 배치 | 그 클러스터의 server 3대 어디에나. 모든 노드가 server이고 taint가 없음 ([k3s 문서](k3s.md)) |
 | UI | 공개하지 않음. Service ClusterIP, ingress 없음. 기본은 kubectl로 확인하고 UI는 필요할 때만 port-forward ([상태 확인과 UI](#상태-확인과-ui)) |
 | 저장소 인증 | 없음. orbit-gitops는 공개 저장소라 HTTPS로 읽음. 비공개로 바꾸면 읽기 전용 인증을 추가해야 함 |
 
@@ -38,12 +38,12 @@ Fluent Bit의 orbit-gitops #45·#46 공통 값은 namespace `fluent-bit`, Extern
 | 항목 | 값 |
 | --- | --- |
 | 이름·프로젝트 | `orbit-k3s-root` / `orbit-k3s-root` |
-| 소스 | `https://github.com/ORBIT-CLOUD-LABS/orbit-gitops.git`, `develop`, `clusters/orbit-k3s/apps` |
+| 소스 | `https://github.com/ORBIT-CLOUD-LABS/orbit-gitops.git`, `develop`, `clusters/<클러스터 이름>/apps` (`clusters/ota-main/apps` 등, `argocd_root_path`) |
 | 배포 대상 | `argocd` namespace (자식 Application만) |
 | Sync | 자동(`enabled: true`), Prune·Self Heal 끔, 실패 시 5회 재시도(5초부터 최대 3분) |
 | 삭제 | finalizer 없음. root를 지워도 자식 Application과 그 리소스는 남음 |
 
-orbit-gitops `develop`에 `clusters/orbit-k3s/apps`가 생기기 전에는 root가 "경로 없음" 오류 상태로 남는다. 정상이며, 경로가 생기면 자동 Sync가 알아서 읽는다. 경로에 자식 Application을 올리면 바로 배포가 시작되므로 그 전에 AppProject 허용 범위를 확인한다.
+orbit-gitops `develop`에 그 클러스터의 `clusters/<클러스터 이름>/apps`가 생기기 전에는 root가 "경로 없음" 오류 상태로 남는다. 정상이며, 경로가 생기면 자동 Sync가 알아서 읽는다. 경로에 자식 Application을 올리면 바로 배포가 시작되므로 그 전에 AppProject 허용 범위를 확인한다.
 
 ## 실행
 
@@ -56,21 +56,20 @@ ansible-playbook playbooks/argocd.yml -K                      # 적용
 ansible-playbook playbooks/argocd.yml -K                      # 재실행: changed=0
 ```
 
-플레이북은 polaris에서 다음 순서로 실행하고, 하나라도 어긋나면 멈춘다.
+플레이북은 클러스터마다 `-1` server에서 다음 순서로 실행하고, 하나라도 어긋나면 멈춘다. 한 클러스터만 하려면 `--limit ota_main`처럼 클러스터 그룹을 준다.
 
-1. k3s 자동 설치 폴더와 polaris control-plane taint 확인
+1. k3s 자동 설치 폴더 확인
 2. HelmChart manifest 배치 → HelmChart spec 반영, 최신 Helm release가 원하는 chart 버전·values로 `deployed`인지 확인 (`roles/argocd/files/check-release.py`) → 구성요소 rollout
-3. Argo CD 파드가 모두 워커에 있는지 확인
-4. 애드온 namespace와 AppProject 적용 → `default` 잠금과 두 프로젝트 확인 (`/var/lib/rancher/k3s/orbit-argocd/projects.yaml`)
-5. root Application 적용 → 프로젝트·소스·Sync 정책 확인 (`/var/lib/rancher/k3s/orbit-argocd/root.yaml`). Sync 상태는 보지 않음
+3. 애드온 namespace와 AppProject 적용 → `default` 잠금과 두 프로젝트 확인 (`/var/lib/rancher/k3s/orbit-argocd/projects.yaml`)
+4. root Application 적용 → 프로젝트·소스·Sync 정책 확인 (`/var/lib/rancher/k3s/orbit-argocd/root.yaml`). Sync 상태는 보지 않음
 
-미리보기에서는 파일 변경만 보이고 적용·대기·확인은 건너뛴다. taint 확인은 읽기 전용이라 미리보기에서도 실행한다.
+미리보기에서는 파일 변경만 보이고 적용·대기·확인은 건너뛴다.
 
 ## 상태 확인과 UI
 
 ### kubectl로 확인 (기본)
 
-UI 없이 polaris에서 `kubectl`로 확인·조작한다.
+UI 없이 그 클러스터의 server에서 `kubectl`로 확인·조작한다. astra에서는 `KUBECONFIG=~/.kube/orbit-<클러스터 이름>.yaml kubectl ...`로 같은 명령을 쓴다.
 
 ```bash
 sudo k3s kubectl -n argocd get applications                     # 이름, Sync, Health
@@ -83,18 +82,18 @@ sudo k3s kubectl -n argocd get pods -o wide
 
 ### UI (필요할 때만)
 
-UI는 공개하지 않고 기본으로 쓰지 않는다. 필요하면 polaris에서 내부망 주소로 port-forward를 잠깐 연다.
+UI는 공개하지 않고 기본으로 쓰지 않는다. 필요하면 그 클러스터의 server에서 자기 주소로 port-forward를 잠깐 연다 (예: ota-main-1 `10.10.41.1`).
 
 ```bash
-sudo k3s kubectl -n argocd port-forward --address 10.0.0.200 svc/argocd-server 8080:443
-# 브라우저: https://10.0.0.200:8080 (자체 서명 인증서 경고는 정상). 끝나면 Ctrl+C로 닫음
+sudo k3s kubectl -n argocd port-forward --address 10.10.41.1 svc/argocd-server 8080:443
+# 브라우저: https://10.10.41.1:8080 (자체 서명 인증서 경고는 정상). 끝나면 Ctrl+C로 닫음
 ```
 
-- 열어 둔 동안에는 내부망에서 로그인 화면에 접근할 수 있다. 쓸 때만 연다.
-- 내부망에 직접 붙은 기기에서는 바로 된다. Tailscale(subnet router 경유) 기기에서는 tailnet ACL이 `10.0.0.200:8080`을 허용해야 한다. 2026-11-09 기준 허용되어 있지 않다.
+- 열어 둔 동안에는 방화벽이 허용한 곳에서 로그인 화면에 접근할 수 있다. 쓸 때만 연다.
+- 클러스터 구역 밖(관리 구역, Tailscale)에서 보려면 방화벽(fw)과 tailnet ACL이 그 주소의 8080을 허용해야 한다.
 - `ssh -L` 터널은 쓸 수 없다. 개인 계정 SSH 인증서에 포트 포워딩 권한이 없다 ([개인 계정 문서](personal-accounts.md)).
 
-로그인은 `admin`. 초기 비밀번호는 polaris에서 화면에만 출력한다.
+로그인은 `admin`. 초기 비밀번호는 그 클러스터의 server에서 화면에만 출력한다. 클러스터마다 다르다.
 
 ```bash
 sudo k3s kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
@@ -123,7 +122,7 @@ argocd용 HelmChartConfig를 만들면 그 values가 release에 합쳐져 플레
 
 ## root 자동 Sync 중지·재개
 
-orbit-gitops에 잘못된 선언이 올라와 배포를 멈춰야 할 때 쓴다. polaris에서 실행한다.
+orbit-gitops에 잘못된 선언이 올라와 배포를 멈춰야 할 때 쓴다. 멈출 클러스터의 server에서 실행한다.
 
 ```bash
 # 중지
@@ -141,7 +140,7 @@ sudo k3s kubectl -n argocd patch application orbit-k3s-root --type merge \
 
 ### 제거
 
-HelmChart manifest 파일을 지워도 설치된 Argo CD는 지워지지 않는다. polaris에서 순서대로 실행한다.
+HelmChart manifest 파일을 지워도 설치된 Argo CD는 지워지지 않는다. 그 클러스터의 `-1` server에서 순서대로 실행한다.
 
 ```bash
 sudo k3s kubectl -n argocd delete application orbit-k3s-root          # finalizer 없음: 자식은 남음
@@ -159,7 +158,7 @@ k3s를 다시 설치하면 Argo CD와 AppProject, root가 모두 사라진다. `
 
 ## 적용 기록
 
-아래는 `jyvnee`가 astra에서 실행하고 공유한 플레이북 출력과 orbit-gitops #45 적용·검증 완료 확인을 기준으로 작성했다. 최초 Argo CD 설치 시점은 이번 기록으로 확정하지 않는다.
+아래는 옛 단일 클러스터(polaris + 워커 3대) 기준이다. `jyvnee`가 astra에서 실행하고 공유한 플레이북 출력과 orbit-gitops #45 적용·검증 완료 확인을 기준으로 작성했다. 최초 Argo CD 설치 시점은 이번 기록으로 확정하지 않는다.
 
 | 날짜 | 단계 | 결과 |
 | --- | --- | --- |
