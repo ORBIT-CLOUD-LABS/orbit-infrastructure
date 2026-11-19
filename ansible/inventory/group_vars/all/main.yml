@@ -1,7 +1,7 @@
 # 내부망
-lan_net: 10.0.0.0/24
-lan_prefix: 24
-lan_gw: 10.0.0.201          # astra
+lan_net: 10.10.0.0/16       # 온프레미스 전체 (구역은 10.10.<구역>.0/24)
+lan_prefix: 24              # 구역 하나의 길이
+lan_gw: "{{ lan_ip | regex_replace('\\.[0-9]+$', '.254') }}"   # 자기 구역의 방화벽 VIP .254
 
 # 와이파이
 wifi_ssid: rapa_classroom-5

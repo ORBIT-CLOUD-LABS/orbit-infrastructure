@@ -2,8 +2,8 @@
 # ansible-vault 비밀값(vault_*)과 헷갈리지 않게 hvault_로 씀
 hvault_version: 2.2.1                        # 버전 고정
 hvault_pkg_revision: 1                       # apt 패키지 리비전. 설치는 vault=2.2.1-1
-hvault_host: "{{ groups['gateway'][0] }}"     # astra
-hvault_ip: "{{ hostvars[hvault_host].lan_ip }}"
+hvault_host: astra                           # Vault를 vault VM으로 옮길 때 vault로 바꿈
+hvault_ip: "{{ hostvars[hvault_host].ansible_host }}"   # 옮기기 전까지 astra의 옛 주소 (Vault 인증서 SAN에 있는 주소). 옮길 때 lan_ip로 되돌림
 hvault_port: 8200                            # 8201(Raft)은 127.0.0.1에만
 hvault_addr: "https://{{ hvault_ip }}:{{ hvault_port }}"
 hvault_tls_dir: /opt/vault/tls               # astra. vault-ca.crt로 Vault 인증서를 검증. 패키지의 tls.crt/tls.key와 겹치지 않게 vault-* 이름

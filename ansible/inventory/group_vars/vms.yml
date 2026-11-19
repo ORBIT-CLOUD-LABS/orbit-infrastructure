@@ -1,0 +1,3 @@
+net_role: vm
+# 새로 만든 VM은 실행 컴퓨터의 known_hosts에 없음. 처음 보는 키는 받고, 이미 아는 키가 바뀌면 막음
+ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
