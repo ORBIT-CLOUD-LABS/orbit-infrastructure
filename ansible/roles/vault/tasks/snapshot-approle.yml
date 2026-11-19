@@ -1,4 +1,4 @@
-# 스냅샷 백업용 AppRole 자격증명을 astra에 배포하고 타이머를 켬
+# 스냅샷 백업용 AppRole 자격증명을 Vault 호스트에 배포하고 타이머를 켬
 # configure.yml의 block 안에서 import되어 module_defaults(X-Vault-Token, ca_path)를 그대로 씀
 # secret_id는 발급 시에만 반환되므로 자격증명 파일이 없을 때만 새로 발급함
 - name: AppRole 자격증명 파일이 있는지

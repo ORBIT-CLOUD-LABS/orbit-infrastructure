@@ -17,7 +17,7 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 
 $OrbitDir = if ($env:ORBIT_DIR) { $env:ORBIT_DIR } else { Join-Path $env:USERPROFILE '.orbit' }
-$VaultAddr = if ($env:ORBIT_VAULT_ADDR) { $env:ORBIT_VAULT_ADDR } else { 'https://10.0.0.201:8200' }
+$VaultAddr = if ($env:ORBIT_VAULT_ADDR) { $env:ORBIT_VAULT_ADDR } else { 'https://vault.orbit-labs.space:8200' }   # vault VM (10.10.0.1)
 $CaCert = if ($env:ORBIT_VAULT_CACERT) { $env:ORBIT_VAULT_CACERT } else { Join-Path $OrbitDir 'vault-ca.crt' }
 $Key = if ($env:ORBIT_SSH_KEY) { $env:ORBIT_SSH_KEY } else { Join-Path $env:USERPROFILE '.ssh\id_ed25519' }
 $SignPrefix = 'ssh-client-signer/sign/personal-'   # Vault 역할 personal-<계정명> (hvault_ssh_personal_role_prefix)

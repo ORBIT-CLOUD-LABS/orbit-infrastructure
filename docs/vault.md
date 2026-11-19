@@ -4,17 +4,18 @@
 KV·Kubernetes 인증: [#13](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/13). 2026-11-02 astra에 적용하고 적용 후 미리보기에서 추가 변경 없음(`changed=0`)을 확인했다. 실제 k3s 로그인·권한 거부와 GitHub 조회·쓰기·부분 수정 및 SSH 서명을 검증했다. 시험 리소스 정리 완료는 별도 확인이 필요하며 root token 폐기는 운영자 요청으로 보류 중이다.
 KV 구역 분리: [#21](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/21). 2026-11-05 `jyvnee`가 astra 개인 계정으로 적용했다(바뀐 설정: `eso-orbit` 읽기 경로 `orbit/*` → `orbit/k3s/*`, `orbit-secrets-write` 설명 주석). 적용 후 미리보기 `changed=0`. `eso-orbit` 정책만 가진 10분 시험 토큰으로 k3s 구역 읽기 허용, 인프라 구역·구역 밖 읽기와 k3s 구역 쓰기 거부(403)를 확인하고 시험 토큰·값을 정리했다. 옮길 기존 값(`orbit/orbit-server`)은 없었다. k3s 로그인 역할(`eso`)은 바뀌지 않아 다시 시험하지 않았다.
 스냅샷 S3 백업: [#11](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/11). 역할·스크립트·systemd 유닛을 작성했고 **astra 적용과 업로드·복원 검증은 아직 하지 않았다.**
+VM 이전: [#58](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/58). astra 호스트의 Vault를 같은 CA와 스냅샷으로 `vault` VM(`10.10.0.1`)에 옮긴다. 절차는 [아래](#astra에서-vault-vm으로-이전).
 이 문서에는 이름과 절차만 기록한다. unseal 키, 토큰, 비밀번호, GitHub PAT 값은 Git·Issue·PR·문서·채팅 어디에도 남기지 않는다.
 
 ## 구성
 
 | 항목 | 값 |
 | --- | --- |
-| 위치 | astra 호스트에 직접 설치 (systemd `vault`, 버전 고정·apt hold) |
-| 주소 | 내부망 `https://10.0.0.201:8200` (팀원은 Tailscale subnet router 경유), astra 안 `https://127.0.0.1:8200` |
-| TLS | 내부 CA `/opt/vault/tls/vault-ca.crt` (2036년 만료), 서버 인증서 `vault.crt` (2029-02-03 만료) |
-| 저장소 | 단일 노드 Raft `/opt/vault/data`. 8201은 `127.0.0.1`에만 염 |
-| 방화벽 | 8200은 `lo`, `br0`, `tailscale0`에서만 받음 (INPUT 맨 앞 `ORBIT-VAULT` 체인). 와이파이 등 나머지는 DROP |
+| 위치 | astra 위 VM `vault` (관리 구역, 1 vCPU, 2GB, 20GB). systemd `vault`, 버전 고정·apt hold |
+| 주소 | `https://vault.orbit-labs.space:8200` (Cloudflare DNS only, `10.10.0.1`). Ansible은 `https://10.10.0.1:8200`, VM 안 `https://127.0.0.1:8200`. 팀원은 Tailscale subnet router(astra) 경유, 클러스터는 fw 경유 |
+| TLS | 내부 CA `/opt/vault/tls/vault-ca.crt` (2036년 만료, astra에서 옮겨 온 같은 CA), 서버 인증서 `vault.crt` (SAN `vault`, `vault.orbit-labs.space`, `localhost`, `127.0.0.1`, `10.10.0.1`) |
+| 저장소 | 단일 노드 Raft `/opt/vault/data`, `node_id`는 `astra` (`hvault_node_id`. 옮기기 전 노드 이름 그대로). 8201은 `127.0.0.1`에만 염 |
+| 방화벽 | 8200은 `lo`, `enp1s0`(VM NIC)에서만 받음 (INPUT 맨 앞 `ORBIT-VAULT` 체인). 구역 사이 허용은 fw가 맡음 |
 | unseal | Shamir 5개 중 2개. 팀원 5명이 하나씩 보관. 같은 정족수로 임시 root를 만들 수 있음 (`generate-root`) |
 | 감사 로그 | `/var/log/vault/audit.log` (`0600 vault`). 매일 회전, 14개 보관 |
 | SSH CA | 엔진 `ssh-client-signer`, 역할 `orbit`, 정책 `ssh-orbit`. CA 키 ed25519 |
@@ -38,7 +39,8 @@ astra 개인 계정으로 실행한다([Ansible 실행](personal-accounts.md#ans
 - **버전(`hvault_version`)이나 `vault.hcl`이 바뀌면 Vault가 재시작되어 sealed가 된다.** unseal할 사람 2명이 있을 때 실행한다.
 - SSH CA 키는 없을 때만 만들고 다시 만들지 않는다. 같은 경로에 다른 종류의 엔진·감사 장치가 있으면 덮어쓰지 않고 멈춘다.
 - 비상 계정 비밀번호는 `inventory/group_vars/all/vault.yml`(ansible-vault)의 `vault_breakglass1_password`, `vault_breakglass2_password`. 계정을 처음 만들 때만 쓰인다.
-- 관리자 토큰으로 실행하면 미리보기에서도 polaris에 SSH·sudo로 접속해 k3s CA를 읽는다. 읽기 실패 시 Vault 내부 설정을 쓰기 전에 멈춘다.
+- 관리자 토큰으로 실행하면 미리보기에서도 polaris에 SSH·sudo로 접속해 k3s CA를 읽는다. 읽기 실패 시 Vault 내부 설정을 쓰기 전에 멈춘다. 클러스터가 없는 동안은 `hvault_k8s_clusters: []`라서 k3s CA를 읽지 않고 Kubernetes 인증 설정(`auth/kubernetes`, `eso` 역할)을 읽지도 바꾸지도 않는다.
+- CA 개인키(`/opt/vault/tls/vault-ca.key`)가 없으면 새 CA를 만들지 않고 멈춘다. 새로 만들어야 할 때만 `-e hvault_ca_create=true`를 붙인다.
 - `secret/`은 `type=kv`, `options.version=2`여야 한다. KV v1·다른 엔진이나 같은 경로의 다른 인증 방식은 자동 전환하지 않는다. 기존 별도 reviewer JWT가 있어도 중단한다.
 
 ## 비밀값 경로와 권한
@@ -288,7 +290,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\orbit-ssh-setup.ps1 
    SSH 키가 없으면 먼저 만든다: `test -f ~/.ssh/id_ed25519 || ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519`
 3. 환경 변수
    ```bash
-   export VAULT_ADDR=https://10.0.0.201:8200
+   export VAULT_ADDR=https://vault.orbit-labs.space:8200
    export VAULT_CACERT=~/.orbit/vault-ca.crt
    ```
 4. GitHub PAT (classic) 만들기: scope는 `read:org` 하나만, 만료는 짧게. 비밀번호 관리자에 보관한다.
@@ -308,7 +310,7 @@ Windows의 SSH 인증서는 [자동 갱신](#팀원-접속-자동-갱신)으로 
 2. Vault CA 인증서: 자동 갱신을 설정했으면 `$HOME\.orbit\vault-ca.crt`가 이미 있다. 없으면 다른 팀원에게 받아 그 위치에 둔다.
 3. 환경 변수 (사용자 환경 변수로 저장. 새 PowerShell 창부터 적용)
    ```powershell
-   [Environment]::SetEnvironmentVariable("VAULT_ADDR", "https://10.0.0.201:8200", "User")
+   [Environment]::SetEnvironmentVariable("VAULT_ADDR", "https://vault.orbit-labs.space:8200", "User")
    [Environment]::SetEnvironmentVariable("VAULT_CACERT", "$HOME\.orbit\vault-ca.crt", "User")
    ```
 4. 로그인: `vault login -method=github` (PAT 입력. 토큰은 `$HOME\.vault-token`에 저장됨). PAT는 자동 갱신에 쓰는 것과 같은 `read:org` PAT를 쓴다.
@@ -393,7 +395,7 @@ ansible-playbook playbooks/vault.yml -K --ask-vault-pass
 
 ### 자동 백업 (systemd timer, #11)
 
-`roles/vault`가 astra에 아래 파일과 타이머를 구성한다.
+`roles/vault`가 vault VM에 아래 파일과 타이머를 구성한다.
 
 | 대상 | 경로 | 권한 |
 |---|---|---|
@@ -436,7 +438,7 @@ ansible-playbook playbooks/vault.yml -K --ask-vault-pass
 #### 적용
 
 ```bash
-# astra에서 실행 (ansible_connection: local)
+# astra에서 실행 (대상은 vault VM)
 cd ~/orbit-infrastructure/ansible
 ansible-playbook playbooks/vault.yml -K --ask-vault-pass --check --diff
 
@@ -524,18 +526,30 @@ vault read -field=public_key ssh-client-signer/config/ca
 vault kv get -mount=secret orbit/<앱>
 ```
 
-- 복구 (astra를 새로 설치한 경우):
-  1. `playbooks/vault.yml`로 설치. Raft `node_id`가 원래와 같은 `astra`여야 한다 (다르면 복구 뒤 스스로 sealed가 됨)
+- 복구 (vault VM을 새로 만든 경우):
+  1. `playbooks/vault.yml`로 설치. Raft `node_id`가 원래와 같은 `astra`여야 한다 (`hvault_node_id`. 다르면 복구 뒤 스스로 sealed가 됨). `/opt/vault/tls`의 CA를 살렸다면 먼저 옮겨 둔다 ([이전](#astra에서-vault-vm으로-이전) 2단계)
   2. 새로 `vault operator init -key-shares=5 -key-threshold=2` (원래와 같은 개수로. 다르면 원래 키를 받지 못함) → 새 키로 unseal
   3. 새 root token으로 `vault operator raft snapshot restore -force <파일>`
   4. 몇 초 뒤 sealed가 된다. **원래** unseal 키 2개로 unseal. 새로 받은 키와 root token은 버린다
   5. 스냅샷에 들어 있던 root token이 다시 살아나므로 바로 폐기한다. 관리자 권한이 필요하면 원래 키로 `generate-root`
-  6. SSH CA 키도 돌아오므로 노드 설정은 바꾸지 않는다. `/opt/vault/tls`도 잃었다면 새 TLS CA가 만들어지므로 팀원에게 `vault-ca.crt`를 다시 나눠 준다.
+  6. SSH CA 키도 돌아오므로 노드 설정은 바꾸지 않는다. `/opt/vault/tls`도 잃었다면 `-e hvault_ca_create=true`로 새 TLS CA를 만들고, 팀원, astra(`/opt/vault/tls/vault-ca.crt`), ESO(`orbit-gitops`의 `vault-ca` ConfigMap)에 `vault-ca.crt`를 다시 나눠 준다.
+
+## astra에서 vault VM으로 이전
+
+2026-11 재설계에서 astra 호스트의 Vault를 `vault` VM으로 옮긴 절차. 같은 CA와 스냅샷을 쓰므로 unseal 키, SSH CA, 비밀값, 팀원의 `vault-ca.crt`는 그대로다. unseal 키 보관자 2명이 필요하다.
+
+1. vault VM에 `playbooks/vault.yml` 실행: 설치까지 하고 CA 개인키가 없어 멈춘다 (새 CA를 만들지 않게 하는 확인).
+2. astra의 `/opt/vault/tls/vault-ca.key`, `vault-ca.crt`를 vault VM의 같은 경로에 옮긴다 (`root:root 0600`, `root:vault 0644`). astra의 `vault-ca.crt`는 지우지 않는다.
+3. 다시 `playbooks/vault.yml`: 같은 CA로 서버 인증서를 발급하고 Vault를 띄운다 (초기화 전).
+4. astra에서 관리자 권한으로 스냅샷을 받은 직후 astra의 `vault`, `vault-snapshot.timer`를 멈추고 비활성화한다 (`systemctl disable --now`). 데이터(`/opt/vault/data`)는 이전 확인 후 지운다.
+5. vault VM에서 [복원](#복원)의 복구 절차대로: 새로 init(키 5개, 정족수 2), 새 키로 unseal, 새 root token으로 `raft snapshot restore -force`, **원래** 키 2개로 unseal. 새 키와 새 root token은 버린다. role의 복원 스크립트(`vault-snapshot-restore.sh`)는 `-force` 없이 실행하므로 이 단계에는 쓰지 않는다.
+6. 스냅샷에 들어 있던 관리자 토큰으로 `VAULT_TOKEN`을 넣고 `playbooks/vault.yml`을 다시 실행해 스냅샷 AppRole 자격증명(VM에는 없음)과 타이머를 만든다. `sudo systemctl start vault-snapshot.service`로 S3 업로드를 확인한다. 끝나면 관리자 토큰을 폐기한다.
+7. 팀원은 `scripts/orbit-ssh-setup.sh`(Windows는 `.ps1`)를 다시 실행한다. 갱신 스크립트(`~/.orbit/refresh-cert.sh`)와 `~/.ssh/config`의 접속 패턴이 새 주소로 바뀐다.
 
 ## 주의
 
 - 서버 인증서는 만료돼도 플레이북이 자동으로 다시 만들지 않는다. 만료 전에 `/opt/vault/tls/vault.crt`를 지우고 `vault.yml`을 실행한다 (reload만 하므로 sealed되지 않음).
 - `/opt/vault/tls/tls.crt`, `tls.key`(패키지가 만든 파일)를 지우지 않는다. 지운 채 패키지를 다시 설치하면 `/opt/vault` 전체 소유자가 `vault`로 바뀐다.
-- `disable_mlock = true`이고 astra에는 swap이 켜져 있다 (VM용). Vault만 `MemorySwapMax=0`(`vault.service.d/10-orbit-noswap.conf`)으로 swap을 쓰지 않게 하고, 확인 단계에서 `memory.swap.max`가 0인지 본다.
-- astra의 Docker 컨테이너에서 Vault에 접속하려면 `hvault_allowed_ifaces`에 `docker0`(또는 해당 브리지)를 추가해야 한다.
+- `disable_mlock = true`라서 Vault 메모리가 swap에 쓰일 수 있다. Vault만 `MemorySwapMax=0`(`vault.service.d/10-orbit-noswap.conf`)으로 swap을 쓰지 않게 하고, 확인 단계에서 `memory.swap.max`가 0인지 본다.
+- astra에도 `/opt/vault/tls/vault-ca.crt`를 남겨 둔다. astra에서 `scripts/orbit-ssh-cert.sh`와 Vault를 읽는 role이 이 파일로 서버 인증서를 확인한다.
 - 감사 로그를 쓰지 못하면 Vault가 요청을 거부한다. logrotate는 하루 한 번 돌 때만 크기를 본다.

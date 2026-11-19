@@ -23,9 +23,9 @@ $OrbitDir = Join-Path $env:USERPROFILE '.orbit'
 $SshDir = Join-Path $env:USERPROFILE '.ssh'
 $Key = Join-Path $SshDir 'id_ed25519'
 $Astra = '10.0.0.201'
-# 자동 갱신을 켤 주소와 이름. 내부망(노드, VM), 와이파이, 노드 이름(*.orbit-labs.space, Cloudflare DNS)
+# 자동 갱신을 켤 주소와 이름. 내부망(옛 대역, 재설계 대역 10.10.0.0/16), 와이파이, 노드 이름(*.orbit-labs.space, Cloudflare DNS)
 # 노드 Tailscale 주소(예비 경로)는 넣지 않음. 팀원은 Tailscale 정책으로 막혀 있고, 공개 저장소에 두지 않기로 한 값
-$MatchHosts = '10.0.0.20?,192.168.200.20?,*.orbit-labs.space'
+$MatchHosts = '10.0.0.20?,10.10.*,192.168.200.20?,*.orbit-labs.space'
 $PatFile = Join-Path $OrbitDir 'github-pat.dpapi'
 $SshConfig = Join-Path $SshDir 'config'
 $Begin = '# >>> orbit-vault-ssh (orbit-infrastructure/scripts/orbit-ssh-setup.ps1가 관리) >>>'

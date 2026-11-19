@@ -1,4 +1,4 @@
-# astra에서 실행: Vault 상태 확인. 초기화와 unseal은 하지 않고 다음 할 일만 알려 줌
+# vault VM에서 실행: Vault 상태 확인. 초기화와 unseal은 하지 않고 다음 할 일만 알려 줌
 - name: Vault가 응답할 때까지 대기
   ansible.builtin.wait_for:
     host: 127.0.0.1

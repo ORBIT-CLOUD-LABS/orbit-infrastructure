@@ -1,4 +1,4 @@
-# astra: Vault 설치, TLS 인증서, 설정. 초기화와 unseal은 수동
+# vault VM: Vault 설치, TLS 인증서, 설정. 초기화와 unseal은 수동
 - name: 방화벽 (Vault가 뜨기 전에 8200을 막아 둠)
   ansible.builtin.include_tasks: firewall.yml
 
@@ -83,6 +83,19 @@
         mode: "0644"
 
     # 내부 CA. 팀원 클라이언트에는 vault-ca.crt만 나눠 줌
+    # 개인키가 없으면 새 CA를 만들게 되어 팀원 PC, astra, ESO가 서버 인증서를 믿지 못함. 옮겨 오지 않았으면 여기서 멈춤
+    - name: CA 개인키가 있는지
+      ansible.builtin.stat:
+        path: "{{ hvault_tls_dir }}/vault-ca.key"
+      register: hvault_ca_key_stat
+
+    - name: 없으면 멈춤 (새로 만들 때만 -e hvault_ca_create=true)
+      ansible.builtin.assert:
+        that: hvault_ca_key_stat.stat.exists or hvault_ca_create | bool
+        fail_msg: >-
+          {{ hvault_tls_dir }}/vault-ca.key 없음. 기존 CA(vault-ca.key, vault-ca.crt)를 이 폴더에 옮긴 뒤 다시 실행 (docs/vault.md 이전).
+          새 CA를 만들어야 할 때만 -e hvault_ca_create=true
+
     - name: CA 개인키
       community.crypto.openssl_privatekey:
         path: "{{ hvault_tls_dir }}/vault-ca.key"

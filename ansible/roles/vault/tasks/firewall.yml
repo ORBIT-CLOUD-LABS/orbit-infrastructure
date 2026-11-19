@@ -1,15 +1,21 @@
-# astra: Vault 포트(8200)는 허용한 인터페이스에서만 받음
-# INPUT 기본 정책이 ACCEPT라서 허용만 넣으면 와이파이에서도 열려 있음. 전용 체인에서 허용 후 나머지는 버림
+# vault VM: Vault 포트(8200)는 허용한 인터페이스에서만 받음
+# INPUT 기본 정책이 ACCEPT라서 전용 체인에서 허용 후 나머지는 버림. 구역 사이 허용은 fw가 맡음
 # 규칙을 하나씩 넣으면 위치와 지운 항목이 교정되지 않아서, 전체를 비교하고 다르면 한 번에 바꿈
-- name: 규칙 저장 도구가 있어야 함 (gateway role이 설치)
-  ansible.builtin.stat:
-    path: /usr/sbin/netfilter-persistent
-  register: hvault_nfp
+# 규칙 저장 도구는 이 role이 설치함 (VM에는 gateway role이 없음). 설치할 때 지금 규칙을 저장하는 질문에 미리 답함
+- name: iptables-persistent 질문 미리 답하기
+  ansible.builtin.debconf:
+    name: iptables-persistent
+    question: "{{ item }}"
+    value: "true"
+    vtype: boolean
+  loop: [iptables-persistent/autosave_v4, iptables-persistent/autosave_v6]
 
-- name: 없으면 멈춤
-  ansible.builtin.assert:
-    that: hvault_nfp.stat.exists
-    fail_msg: "netfilter-persistent 없음. 먼저 ansible-playbook playbooks/network.yml --limit astra"
+- name: iptables-persistent 설치 (재부팅 뒤에도 규칙 유지)
+  ansible.builtin.apt:
+    name: iptables-persistent
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
 
 - name: 원하는 규칙 (iptables -S 형식)
   ansible.builtin.set_fact:
@@ -53,6 +59,10 @@
   when: hvault_fw_needs_change
   changed_when: true
   notify: save vault firewall
+
+# 바로 저장. 뒤에서 멈추면(예: CA 개인키 없음) 끝의 handler가 돌지 않고, 다음 실행에서는 바뀔 것이 없어 저장되지 않음
+- name: 바꾼 규칙 바로 저장
+  ansible.builtin.meta: flush_handlers
 
 - name: 다시 읽기
   ansible.builtin.command: iptables -S
