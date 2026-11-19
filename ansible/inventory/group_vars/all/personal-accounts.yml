@@ -13,6 +13,27 @@ personal_accounts_shared_access:
   - { host: log, sudo: full, sudo_auth: password, sudo_commands: [] }
   - { host: metric, sudo: full, sudo_auth: password, sudo_commands: [] }
   - { host: secure, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: vault, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: fw-1, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: fw-2, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: rp-core-1, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: rp-core-2, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: rp-ota-1, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: rp-ota-2, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: rp-cdn-1, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: rp-cdn-2, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: ota-main-1, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: ota-main-2, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: ota-main-3, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: ota-sub-1, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: ota-sub-2, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: ota-sub-3, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: cdn-main-1, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: cdn-main-2, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: cdn-main-3, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: cdn-sub-1, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: cdn-sub-2, sudo: full, sudo_auth: password, sudo_commands: [] }
+  - { host: cdn-sub-3, sudo: full, sudo_auth: password, sudo_commands: [] }
 
 personal_accounts:
   - github: hyn128
