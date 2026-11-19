@@ -1,4 +1,5 @@
 # Let's Encrypt *.orbit-labs.space (DNS-01, Cloudflare). 토큰은 Vault에서 읽음 (orbit-infrastructure#38)
+# rp-core 두 대가 각자 발급하고 각자 갱신함 (Let's Encrypt 같은 이름 발급 제한 안)
 # 처음 발급만 여기서 하고, 갱신은 패키지의 certbot.timer와 아래 deploy hook이 맡음
 - name: certbot, Cloudflare 플러그인
   ansible.builtin.apt:
@@ -12,6 +13,9 @@
       X-Vault-Token: "{{ lookup('ansible.builtin.env', 'VAULT_TOKEN') }}"
     ca_path: "{{ hvault_tls_dir }}/vault-ca.crt"
     status_code: [200, 403, 404, 503]
+  # Vault 호스트에서 읽음. rp VM에는 Vault CA 파일이 없고, rp 구역에서 Vault로 가는 통신은 방화벽이 허용하지 않음
+  delegate_to: "{{ hvault_host }}"
+  become: false
   register: rproxy_le_vault
   check_mode: false   # 읽기만 함
   no_log: true

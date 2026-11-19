@@ -1,0 +1,10 @@
+# OTA nginx 쌍 (rp-ota-1·2). rp-core가 TLS를 끝낸 요청을 받아 OTA-Main 클러스터로, Main이 응답하지 않으면 OTA-Sub로 넘김
+rproxy_tls: false
+rproxy_port: 80
+rproxy_vrrp_id: 102
+rproxy_vips: [10.10.20.102]   # vip-rp-ota
+rproxy_sites:
+  - name: ota
+    listen: 10.10.20.102
+    main: "10.10.41.100:30080"  # OTA-Main 클러스터 입구 VIP (Traefik NodePort HTTP)
+    backup: "10.10.42.100:30080"  # OTA-Sub. Main이 응답하지 않을 때만 (upstream backup)

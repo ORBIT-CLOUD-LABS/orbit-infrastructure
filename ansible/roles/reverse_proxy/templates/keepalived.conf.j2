@@ -1,0 +1,39 @@
+# {{ ansible_managed }}
+# {{ rproxy_pair }} 쌍의 VIP {{ rproxy_vips | join(', ') }}. 문서: docs/reverse-proxy.md
+# 같은 L2에 VRRP가 여럿(fw, rp 쌍 3개)이라 짝에게만 보내고(unicast_peer), 쌍마다 virtual_router_id가 다름
+
+global_defs {
+    router_id {{ inventory_hostname }}
+    enable_script_security
+    script_user root
+}
+
+# nginx가 멈추면 이 쪽은 FAULT가 되어 VIP를 내려놓고, 짝이 넘겨받음
+vrrp_script chk_nginx {
+    script "/usr/bin/systemctl is-active --quiet nginx"
+    interval 2
+    fall 2
+    rise 2
+}
+
+vrrp_instance {{ rproxy_pair }} {
+    state BACKUP
+    interface {{ rproxy_iface }}
+    virtual_router_id {{ rproxy_vrrp_id }}
+    priority {{ rproxy_vrrp_priority }}
+    advert_int 1
+    unicast_src_ip {{ lan_ip }}
+    unicast_peer {
+{% for peer in rproxy_vrrp_peers %}
+        {{ peer }}
+{% endfor %}
+    }
+    virtual_ipaddress {
+{% for vip in rproxy_vips %}
+        {{ vip }}/{{ lan_prefix }} dev {{ rproxy_iface }}
+{% endfor %}
+    }
+    track_script {
+        chk_nginx
+    }
+}
