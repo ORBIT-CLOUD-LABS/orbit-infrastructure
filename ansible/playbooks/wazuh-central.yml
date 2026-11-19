@@ -1,6 +1,6 @@
 ---
 - name: Wazuh 중앙 구성요소 설치 및 검증
-  hosts: "{{ wazuh_central_target | default('wazuh') }}"
+  hosts: "{{ wazuh_central_target | default('secure') }}"
   become: true
   serial: 1
   roles:

@@ -67,6 +67,19 @@ Dashboard의 **Threat Hunting → Events**에서 시험 시각을 포함하는 �
 
 2026-11-09 **12:57:29 UTC**에 실행한 시험 명령은 Dashboard에서 **규칙 `5402`**, 레벨 `3`의 경보로 조회됐다. Agent는 `astra`(ID `001`), 수집 소스는 `journald`였고, `full_log`의 `sudo[1801685]`와 `COMMAND=/usr/bin/true`가 로컬 저널 기록과 일치했다.
 
+## 재설계 재등록 (orbit-infrastructure#60)
+
+Manager가 `secure` VM(`10.10.30.3`, `wazuh_manager_address`)으로 바뀌었다. 새 Manager에는 옛 등록이 없어서, 옛 Agent가 남은 호스트는 role이 등록 불일치로 멈춘다. 그래서 옛 Agent(astra, sol, terra, luna)를 지운 뒤 role로 다시 등록한다.
+
+```bash
+ansible astra,sol,terra,luna -b -K -m ansible.builtin.apt -a 'name=wazuh-agent state=absent purge=true'
+ansible astra,sol,terra,luna -b -K -m ansible.builtin.command -a 'ls /var/ossec'
+```
+
+- 두 번째 명령은 모두 `No such file or directory`로 실패해야 한다. 남아 있으면 옛 등록 키(`client.keys`)를 다시 쓰지 않게 그 호스트에서 `/var/ossec`를 지운다.
+- 대상은 `wazuh_agents` 그룹이다: 물리 호스트 6대, vault, fw 쌍, rp VM 6대, log, metric. 클러스터 VM은 k3s 작업에서 추가한다.
+- fw 쌍은 관측 구역 주소(`.252`·`.253`)에서 Manager에 접속한다.
+
 ## Ansible 배포 및 검증
 
 [#35](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/35)에서 `astra` 시범 설치를 바탕으로 Wazuh Agent 배포와 연결 검증을 자동화했다.
@@ -84,8 +97,8 @@ Dashboard의 **Threat Hunting → Events**에서 시험 시각을 포함하는 �
 ### 팀에서 알아둘 운영 정보
 
 - **Vault와 Wazuh API** — Wazuh에 조회 전용 계정 `orbit-agent-reader`를 만들고 `agents_readonly` 역할을 부여했다. 자격 증명은 Vault KV v2의 `secret/orbit/infra/wazuh-agent-reader`에 `username`, `password`로 저장했다. 실행용 Vault 토큰에는 해당 경로의 읽기 권한이 필요하다. 계정 비밀번호를 교체할 때는 Vault 값도 함께 갱신한다.
-- **API 접속 경로** — Ansible은 `astra`에서 실행하고 Wazuh API 요청은 `wazuh` VM에 위임한다. VM 내부의 `https://localhost:55000`에서 서버 인증서를 검증하고 조회용 JWT를 발급받는다. 실행 계정에는 대상 노드와 `wazuh` VM에 대한 SSH 및 sudo 권한이 필요하다.
-- **Agent 통신과 대상 범위** — 각 대상에서 Manager의 TCP `1514`에 연결할 수 있어야 하며, 신규 등록에는 TCP `1515`도 필요하다. 중앙 구성요소를 실행하는 `wazuh` VM은 Agent 배포 그룹에서 제외했다.
+- **API 접속 경로** — Ansible은 `astra`에서 실행하고 Wazuh API 요청은 `secure` VM에 위임한다. VM 내부의 `https://localhost:55000`에서 서버 인증서를 검증하고 조회용 JWT를 발급받는다. 실행 계정에는 대상 노드와 `secure` VM에 대한 SSH 및 sudo 권한이 필요하다.
+- **Agent 통신과 대상 범위** — 각 대상에서 Manager의 TCP `1514`에 연결할 수 있어야 하며, 신규 등록에는 TCP `1515`도 필요하다. 중앙 구성요소를 실행하는 `secure` VM은 Agent 배포 그룹에서 제외했다.
 
 ### 실행
 

@@ -29,10 +29,10 @@
       -A INPUT -p tcp -m multiport --dports {{ efk_fw_allow | map(attribute='port') | sort | join(',') }} -j {{ efk_fw_chain_name }}
   vars:
     # 자기 자신(lo)은 허용. 검증과 Kibana가 efk 안에서 9200에 접속함
-    # (포트, 호스트) 쌍마다 "-s <lan_ip>/32 --dport <포트>" 허용 규칙 하나
+    # (포트, 호스트) 쌍마다 "-s <obs_src_ip>/32 --dport <포트>" 허용 규칙 하나
     efk_fw_pairs: "{{ efk_fw_allow | subelements('hosts') }}"   # noqa: jinja[invalid]
     efk_fw_accept: >-   # noqa: jinja[invalid]
-      {{ efk_fw_pairs | map('last') | map('extract', hostvars, 'lan_ip')
+      {{ efk_fw_pairs | map('last') | map('extract', hostvars, 'obs_src_ip')
          | zip(efk_fw_pairs | map('first') | map(attribute='port'))
          | map('join', '/32 -p tcp -m tcp --dport ')
          | map('regex_replace', '^', '-A ' ~ efk_fw_chain_name ~ ' -s ')
