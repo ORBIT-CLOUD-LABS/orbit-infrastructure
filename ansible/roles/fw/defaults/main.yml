@@ -1,0 +1,75 @@
+# 방화벽 쌍 (fw-1, fw-2). 문서: docs/fw.md
+# 주소는 인벤토리(hosts.yml의 lan_ip, outer_ip, zone_ips)에서 읽음. 여기에는 장치 이름과 포트만 둠
+
+# VM 안의 NIC 이름 (libvirt role의 network-config.j2가 set-name으로 정함)
+fw_inner_if: enp1s0     # 안쪽: br0. 관리 구역 + 구역 6개 주소, 구역 게이트웨이 VIP .254
+fw_outer_if: enp2s0     # 바깥: astra 바깥 브리지. 바깥 주소, 바깥 VIP
+
+# keepalived (VRRP). 같은 L2의 다른 쌍(rp, VRID 100~103)과 겹치지 않게 VIP 끝자리 254
+fw_vrid: 254
+fw_priority_primary: 150    # groups['fw'][0] (fw-1). 평소 VIP를 가짐
+fw_priority_backup: 100
+
+# conntrackd (연결 상태 동기화). 관리 구역 주소끼리 UDP로 주고받음
+fw_conntrackd_port: 3780
+
+# 관리 출발지: astra. 다른 구역으로는 바깥 다리 주소로 보이고, 같은 관리 구역의 fw에는 관리 주소로 닿음
+# Tailscale 접속은 astra subnet router가 SNAT하므로 바깥 다리 주소로 보임
+fw_admin_src: ["{{ hostvars['astra'].lan_ip }}", "{{ hostvars['astra'].outer_ip }}"]
+fw_tailscale_src: "{{ hostvars['astra'].outer_ip }}"
+
+# 리버스 프록시 VIP
+fw_rp_svc_vip: 10.10.20.100     # vip-rp-svc. 바깥 VIP로 들어온 443을 여기로 DNAT
+fw_rp_int_vip: 10.10.20.101     # vip-rp-int. Tailscale 접속만 (관제 화면)
+
+# 클러스터 입구·API VIP는 클러스터 구역의 .100 (keepalived). 입구는 Traefik NodePort
+# rp-ota는 OTA 클러스터 2개, rp-cdn은 CDN 클러스터 2개의 입구로만 보냄
+fw_cluster_ingress_ports: [30080, 30443]
+# Hubble UI는 ota-main에만 둠 (NodePort). rp-core가 hubble 도메인으로 보냄
+fw_hubble_ui_cluster: ota_main
+fw_hubble_ui_port: 31235
+
+# Cluster Mesh (클러스터 구역 사이). Cilium 문서 Firewall Rules: health 4240, Hubble server 4244, VXLAN 8472/udp, ICMP 8/0
+# clustermesh-apiserver: Cilium Helm 기본 NodePort 32379 (k3s 클러스터 작업에서 서비스 방식이 정해지면 맞춤)
+fw_mesh_tcp_ports: [4240, 4244, 32379]
+fw_mesh_udp_ports: [8472]
+
+# 인터넷으로 나가는 것 (구역 전체). VM은 공용 DNS를 쓰고, base role이 NTP 동기화를 확인함
+fw_internet_tcp_ports: [53, 80, 443]
+fw_internet_udp_ports: [53, 123]
+# 관리 구역(물리 호스트)의 Tailscale 직접 연결. 없으면 DERP(443) 중계로만 연결됨 (Tailscale 문서 firewall-ports)
+fw_tailscale_udp_dports: [3478]
+fw_tailscale_udp_sports: [41641]
+
+# 관측 VM이 fw에서 수집하는 것 (metric → node-exporter)
+fw_metric_scrape_port: 9100
+
+# AWS (Site-to-Site VPN, 터널은 나중에). 터널을 지나는 것만, 클러스터 구역에서 RDS·S3 엔드포인트로만
+fw_aws_net: 10.20.0.0/16
+fw_aws_tcp_ports: [3306, 443]
+
+# strongSwan: 설치만. VIP를 가진 쪽에서만 돌게 keepalived 알림 스크립트가 켜고 끔
+fw_strongswan_service: strongswan
+
+# ---- 아래는 인벤토리에서 계산 (고치지 않음) ----
+fw_peer: "{{ groups['fw'] | difference([inventory_hostname]) | first }}"
+fw_is_primary: "{{ inventory_hostname == groups['fw'][0] }}"
+fw_inner_ips: "{{ [lan_ip] + zone_ips }}"
+fw_zone_nets: "{{ fw_inner_ips | map('regex_replace', '\\.[0-9]+$', '.0/' ~ lan_prefix) | list }}"
+fw_inner_vips: "{{ fw_inner_ips | map('regex_replace', '\\.[0-9]+$', '.254') | list }}"
+fw_cluster_nets: >-
+  {{ groups['k3s'] | map('extract', hostvars, 'lan_ip')
+     | map('regex_replace', '\.[0-9]+$', '.0/' ~ lan_prefix) | unique | list }}
+fw_ota_ingress_vips: >-
+  {{ (groups['ota_main'][:1] + groups['ota_sub'][:1]) | map('extract', hostvars, 'lan_ip')
+     | map('regex_replace', '\.[0-9]+$', '.100') | list }}
+fw_cdn_ingress_vips: >-
+  {{ (groups['cdn_main'][:1] + groups['cdn_sub'][:1]) | map('extract', hostvars, 'lan_ip')
+     | map('regex_replace', '\.[0-9]+$', '.100') | list }}
+fw_hubble_ui_vip: "{{ hostvars[groups[fw_hubble_ui_cluster][0]].lan_ip | regex_replace('\\.[0-9]+$', '.100') }}"
+fw_rp_core_ips: "{{ groups['rp_core'] | map('extract', hostvars, 'lan_ip') | list }}"
+fw_rp_ota_ips: "{{ groups['rp_ota'] | map('extract', hostvars, 'lan_ip') | list }}"
+fw_rp_cdn_ips: "{{ groups['rp_cdn'] | map('extract', hostvars, 'lan_ip') | list }}"
+fw_rp_zone_vip: "{{ fw_rp_svc_vip | regex_replace('\\.[0-9]+$', '.254') }}"
+fw_vault_ip: "{{ hostvars['vault'].lan_ip }}"
+fw_metric_ip: "{{ hostvars['metric'].lan_ip }}"

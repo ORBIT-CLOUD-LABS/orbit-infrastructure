@@ -1,0 +1,27 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# keepalived가 상태가 바뀔 때 실행: $1 INSTANCE, $2 이름, $3 MASTER|BACKUP|FAULT|STOP
+# 연결 상태 동기화는 conntrackd 예제(primary-backup.sh)와 같은 순서
+CT="/usr/sbin/conntrackd -C /etc/conntrackd/conntrackd.conf"
+state="$3"
+logger -t orbit-fw "keepalived 상태: $state"
+
+case "$state" in
+  MASTER)
+    $CT -c || logger -t orbit-fw "conntrackd -c 실패"   # 받아 둔 연결을 커널 표에 넣음
+    $CT -f || logger -t orbit-fw "conntrackd -f 실패"
+    $CT -R || logger -t orbit-fw "conntrackd -R 실패"
+    $CT -B || logger -t orbit-fw "conntrackd -B 실패"   # 상대에게 전체를 보냄
+    systemctl start {{ fw_strongswan_service }}
+    ;;
+  BACKUP)
+    systemctl stop {{ fw_strongswan_service }}
+    $CT -t || logger -t orbit-fw "conntrackd -t 실패"
+    $CT -n || logger -t orbit-fw "conntrackd -n 실패"   # 상대에게 다시 보내 달라고 요청
+    ;;
+  FAULT|STOP)
+    systemctl stop {{ fw_strongswan_service }}
+    $CT -t || logger -t orbit-fw "conntrackd -t 실패"
+    ;;
+esac
+exit 0
