@@ -11,7 +11,7 @@
 | 위치 | `log` VM `10.10.30.1` (관측 구역, luna 안, 4 vCPU, 14GB, 디스크 90GB). 클러스터 장애를 조사할 수 있도록 k3s 밖에 둠. role 이름은 `efk` 그대로 |
 | 버전 | Elasticsearch·Kibana 9.5.6, 호스트 Fluent Bit 5.1.5. 모두 apt hold로 고정 |
 | Elasticsearch | 단일 노드 `orbit-efk`, 힙 4g. HTTPS `9200`은 `127.0.0.1`과 `10.10.30.1`, 노드 간 `9300`은 `127.0.0.1`만 |
-| Kibana | `https://kibana.orbit-labs.space` (astra nginx 경유, 내부 전용). 직접 주소 `https://10.10.30.1:5601`는 사용하지 않음(관리자만). Elasticsearch에는 `127.0.0.1`로 `kibana_system` 계정으로 접속 |
+| Kibana | `https://kibana.orbit-labs.space` (rp-core nginx `vip-rp-int` 경유, 내부 전용). 직접 주소 `https://10.10.30.1:5601`는 사용하지 않음(관리자만). Elasticsearch에는 `127.0.0.1`로 `kibana_system` 계정으로 접속 |
 | 데이터·로그 | `/var/lib/elasticsearch`, `/var/log/elasticsearch` (서버 로그 `orbit-efk_server.json`), `/var/log/kibana/kibana.log` |
 | TLS | 자체 CA `ORBIT EFK CA` (`/etc/elasticsearch/tls/efk-ca.crt`, 10년). Elasticsearch·Kibana 서버 인증서는 825일, SAN `log`, `localhost`, `127.0.0.1`, `10.10.30.1`. SAN이 바뀌면 다시 발급 |
 | 비밀값 | Vault KV. 인프라 구역 `secret/orbit/infra/efk`, k3s 구역 `secret/orbit/k3s/fluent-bit` ([Vault 문서](vault.md#비밀값-경로와-권한)) |
@@ -66,7 +66,7 @@ unset VAULT_TOKEN
 ```bash
 ~/orbit-infrastructure/scripts/orbit-ssh-cert.sh          # 토큰이 10분 넘게 남았으면 그대로 씀. 만료됐으면 GitHub PAT를 물음
 export VAULT_TOKEN=$(cat ~/.orbit/vault-token)
-export VAULT_ADDR=https://10.0.0.201:8200 VAULT_CACERT=/opt/vault/tls/vault-ca.crt
+export VAULT_ADDR=https://vault.orbit-labs.space:8200 VAULT_CACERT=/opt/vault/tls/vault-ca.crt
 vault token lookup -format=json | jq '.data.ttl'          # 남은 초. 숫자가 나오면 준비됨
 ```
 
@@ -84,10 +84,10 @@ unset P
 
 ## Kibana 접속
 
-Kibana는 공개하지 않는다. 팀원은 Tailscale에 연결한 뒤 `https://kibana.orbit-labs.space`로 접속하고, astra nginx가 efk 5601로 넘긴다 ([내부 리버스 프록시](reverse-proxy.md)). Kibana `server.publicBaseUrl`은 `efk_kibana_public_url`(이 이름)을 쓴다. `efk_kibana_url`은 Ansible이 Kibana API에 접속할 때 쓰므로 내부망 주소 그대로 둔다.
+Kibana는 공개하지 않는다. 팀원은 Tailscale에 연결한 뒤 `https://kibana.orbit-labs.space`로 접속하고, rp-core nginx(`vip-rp-int` `10.10.20.101`)가 log 5601로 넘긴다 ([내부 리버스 프록시](reverse-proxy.md)). Kibana `server.publicBaseUrl`은 `efk_kibana_public_url`(이 이름)을 쓴다. `efk_kibana_url`은 Ansible이 Kibana API에 접속할 때 쓰므로 내부망 주소 그대로 둔다.
 
 ```
-팀원 Mac ─Tailscale─▶ astra nginx 10.0.0.201:443 ─▶ efk 10.0.0.205:5601
+팀원 Mac ─Tailscale─▶ rp-core nginx 10.10.20.101:443 ─▶ log 10.10.30.1:5601
 ```
 
 1. Tailscale을 켠다.
@@ -99,15 +99,15 @@ Kibana는 공개하지 않는다. 팀원은 Tailscale에 연결한 뒤 `https://
 
 | 관문 | 설정 | 관리 |
 | --- | --- | --- |
-| Tailscale ACL | 팀원 기기 → `10.0.0.201:443` 허용 (astra nginx). VM 직통 5601은 막힘 | Tailscale 관리 콘솔 (tailnet 관리자) |
+| Tailscale ACL | 팀원 기기 → `10.10.20.101:443` 허용 (rp-core `vip-rp-int`). VM 직통 5601은 막힘 | Tailscale 관리 콘솔 (tailnet 관리자) |
 | astra mangle `ORBIT-TS-EFK` | tailnet → log는 TCP 22·5601과 ping만 통과 | `efk.yml` |
 | log `ORBIT-EFK` | 5601은 astra와 rp-core 두 대에서만 | `efk.yml` |
 
-인증서 경고: 브라우저가 보는 인증서는 astra nginx의 자체 서명 인증서라 처음에는 경고한다 ([내부 리버스 프록시](reverse-proxy.md)). 아래 efk CA는 관리자가 `https://10.10.30.1:5601`로 직접 접속할 때만 쓴다. CA는 공개 인증서라 어느 호스트에서 복사해도 된다. 신뢰는 시스템 전체가 아닌 로그인 키체인에만 넣는다.
+인증서 경고: 브라우저가 보는 인증서는 rp-core nginx의 자체 서명 인증서라 처음에는 경고한다 ([내부 리버스 프록시](reverse-proxy.md)). 아래 efk CA는 관리자가 `https://10.10.30.1:5601`로 직접 접속할 때만 쓴다. CA는 공개 인증서라 어느 호스트에서 복사해도 된다. 신뢰는 시스템 전체가 아닌 로그인 키체인에만 넣는다.
 
 ```bash
 # Mac에서
-scp <계정>@10.0.0.201:/etc/fluent-bit/efk-ca.crt ~/Downloads/efk-ca.crt
+scp <계정>@10.10.0.200:/etc/fluent-bit/efk-ca.crt ~/Downloads/efk-ca.crt
 security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db ~/Downloads/efk-ca.crt
 ```
 
@@ -266,10 +266,10 @@ unset P
 
 ## 사람 식별
 
-astra 서브넷 라우터가 SNAT하므로 tailnet에서 온 SSH 접속은 노드·VM의 sshd 로그에 출발지가 모두 `10.0.0.201`(astra)로 남는다. IP로는 사람을 구분할 수 없다. 사람은 로그인 계정명과 SSH 인증서 ID로 식별한다.
+astra 서브넷 라우터가 SNAT하므로 tailnet에서 온 SSH 접속은 노드·VM의 sshd 로그에 출발지가 모두 astra 주소(관리 구역은 `10.10.0.200`, 다른 구역은 바깥 다리 `10.10.10.200`)로 남는다. IP로는 사람을 구분할 수 없다. 사람은 로그인 계정명과 SSH 인증서 ID로 식별한다.
 
 ```
-Accepted publickey for jyvnee from 10.0.0.201 port 43456 ssh2: ED25519-CERT SHA256:... ID github-jyvnee (serial ...) CA ...
+Accepted publickey for jyvnee from 10.10.0.200 port 43456 ssh2: ED25519-CERT SHA256:... ID github-jyvnee (serial ...) CA ...
 ```
 
 Kibana에서 `syslog.identifier: sshd and message: "Accepted publickey"`로 찾고 `ID github-<아이디>`를 본다. 공용 `orbit` 계정으로 들어와도 인증서 ID는 남는다. sudo 기록은 `syslog.identifier: sudo`다.

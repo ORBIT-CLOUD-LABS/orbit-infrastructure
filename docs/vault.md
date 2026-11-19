@@ -120,12 +120,12 @@ ESO 설치 후에는 동기화 주기 또는 강제 동기화로 반영하며, `
 
 ## KV·Kubernetes 인증 운영 적용과 검증
 
-이 절차는 astra의 Bash에서, 저장소 `ansible/` 디렉터리를 기준으로 실행한다. Vault CLI·kubectl·jq, polaris SSH·sudo 권한, `~/.kube/orbit-k3s.yaml`이 필요하다. kubeconfig는 k3s 플레이북이 astra 실행 사용자에게 `0600`으로 저장한 관리자 자격 증명이며 Git에 넣지 않는다. Argo CD·ESO 설치 전에도 임시 SA로 검증할 수 있다.
+이 절차는 astra의 Bash에서, 저장소 `ansible/` 디렉터리를 기준으로 실행한다. Vault CLI·kubectl·jq, 클러스터마다 `-1` VM의 SSH·sudo 권한, 클러스터별 kubeconfig `~/.kube/orbit-<클러스터 이름>.yaml`이 필요하다. kubeconfig는 k3s 플레이북이 astra 실행 사용자에게 `0600`으로 저장한 관리자 자격 증명이며 Git에 넣지 않는다. Argo CD·ESO 설치 전에도 임시 SA로 검증할 수 있다.
 
 ### 설정 출처와 적용
 
-- API 주소는 `inventory/hosts.yml`의 첫 `cp` 호스트(polaris)의 `lan_ip`와 포트 6443으로 만든다.
-- k3s CA는 그 호스트의 `/var/lib/rancher/k3s/server/tls/server-ca.crt`에서 읽는다. Git에 복사하지 않는다. 클러스터 재생성 후 CA가 바뀌면 플레이북 재실행으로 갱신한다.
+- 대상 클러스터는 `hvault_k8s_clusters`(`ota_main`, `ota_sub`, `cdn_main`, `cdn_sub`)이고, 클러스터마다 `auth/kubernetes-<클러스터 이름>`을 쓴다. API 주소는 그 클러스터의 `k3s_api_url`(VIP `https://10.10.<구역>.100:6443`)이다.
+- k3s CA는 클러스터마다 `-1` VM의 `/var/lib/rancher/k3s/server/tls/server-ca.crt`에서 읽는다. Git에 복사하지 않는다. 클러스터 재생성 후 CA가 바뀌면 플레이북 재실행으로 갱신한다.
 - `hvault_eso_audience`는 `https://kubernetes.default.svc.cluster.local`이다. ESO TokenRequest에도 같은 값을 사용해야 하며 실제 k3s API가 허용하는지 아래 로그인으로 검증한다.
 - Vault는 `disable_local_ca_jwt=true`이고 별도 reviewer JWT를 저장하지 않는다. 따라서 로그인하는 SA에 `system:auth-delegator` 권한이 필요하다. [Vault Kubernetes 인증 API](https://developer.hashicorp.com/vault/api-docs/auth/kubernetes).
 
@@ -133,10 +133,10 @@ ESO 설치 후에는 동기화 주기 또는 강제 동기화로 반영하며, `
 
 1. [관리자 권한](#관리자-권한) 절차로 임시 root를 준비한다. 최초 root가 아직 유효하면 그것을 사용한다. `set +x`로 셸 추적을 끄고 root는 `VAULT_TOKEN`에 숨김 입력한다.
 2. 변경 전 GitHub 팀 매핑을 `vault read -field=value auth/github/map/teams/orbit`로 기록한다. 실패 시 이 매핑으로 되돌릴 수 있게 한다.
-3. 다음 미리보기 → 적용 → 재실행을 수행한다. polaris CA 조회가 성공하고 예상한 항목만 변경되는지 본다. 재실행은 바뀔 설정 목록 `[]`와 `설정 쓰기` 생략을 확인한다. 전체 플레이북의 다른 작업이 아니라 Vault 내부 설정의 무변경을 확인한다.
+3. 다음 미리보기 → 적용 → 재실행을 수행한다. 클러스터 4개의 CA 조회가 성공하고 예상한 항목만 변경되는지 본다. 재실행은 바뀔 설정 목록 `[]`와 `설정 쓰기` 생략을 확인한다. 전체 플레이북의 다른 작업이 아니라 Vault 내부 설정의 무변경을 확인한다.
 
 ```bash
-export VAULT_ADDR=https://127.0.0.1:8200
+export VAULT_ADDR=https://vault.orbit-labs.space:8200
 export VAULT_CACERT=/opt/vault/tls/vault-ca.crt
 ansible-playbook playbooks/vault.yml -K --ask-vault-pass --check --diff
 ansible-playbook playbooks/vault.yml -K --ask-vault-pass
@@ -152,7 +152,8 @@ ansible-playbook playbooks/vault.yml -K --ask-vault-pass
 아래 리소스가 모두 없는지 먼저 확인한다. 이미 있으면 생성·삭제를 진행하지 말고 소유자와 정리 범위를 확인한다. 특히 ESO 설치 후에는 기존 `external-secrets` namespace나 SA를 삭제하면 안 된다.
 
 ```bash
-export KUBECONFIG="$HOME/.kube/orbit-k3s.yaml"
+CLUSTER=ota-main   # 검증할 클러스터 이름 (ota-main, ota-sub, cdn-main, cdn-sub). 클러스터마다 이 절을 반복
+export KUBECONFIG="$HOME/.kube/orbit-$CLUSTER.yaml"
 kubectl get namespace external-secrets vault-auth-check
 kubectl get clusterrolebinding orbit-vault-auth-check
 # 모두 NotFound일 때만 아래 생성 진행
@@ -175,7 +176,7 @@ ORBIT_TEST_PATH="orbit/k3s/vault-auth-check-$(date +%s)-$$"
 vault kv put -mount=secret "$ORBIT_TEST_PATH" CHECK=dev-only-fake-value KEEP=unchanged
 ESO_LOGIN=$(kubectl -n external-secrets create token external-secrets \
   --audience=https://kubernetes.default.svc.cluster.local --duration=10m | \
-  vault write -format=json auth/kubernetes/login role=eso jwt=-)
+  vault write -format=json "auth/kubernetes-$CLUSTER/login" role=eso jwt=-)
 # 로그인 명령이 성공한 경우에만 진행. 출력에는 토큰이 있으므로 echo하지 않음
 ESO_TOKEN=$(printf '%s' "$ESO_LOGIN" | jq -er '.auth.client_token')
 ESO_ACCESSOR=$(printf '%s' "$ESO_LOGIN" | jq -er '.auth.accessor')
@@ -192,10 +193,10 @@ VAULT_TOKEN="$ESO_TOKEN" vault kv put -mount=secret "$ORBIT_TEST_PATH" CHECK=den
 ```bash
 kubectl -n external-secrets create token vault-auth-denied \
   --audience=https://kubernetes.default.svc.cluster.local --duration=10m | \
-  vault write auth/kubernetes/login role=eso jwt=- >/dev/null
+  vault write "auth/kubernetes-$CLUSTER/login" role=eso jwt=- >/dev/null
 kubectl -n vault-auth-check create token external-secrets \
   --audience=https://kubernetes.default.svc.cluster.local --duration=10m | \
-  vault write auth/kubernetes/login role=eso jwt=- >/dev/null
+  vault write "auth/kubernetes-$CLUSTER/login" role=eso jwt=- >/dev/null
 ```
 
 ### GitHub 재로그인·정리와 root 폐기
@@ -235,7 +236,7 @@ ESO Helm Application, TokenReview RBAC, Vault CA ConfigMap, ClusterSecretStore�
 
 ## 팀원 접속 (자동 갱신)
 
-Vault CLI 없이 쓸 수 있다. 한 번 설정하면 `ssh 10.0.0.202`처럼 접속하면 개인 계정으로 들어가고, 인증서가 없거나 만료 10분 전이면 ssh 직전에 자동으로 새로 받는다. macOS는 `scripts/orbit-ssh-setup.sh`, Windows는 `scripts/orbit-ssh-setup.ps1`을 쓰고 동작은 같다. 개인 계정과 접속 대상은 [개인 계정 문서](personal-accounts.md)를 따른다.
+Vault CLI 없이 쓸 수 있다. 한 번 설정하면 `ssh 10.10.0.201`처럼 접속하면 개인 계정으로 들어가고, 인증서가 없거나 만료 10분 전이면 ssh 직전에 자동으로 새로 받는다. macOS는 `scripts/orbit-ssh-setup.sh`, Windows는 `scripts/orbit-ssh-setup.ps1`을 쓰고 동작은 같다. 개인 계정과 접속 대상은 [개인 계정 문서](personal-accounts.md)를 따른다.
 
 준비:
 
@@ -276,7 +277,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\orbit-ssh-setup.ps1 
 - 개인 계정이 아직 만들어지지 않은 호스트는 개인 인증서로 거부된다. 그때나 비상시에는 `ssh orbit@<호스트>`로 기존 키(`authorized_keys`)를 쓴다(공용 접속 회수 전까지).
 - 갱신에 실패해도(Vault sealed, Tailscale 꺼짐, PAT 만료) 경고만 내고 ssh는 남은 인증서로 접속을 시도한다. Vault에 연결되지 않으면 1분 동안은 다시 시도하지 않는다. 개인 계정은 인증서로만 로그인되므로(`authorized_keys` 없음) 유효한 인증서가 없으면 거부된다. 그때는 위의 `ssh orbit@<호스트>`를 쓰고, 공용 접속 회수 후에는 [비상 접근](#비상-접근)을 따른다.
 - Windows는 ssh할 때마다 `Match exec`로 PowerShell이 한 번 실행된다. 인증서가 충분히 남아 있으면 Vault에 접속하지 않는다.
-- 인증서로 들어갔는지 확인: macOS `ssh -v 10.0.0.202 true 2>&1 | grep 'Server accepts key'`, Windows `ssh -v 10.0.0.202 exit 2>&1 | Select-String 'Server accepts key'` → `ED25519-CERT`면 인증서.
+- 인증서로 들어갔는지 확인: macOS `ssh -v 10.10.0.201 true 2>&1 | grep 'Server accepts key'`, Windows `ssh -v 10.10.0.201 exit 2>&1 | Select-String 'Server accepts key'` → `ED25519-CERT`면 인증서.
 - 자동 갱신을 끄려면 `~/.ssh/config`에서 `orbit-vault-ssh` 표시 사이의 블록을 지운다.
 
 ## 수동으로 인증서 받기 (Vault CLI)
@@ -286,7 +287,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\orbit-ssh-setup.ps1 
 ### macOS, Linux
 
 1. Vault CLI 설치 (HashiCorp 공식 배포본).
-2. CA 인증서 받기: `mkdir -p ~/.orbit && scp orbit@10.0.0.201:/opt/vault/tls/vault-ca.crt ~/.orbit/vault-ca.crt` (공용 접속 회수 전까지. 안 되면 다른 팀원에게 받는다)
+2. CA 인증서 받기: `mkdir -p ~/.orbit && scp orbit@10.10.0.200:/opt/vault/tls/vault-ca.crt ~/.orbit/vault-ca.crt` (공용 접속 회수 전까지. 안 되면 다른 팀원에게 받는다)
    SSH 키가 없으면 먼저 만든다: `test -f ~/.ssh/id_ed25519 || ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519`
 3. 환경 변수
    ```bash
@@ -299,7 +300,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\orbit-ssh-setup.ps1 
 vault login -method=github          # PAT 입력. 토큰은 ~/.vault-token에 저장됨
 vault write -field=signed_key ssh-client-signer/sign/personal-<계정명> \
   public_key=@$HOME/.ssh/id_ed25519.pub > ~/.ssh/id_ed25519-cert.pub
-ssh <계정명>@10.0.0.202
+ssh <계정명>@10.10.0.201
 ```
 
 ### Windows (PowerShell)
