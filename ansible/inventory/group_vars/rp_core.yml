@@ -1,0 +1,28 @@
+# 중앙 nginx 쌍 (rp-core-1·2). TLS를 끝내고 도메인을 보고 나눔 (docs/reverse-proxy.md)
+# 서비스 도메인은 vip-rp-svc(.100)에서만, 관제 도메인은 vip-rp-int(.101)에서만 받음. 바깥에서 들어온 443으로 관제 화면에 닿지 않게
+rproxy_tls: true
+rproxy_port: 443
+rproxy_vrrp_id: 100                  # 같은 L2에 VRRP가 여럿(fw, rp 쌍 3개)이라 쌍마다 다르게. VIP 끝자리
+rproxy_vips: [10.10.20.100, 10.10.20.101]   # vip-rp-svc, vip-rp-int. 한 묶음으로 함께 넘어감
+rproxy_sites:
+  # 서비스 (vip-rp-svc). TLS를 끝내고 서비스별 nginx 쌍의 VIP로 넘김
+  - name: ota
+    listen: 10.10.20.100
+    upstream: "http://10.10.20.102:80"   # vip-rp-ota
+  - name: cdn
+    listen: 10.10.20.100
+    upstream: "http://10.10.20.103:80"   # vip-rp-cdn
+  # 관제 (vip-rp-int, Tailscale로만 들어옴)
+  - name: wazuh
+    listen: 10.10.20.101
+    upstream: "https://{{ hostvars['secure'].lan_ip }}:443"
+    verify: false   # Wazuh 자체 서명. 가져올 CA가 없음
+  - name: kibana
+    listen: 10.10.20.101
+    upstream: "https://{{ hostvars['log'].lan_ip }}:5601"
+    verify: true
+    ca: "{{ rproxy_log_ca }}"
+    ssl_name: log   # Kibana 인증서 SAN의 이름 (efk role의 efk_tls_sans: inventory_hostname)
+  - name: grafana
+    listen: 10.10.20.101
+    upstream: "http://{{ hostvars['metric'].lan_ip }}:3000"

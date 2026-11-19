@@ -1,15 +1,14 @@
-# astra 내부 리버스 프록시 (nginx). 서비스 이름 → 모니터링 VM 포트. astra 개인 계정으로 실행
+# 리버스 프록시 VM 쌍 3개 (rp_core, rp_ota, rp_cdn). nginx + keepalived VIP. astra 개인 계정으로 실행
 # 문서: docs/reverse-proxy.md
-#   먼저: ansible-playbook playbooks/network.yml --limit astra   (규칙 저장 도구)
-#         ansible-playbook playbooks/fluent-bit.yml -K           (astra에 efk CA 사본)
+#   먼저: 관측 VM(log, metric, secure)이 떠 있어야 함 (rp_core가 log의 CA를 읽음)
 #   ../scripts/orbit-ssh-cert.sh                       # Vault 토큰 (8시간)
-#   export VAULT_TOKEN=$(cat ~/.orbit/vault-token)    # Cloudflare 토큰을 secret/orbit/infra/cloudflare에서 읽음 (rproxy_tls_mode: letsencrypt일 때)
+#   export VAULT_TOKEN=$(cat ~/.orbit/vault-token)    # Cloudflare 토큰을 secret/orbit/infra/cloudflare에서 읽음 (rp_core, rproxy_tls_mode: letsencrypt일 때)
 #   미리보기: ansible-playbook playbooks/reverse-proxy.yml -K --check --diff
 #   실행:    ansible-playbook playbooks/reverse-proxy.yml -K --diff
 #   unset VAULT_TOKEN
 
-- name: 내부 리버스 프록시 (astra)
-  hosts: gateway
+- name: 리버스 프록시 VM 쌍
+  hosts: rp_core:rp_ota:rp_cdn
   become: true
   roles:
     - reverse_proxy

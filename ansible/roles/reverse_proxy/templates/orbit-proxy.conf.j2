@@ -1,37 +1,55 @@
 # {{ ansible_managed }}
-# 내부 리버스 프록시 (astra). 서비스 이름을 보고 각 VM 포트로 넘김. 문서: docs/reverse-proxy.md
-# {{ rproxy_listen_ip }}:{{ rproxy_port }}에서만 받음. 방화벽 ORBIT-PROXY가 lo, br0, tailscale0 밖에서 오는 443을 버림
+# 리버스 프록시 {{ rproxy_pair }}. 서비스 이름을 보고 위쪽으로 넘김. 문서: docs/reverse-proxy.md
+# VIP {{ rproxy_vips | join(', ') }}의 {{ rproxy_port }}에서만 받음. 대기 쪽도 같은 VIP에 listen함 (ip_nonlocal_bind)
 
 map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      close;
 }
+{% for site in rproxy_sites if site.main is defined %}
 
-# 모르는 이름은 응답 없이 끊음
+# Main이 응답하지 않을 때만 Sub로 (backup)
+upstream {{ site.name }} {
+    server {{ site.main }} max_fails={{ rproxy_max_fails }} fail_timeout={{ rproxy_fail_timeout }};
+    server {{ site.backup }} backup;
+}
+{% endfor %}
+{% for vip in rproxy_vips %}
+
+# {{ vip }}: 모르는 이름은 응답 없이 끊음. 이 VIP에 없는 이름도 여기로 옴
 server {
-    listen {{ rproxy_listen_ip }}:{{ rproxy_port }} ssl default_server;
+    listen {{ vip }}:{{ rproxy_port }}{{ ' ssl' if rproxy_tls else '' }} default_server;
+{% if rproxy_tls %}
     ssl_certificate     {{ rproxy_cert }};
     ssl_certificate_key {{ rproxy_cert_key }};
+{% endif %}
     return 444;
 }
+{% endfor %}
 {% for site in rproxy_sites %}
 
 server {
-    listen {{ rproxy_listen_ip }}:{{ rproxy_port }} ssl;
+    listen {{ site.listen }}:{{ rproxy_port }}{{ ' ssl' if rproxy_tls else '' }};
     server_name {{ site.name }}.{{ orbit_domain }};
+{% if rproxy_tls %}
     ssl_certificate     {{ rproxy_cert }};
     ssl_certificate_key {{ rproxy_cert_key }};
+{% endif %}
 
     location / {
-        proxy_pass {{ site.upstream }};
+        proxy_pass {{ ('http://' ~ site.name) if site.main is defined else site.upstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Proto {{ 'https' if rproxy_tls else '$http_x_forwarded_proto' }};
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
-{% if site.upstream.startswith('https') %}
+{% if site.main is defined %}
+        proxy_connect_timeout {{ rproxy_connect_timeout }};
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+{% endif %}
+{% if site.upstream is defined and site.upstream.startswith('https') %}
 {% if site.verify | default(false) %}
         proxy_ssl_verify on;
         proxy_ssl_trusted_certificate {{ site.ca }};

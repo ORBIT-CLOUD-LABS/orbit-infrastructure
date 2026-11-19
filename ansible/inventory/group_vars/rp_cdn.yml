@@ -1,0 +1,10 @@
+# CDN nginx 쌍 (rp-cdn-1·2). rp-core가 TLS를 끝낸 요청을 받아 CDN-Main 클러스터로, Main이 응답하지 않으면 CDN-Sub로 넘김
+rproxy_tls: false
+rproxy_port: 80
+rproxy_vrrp_id: 103
+rproxy_vips: [10.10.20.103]   # vip-rp-cdn
+rproxy_sites:
+  - name: cdn
+    listen: 10.10.20.103
+    main: "10.10.51.100:30080"  # CDN-Main 클러스터 입구 VIP (Traefik NodePort HTTP)
+    backup: "10.10.52.100:30080"  # CDN-Sub

@@ -1,0 +1,22 @@
+# 쌍의 VIP. -1이 평소 들고, nginx가 멈추거나 VM이 멈추면 -2가 넘겨받음
+- name: keepalived 설정 폴더가 있는지
+  ansible.builtin.stat:
+    path: /etc/keepalived
+  register: rproxy_ka_dir
+
+- name: keepalived 설정
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart keepalived
+  when: rproxy_ka_dir.stat.exists   # 미리보기 첫 실행에서는 keepalived가 아직 없음
+
+- name: keepalived 켜기
+  ansible.builtin.systemd_service:
+    name: keepalived
+    state: started
+    enabled: true
+  when: not ansible_check_mode

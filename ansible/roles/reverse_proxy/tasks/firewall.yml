@@ -1,15 +1,20 @@
-# astra: 443은 허용한 인터페이스에서만 받음 (Vault 8200과 같은 방식, roles/vault/tasks/firewall.yml)
-# nginx를 내부망 주소에만 붙여도, 와이파이로 들어온 패킷이 10.0.0.201을 향하면 리눅스는 받음. 그래서 인터페이스로 막음
-# Vault 연결은 INPUT 맨 앞이어야 함(vault role이 확인). 이 연결은 뒤에 붙이고 하나만 있는지만 봄
-- name: 규칙 저장 도구가 있어야 함 (gateway role이 설치)
-  ansible.builtin.stat:
-    path: /usr/sbin/netfilter-persistent
-  register: rproxy_nfp
+# rp VM: rproxy_port(rp_core 443, rp_ota·rp_cdn 80)는 허용한 인터페이스에서만 받음 (Vault 8200과 같은 방식, roles/vault/tasks/firewall.yml)
+# 이 체인은 INPUT 뒤에 붙이고 하나만 있는지만 봄
+# 규칙 저장 도구는 이 role이 직접 설치함 (VM에는 gateway role이 없음)
+- name: iptables-persistent 질문 미리 답하기
+  ansible.builtin.debconf:
+    name: iptables-persistent
+    question: "{{ item }}"
+    value: "true"
+    vtype: boolean
+  loop: [iptables-persistent/autosave_v4, iptables-persistent/autosave_v6]
 
-- name: 없으면 멈춤
-  ansible.builtin.assert:
-    that: rproxy_nfp.stat.exists
-    fail_msg: "netfilter-persistent 없음. 먼저 ansible-playbook playbooks/network.yml --limit astra"
+- name: iptables-persistent 설치
+  ansible.builtin.apt:
+    name: iptables-persistent
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
 
 - name: 원하는 규칙 (iptables -S 형식)
   ansible.builtin.set_fact:

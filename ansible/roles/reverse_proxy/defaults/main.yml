@@ -1,29 +1,35 @@
-# astra 내부 리버스 프록시. 서비스 이름을 보고 각 VM 포트로 넘김 (docs/reverse-proxy.md)
-rproxy_listen_ip: "{{ lan_ip }}" # 10.0.0.201. 와이파이 주소에서는 받지 않음
-rproxy_port: 443
-rproxy_allowed_ifaces: # 443을 받는 인터페이스. 나머지는 차단 (Vault 8200과 같은 방식)
+# 리버스 프록시 VM 쌍 3개 (rp_core, rp_ota, rp_cdn). 같은 role이고 차이는 group_vars/rp_*.yml (docs/reverse-proxy.md)
+# 쌍마다 group_vars에 두는 값: rproxy_tls, rproxy_port, rproxy_vrrp_id, rproxy_vips, rproxy_sites
+rproxy_tls: false
+rproxy_port: 80
+rproxy_iface: enp1s0   # VM NIC (roles/libvirt/templates/network-config.j2의 set-name)
+rproxy_allowed_ifaces: # rproxy_port를 받는 인터페이스. 나머지는 차단 (Vault 8200과 같은 방식)
   - lo
-  - "{{ lan_bridge }}" # br0
-  - tailscale0
+  - "{{ rproxy_iface }}"
 rproxy_tls_dir: /etc/nginx/tls
 rproxy_tls_days: 825
-rproxy_efk_ca: /etc/fluent-bit/efk-ca.crt # fluent_bit role이 둔 efk CA 사본. Kibana 인증서 확인용
 
-# 서비스 이름 → 위쪽(nginx 뒤 서버). name은 앞부분만 쓰고 뒤에 orbit_domain이 붙음 (wazuh-ui → wazuh-ui.orbit-labs.space)
-# 이름은 Cloudflare DNS에 astra 내부망 주소로 등록 (DNS only)
-rproxy_sites:
-  - name: wazuh-ui
-    upstream: "https://{{ hostvars['wazuh'].lan_ip }}:443"
-    verify: false # Wazuh 자체 서명. 가져올 CA가 없음
-  - name: kibana
-    upstream: "https://{{ hostvars['efk'].lan_ip }}:5601"
-    verify: true
-    ca: "{{ rproxy_efk_ca }}"
-    ssl_name: efk # Kibana 인증서 SAN의 이름
-  - name: grafana
-    upstream: "http://{{ hostvars['lgtm'].lan_ip }}:3000"
+# Kibana 인증서 확인용 CA. log의 efk CA(efk role이 만든 공개 인증서)를 가져와 둠
+rproxy_log_ca_src: /etc/elasticsearch/tls/efk-ca.crt
+rproxy_log_ca: "{{ rproxy_tls_dir }}/log-ca.crt"
 
-# 인증서. selfsigned(자체 서명) 또는 letsencrypt(*.orbit-labs.space 와일드카드, DNS-01) (orbit-infrastructure#38)
+# keepalived. 쌍의 -1이 평소 VIP를 들고, nginx가 멈추거나 VM이 멈추면 -2가 넘겨받음
+# 같은 L2에 VRRP가 여럿이라 멀티캐스트 대신 짝에게만 보냄 (unicast_peer)
+rproxy_vrrp_priority: "{{ 150 if inventory_hostname.endswith('-1') else 100 }}"
+rproxy_vrrp_peers: "{{ groups[rproxy_pair] | difference([inventory_hostname]) | map('extract', hostvars, 'lan_ip') | list }}"
+rproxy_pair: "{{ group_names | intersect(['rp_core', 'rp_ota', 'rp_cdn']) | first }}"
+
+# 서비스 이름 → 위쪽(nginx 뒤 서버). name은 앞부분만 쓰고 뒤에 orbit_domain이 붙음 (kibana → kibana.orbit-labs.space)
+# listen: 받는 VIP. upstream: 넘길 주소. main·backup: Main 클러스터, 응답하지 않을 때만 Sub (upstream backup)
+rproxy_sites: []
+
+# Main이 응답하지 않을 때 Sub로 넘기는 기준 (rp_ota, rp_cdn)
+rproxy_connect_timeout: 3s
+rproxy_max_fails: 1
+rproxy_fail_timeout: 10s
+
+# 인증서 (rproxy_tls: true일 때). selfsigned(자체 서명) 또는 letsencrypt(*.orbit-labs.space 와일드카드, DNS-01) (orbit-infrastructure#38)
+# rp-core 두 대가 각자 발급하고 각자 갱신함
 rproxy_tls_mode: letsencrypt
 rproxy_le_staging: false                         # 처음에는 staging으로 시험. 확인 뒤 false로 바꿔 정식 발급
 rproxy_le_domain: "*.{{ orbit_domain }}"

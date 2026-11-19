@@ -1,0 +1,89 @@
+# rp_core: TLS 인증서와 Kibana 확인용 CA. 자체 서명은 되돌릴 때를 위해 letsencrypt일 때도 만들어 둠
+- name: 인증서 폴더
+  ansible.builtin.file:
+    path: "{{ rproxy_tls_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+# 인증서 모듈과 설정 파일은 둘 폴더가 실제로 있어야 함. 미리보기 첫 실행에서는 폴더가 없으므로 건너뜀 (efk role과 같은 방식)
+- name: 폴더가 있는지
+  ansible.builtin.stat:
+    path: "{{ rproxy_tls_dir }}"
+  register: rproxy_tls_stat
+
+- name: 미리보기에서 건너뛸지
+  ansible.builtin.set_fact:
+    rproxy_skip: "{{ ansible_check_mode and not rproxy_tls_stat.stat.exists }}"
+
+- name: 건너뛰는 이유
+  ansible.builtin.debug:
+    msg: 미리보기에서 인증서 폴더가 아직 없어서 인증서와 CA 만들기를 건너뜀. 실제 실행에서는 만든 뒤 진행함
+  when: rproxy_skip
+
+# Kibana 인증서는 log의 efk CA가 서명함. CA는 공개 인증서라 그대로 복사함 (fluent_bit role과 같은 방식)
+- name: log의 CA 인증서 읽기
+  ansible.builtin.slurp:
+    src: "{{ rproxy_log_ca_src }}"
+  delegate_to: log
+  run_once: true
+  register: rproxy_log_ca_read
+  when: rproxy_sites | selectattr('verify', 'defined') | selectattr('verify') | list | length > 0
+
+- name: Kibana 확인용 CA
+  ansible.builtin.copy:
+    dest: "{{ rproxy_log_ca }}"
+    content: "{{ rproxy_log_ca_read.content | b64decode }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+  when: not rproxy_skip and rproxy_log_ca_read is not skipped
+
+- name: 개인키
+  community.crypto.openssl_privatekey:
+    path: "{{ rproxy_tls_dir }}/proxy.key"
+    type: ECC
+    curve: secp256r1
+    owner: root
+    group: root
+    mode: "0600"
+  register: rproxy_key
+  notify: reload nginx
+  when: not rproxy_skip
+
+# 미리보기에서 키를 새로 만드는 경우는 키 파일이 실제로 없어서 CSR과 인증서는 건너뜀 (roles/efk/tasks/tls.yml과 같은 방식)
+- name: 인증서 요청
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: "{{ rproxy_tls_dir }}/proxy.key"
+    common_name: "{{ rproxy_sites[0].name }}.{{ orbit_domain }}"
+    subject_alt_name: "{{ rproxy_sites | map(attribute='name') | map('regex_replace', '$', '.' ~ orbit_domain) | map('regex_replace', '^', 'DNS:') | list }}"
+    extended_key_usage: [serverAuth]
+  register: rproxy_csr
+  changed_when: false
+  check_mode: false
+  when: not (rproxy_skip or (ansible_check_mode and rproxy_key is changed))
+
+- name: 자체 서명 인증서 (이름이 바뀌면 다시 발급)
+  community.crypto.x509_certificate:
+    path: "{{ rproxy_tls_dir }}/proxy.crt"
+    csr_content: "{{ rproxy_csr.csr }}"
+    privatekey_path: "{{ rproxy_tls_dir }}/proxy.key"   # selfsigned는 서명할 키가 필요함
+    provider: selfsigned
+    selfsigned_not_after: "+{{ rproxy_tls_days }}d"
+    owner: root
+    group: root
+    mode: "0644"
+  when: not (rproxy_skip or (ansible_check_mode and rproxy_key is changed))
+  notify: reload nginx
+
+# 인증서를 고름. letsencrypt면 Vault 토큰으로 발급함(VAULT_TOKEN 필요)
+- name: Let's Encrypt
+  ansible.builtin.include_tasks: letsencrypt.yml
+  when: rproxy_tls_mode == 'letsencrypt'
+
+- name: nginx가 쓸 인증서 경로
+  ansible.builtin.set_fact:
+    rproxy_cert: "{{ rproxy_le_live ~ '/fullchain.pem' if rproxy_tls_mode == 'letsencrypt' else rproxy_tls_dir ~ '/proxy.crt' }}"
+    rproxy_cert_key: "{{ rproxy_le_live ~ '/privkey.pem' if rproxy_tls_mode == 'letsencrypt' else rproxy_tls_dir ~ '/proxy.key' }}"
