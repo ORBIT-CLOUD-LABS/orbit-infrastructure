@@ -1,16 +1,17 @@
-# HashiCorp Vault (astra)와 SSH CA 공통 값
+# HashiCorp Vault (vault VM, 관리 구역)와 SSH CA 공통 값
 # ansible-vault 비밀값(vault_*)과 헷갈리지 않게 hvault_로 씀
 hvault_version: 2.2.1                        # 버전 고정
 hvault_pkg_revision: 1                       # apt 패키지 리비전. 설치는 vault=2.2.1-1
-hvault_host: astra                           # Vault를 vault VM으로 옮길 때 vault로 바꿈
-hvault_ip: "{{ hostvars[hvault_host].ansible_host }}"   # 옮기기 전까지 astra의 옛 주소 (Vault 인증서 SAN에 있는 주소). 옮길 때 lan_ip로 되돌림
+hvault_host: vault                           # astra 위 VM. 플레이북은 hosts: vault
+hvault_ip: "{{ hostvars[hvault_host].lan_ip }}"   # 10.10.0.1. Ansible은 이 주소로 접속
+hvault_name: "vault.{{ orbit_domain }}"      # 팀원 스크립트와 ESO가 쓰는 이름 (Cloudflare DNS only, 10.10.0.1). 서버 인증서 SAN에 들어감
 hvault_port: 8200                            # 8201(Raft)은 127.0.0.1에만
 hvault_addr: "https://{{ hvault_ip }}:{{ hvault_port }}"
-hvault_tls_dir: /opt/vault/tls               # astra. vault-ca.crt로 Vault 인증서를 검증. 패키지의 tls.crt/tls.key와 겹치지 않게 vault-* 이름
+hvault_node_id: astra                        # Raft node_id. 스냅샷을 받은 원래 노드 이름과 같아야 함 (다르면 복원 뒤 sealed). VM으로 옮겨도 바꾸지 않음
+hvault_tls_dir: /opt/vault/tls               # vault VM. vault-ca.crt로 Vault 인증서를 검증. 패키지의 tls.crt/tls.key와 겹치지 않게 vault-* 이름
 hvault_allowed_ifaces:                       # 8200을 받는 인터페이스. 나머지는 차단
   - lo
-  - "{{ hostvars[hvault_host].lan_bridge }}"   # br0
-  - tailscale0
+  - enp1s0                                   # VM NIC (libvirt role network-config.j2의 set-name). 팀원(Tailscale)은 astra를 거쳐, 클러스터는 fw를 거쳐 여기로 들어옴
 
 # SSH CA
 hvault_ssh_mount: ssh-client-signer
@@ -37,9 +38,12 @@ hvault_kv_read_policy: eso-orbit             # k3s 구역 읽기만. ESO에 줌
 hvault_kv_write_policy: orbit-secrets-write  # 두 구역 쓰기. GitHub orbit 팀에 SSH 정책과 함께 줌
 
 # Kubernetes 인증. ESO가 자기 ServiceAccount 토큰으로 로그인하고, Vault가 k3s API로 진위를 확인
+# Vault Kubernetes 인증을 둘 클러스터 그룹. 비어 있으면 configure.yml이 k3s CA 읽기와 Kubernetes 인증 설정을 건너뜀 (Vault에 있는 기존 설정은 그대로 둠)
+# 클러스터가 생길 때까지 비워 둠. 클러스터 4개 구성 때 채움
+hvault_k8s_clusters: []
 hvault_k8s_mount: kubernetes
-hvault_k8s_host: "https://{{ hostvars[groups['cp'][0]].lan_ip }}:6443"   # polaris. k3s_server_ip와 같은 값 (그 변수는 k3s 그룹에만 있음)
-hvault_k8s_ca_file: /var/lib/rancher/k3s/server/tls/server-ca.crt     # polaris. API 서버 인증서를 서명한 k3s-server-ca
+hvault_k8s_host: "https://{{ hostvars[groups['cp'][0]].lan_ip }}:6443"   # 옛 polaris. 클러스터 4개 구성 때 바꿈 (hvault_k8s_clusters가 비어 있으면 읽지 않음)
+hvault_k8s_ca_file: /var/lib/rancher/k3s/server/tls/server-ca.crt     # API 서버 인증서를 서명한 k3s-server-ca
 hvault_eso_role: eso
 hvault_eso_namespace: external-secrets
 hvault_eso_service_account: external-secrets

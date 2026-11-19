@@ -1,6 +1,6 @@
 hvault_repo_url: https://apt.releases.hashicorp.com
 hvault_config_dir: /etc/vault.d
-hvault_data_dir: /opt/vault/data          # Raft. astra NVMe
+hvault_data_dir: /opt/vault/data          # Raft. vault VM 디스크
 hvault_cluster_addr: 127.0.0.1:8201       # 단일 노드라 밖으로 열 필요 없음
 hvault_tls_ca_days: 3650
 hvault_tls_cert_days: 825
@@ -13,7 +13,12 @@ hvault_ssh_policy: ssh-orbit              # SSH 인증서 서명만 허용
 hvault_allow_generate_root: false
 hvault_tls_sans: >-
   {{ ['DNS:' ~ inventory_hostname, 'DNS:localhost', 'IP:127.0.0.1', 'IP:' ~ lan_ip]
+     + (['DNS:' ~ hvault_name] if hvault_name is defined else [])
      + (['IP:' ~ tailscale_ip] if tailscale_ip is defined else []) }}
+hvault_node_id: "{{ inventory_hostname }}"   # Raft node_id. 다른 노드의 스냅샷을 복원할 때는 원래 값으로 덮음
+# CA 개인키가 없을 때 새로 만들지. 새 CA를 만들면 팀원 PC, astra, ESO의 CA 신뢰가 모두 깨지므로 기본은 멈춤
+# 처음 설치하거나 CA를 잃어 새로 만들 때만 -e hvault_ca_create=true
+hvault_ca_create: false
 
 # Raft 스냅샷 S3 백업 (#11). 버킷·접두사 등 프로젝트 값은 group_vars/all/hashicorp-vault.yml
 hvault_awscli_version: 2.40.0                         # 버전 고정 (awscli-exe-linux-x86_64-<버전>.zip)

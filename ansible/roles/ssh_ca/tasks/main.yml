@@ -1,6 +1,6 @@
 # Vault SSH CA가 서명한 사용자 인증서를 받게 함. 기존 authorized_keys는 건드리지 않음 (Vault가 멈췄을 때 비상 경로)
-# CA 공개키는 Ansible이 astra에서 Vault에 물어봄. 노드는 Vault에 접속하지 않음
-- name: Vault SSH CA 공개키 (astra에서 읽음, 인증 없이 열려 있는 경로)
+# CA 공개키는 Ansible이 Vault 호스트(hvault_host)에서 Vault에 물어봄. 노드는 Vault에 접속하지 않음
+- name: Vault SSH CA 공개키 (Vault 호스트에서 읽음, 인증 없이 열려 있는 경로)
   ansible.builtin.uri:
     url: "{{ hvault_addr }}/v1/{{ hvault_ssh_mount }}/public_key"
     ca_path: "{{ hvault_tls_dir }}/vault-ca.crt"

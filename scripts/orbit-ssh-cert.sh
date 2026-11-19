@@ -20,7 +20,7 @@ SIGN_PATH=ssh-client-signer/sign/personal-$ME   # Vault 역할 personal-<계정�
 POLICY=ssh-personal-$ME                          # Vault 정책 ssh-personal-<계정명> (hvault_ssh_personal_policy_prefix)
 MIN_TTL=600                                      # 토큰이 10분 넘게 남았을 때만 다시 씀
 
-export VAULT_ADDR=${VAULT_ADDR:-https://10.0.0.201:8200}
+export VAULT_ADDR=${VAULT_ADDR:-https://vault.orbit-labs.space:8200}   # vault VM (10.10.0.1)
 export VAULT_CACERT=${VAULT_CACERT:-/opt/vault/tls/vault-ca.crt}
 
 for c in vault jq ssh-keygen; do
