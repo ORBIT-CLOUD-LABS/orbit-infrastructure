@@ -1,5 +1,5 @@
 ---
-wazuh_manager_address: "10.0.0.207"
+wazuh_manager_address: "{{ hostvars['secure'].lan_ip }}"   # secure 10.10.30.3
 wazuh_agent_version: "4.14.10-1"
 
 wazuh_agent_deb_arches:
@@ -9,7 +9,7 @@ wazuh_agent_deb_arches:
 wazuh_agent_package_base_url: "https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent"
 wazuh_agent_checksum_base_url: "https://packages.wazuh.com/4.x/checksums/wazuh"
 
-# API 주소와 인증서 경로는 인벤토리의 wazuh VM 기준이다.
+# API 주소와 인증서 경로는 인벤토리의 secure VM 기준이다.
 wazuh_agent_api_url: "https://localhost:55000"
 wazuh_agent_api_ca_path: "/var/ossec/api/configuration/ssl/server.crt"
 wazuh_agent_lookup_url: >-

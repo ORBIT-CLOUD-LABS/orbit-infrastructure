@@ -96,17 +96,17 @@
   delegate_to: astra
   become: false
 
-- name: efk에서 Prometheus (허용하지 않음)
+- name: log에서 Prometheus (허용하지 않음)
   ansible.builtin.wait_for:
     host: "{{ lan_ip }}"
     port: "{{ lgtm_prometheus_port }}"
     timeout: 5
-  delegate_to: efk
+  delegate_to: log
   become: false
   register: lgtm_fw_blocked
   failed_when: false
 
-- name: efk에서 Prometheus가 막혀야 함
+- name: log에서 Prometheus가 막혀야 함
   ansible.builtin.assert:
     that: "'Timeout' in (lgtm_fw_blocked.msg | default(''))"   # DROP이라 거부 응답 없이 시간 초과
-    fail_msg: "efk에서 lgtm {{ lgtm_prometheus_port }}에 접속됨. 방화벽({{ lgtm_fw_chain_name }}) 확인"
+    fail_msg: "log에서 metric {{ lgtm_prometheus_port }}에 접속됨. 방화벽({{ lgtm_fw_chain_name }}) 확인"

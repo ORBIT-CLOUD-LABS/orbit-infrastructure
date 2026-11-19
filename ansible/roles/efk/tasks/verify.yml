@@ -151,17 +151,17 @@
   delegate_to: astra
   become: false
 
-- name: lgtm에서 5601 (허용하지 않음)
+- name: metric에서 5601 (허용하지 않음)
   ansible.builtin.wait_for:
     host: "{{ lan_ip }}"
     port: 5601
     timeout: 5
-  delegate_to: lgtm
+  delegate_to: metric
   become: false
   register: efk_fw_blocked
   failed_when: false
 
-- name: lgtm에서 5601이 막혀야 함
+- name: metric에서 5601이 막혀야 함
   ansible.builtin.assert:
     that: "'Timeout' in (efk_fw_blocked.msg | default(''))"   # DROP이라 거부 응답 없이 시간 초과
-    fail_msg: "lgtm에서 efk 5601에 접속됨. 방화벽(ORBIT-EFK) 확인"
+    fail_msg: "metric에서 log 5601에 접속됨. 방화벽(ORBIT-EFK) 확인"

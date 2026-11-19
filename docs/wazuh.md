@@ -4,7 +4,7 @@
 
 ## 구성
 
-전용 `wazuh` VM에 Wazuh Manager·Indexer·Dashboard를 단일 호스트 구성으로 설치했다. 설치 시 확인한 OS는 Ubuntu 24.04.5 LTS(x86_64)이며, VM 자원은 4 vCPU, RAM 13 GiB, 루트 파일시스템 58 GiB였다. 호스트 Agent 배포는 후속 작업에서 다룬다.
+전용 `secure` VM(`10.10.30.3`, 관측 구역, astra 안, 4 vCPU, 12GB, 디스크 60GB)에 Wazuh Manager·Indexer·Dashboard를 단일 호스트 구성으로 설치한다. 재설계에서 옛 `wazuh` VM을 없애고 `wazuh_central` role로 새로 설치했다(orbit-infrastructure#60, 기존 경보와 Agent 등록은 옮기지 않음). 처음 설치(#26)는 옛 `wazuh` VM(Ubuntu 24.04.5 LTS, x86_64, 4 vCPU, RAM 13 GiB, 루트 58 GiB)에 했다.
 
 | 패키지 | 설치 버전 |
 |---|---|
@@ -28,6 +28,34 @@ mkdir -p ~/wazuh-install &&
 ```
 
 설치 완료 시 `Installation finished`가 표시된다. 상세 로그는 VM의 `/var/log/wazuh-install.log`에 있다. 설치 출력과 `wazuh-install-files.tar`에는 자격 증명과 인증서 자료가 포함되므로 접근을 제한한다. 관리자 암호는 팀이 승인한 비밀 저장소에서 관리한다. [Wazuh 자격 증명 관리](https://documentation.wazuh.com/current/user-manual/user-administration/password-management.html)
+
+## 재설계 신규 설치 (orbit-infrastructure#60)
+
+빈 `secure` VM에 role로 설치한다. astra 개인 계정에서 실행한다. 설치 도우미는 버전이 `wazuh_central_packages`(4.14.10)와 같은지 먼저 확인한다. 다르면 설치 뒤 버전 확인 단계에서 멈춘다.
+
+```bash
+curl -fsSL -o /tmp/wazuh-install.sh https://packages.wazuh.com/4.14/wazuh-install.sh
+sha256sum /tmp/wazuh-install.sh
+grep -m2 -E 'wazuh_(major|version)=' /tmp/wazuh-install.sh
+```
+
+```bash
+(
+  ../scripts/orbit-ssh-cert.sh &&
+  VAULT_TOKEN="$(cat ~/.orbit/vault-token)" &&
+  [ -n "$VAULT_TOKEN" ] &&
+  export VAULT_TOKEN &&
+  ansible-playbook playbooks/wazuh-central.yml --limit secure -K \
+    -e 'wazuh_central_allow_install=true' \
+    -e 'wazuh_central_installer_url=https://packages.wazuh.com/4.14/wazuh-install.sh' \
+    -e 'wazuh_central_installer_sha256=<위 sha256sum 값>' \
+    -e 'wazuh_central_indexer_url=https://127.0.0.1:9200' \
+    -e 'wazuh_central_indexer_ca=/etc/filebeat/certs/root-ca.pem'
+)
+```
+
+- 조회 계정 두 개는 Vault에 이미 있는 값(옛 VM에서 쓰던 비밀번호)으로 새 Manager·Indexer에 만든다.
+- Dashboard 관리자 경로 `secret/orbit/infra/wazuh-dashboard-admin`은 비어 있어야 한다. 값이 있으면 설치 아카이브의 새 관리자 값을 저장하지 않고 옛 값으로 Indexer 인증을 시도해 멈춘다. 팀원 토큰에는 삭제 권한이 없으므로 [Vault 관리자 권한](vault.md#관리자-권한) 절차로 `vault kv metadata delete`를 한다.
 
 ## Dashboard 접속
 
@@ -72,7 +100,7 @@ Indexer 관리자 인증은 Dashboard 브라우저 로그인과 별도로 확인
 
 ### 기존 VM에서 일반 실행
 
-`astra`의 `~/orbit-infrastructure/ansible`에서 실행한다. 플레이북은 `astra`에서 Vault KV v2의 조회 계정을 읽고, `wazuh` VM에서 Manager API와 Indexer를 확인한다. 실행 전에 두 계정 경로에 `read` 권한이 있는 Vault 토큰을 준비한다.
+`astra`의 `~/orbit-infrastructure/ansible`에서 실행한다. 플레이북은 Vault 호스트에서 Vault KV v2의 조회 계정을 읽고, `secure` VM에서 Manager API와 Indexer를 확인한다. 실행 전에 두 계정 경로에 `read` 권한이 있는 Vault 토큰을 준비한다.
 
 실행 예제는 먼저 `../scripts/orbit-ssh-cert.sh`로 SSH 인증서와 Vault 토큰을 준비한다. 인증서 준비가 성공하면 토큰을 읽고 플레이북을 실행한다. 자세한 내용은 [개인 계정 운영 문서](personal-accounts.md)를 참고한다.
 
@@ -82,14 +110,14 @@ Indexer 관리자 인증은 Dashboard 브라우저 로그인과 별도로 확인
   VAULT_TOKEN="$(cat ~/.orbit/vault-token)" &&
   [ -n "$VAULT_TOKEN" ] &&
   export VAULT_TOKEN &&
-  ansible-playbook playbooks/wazuh-central.yml --limit wazuh -K \
+  ansible-playbook playbooks/wazuh-central.yml --limit secure -K \
     -e 'wazuh_central_allow_install=false' \
     -e 'wazuh_central_indexer_url=https://127.0.0.1:9200' \
     -e 'wazuh_central_indexer_ca=/etc/filebeat/certs/root-ca.pem'
 )
 ```
 
-`VAULT_TOKEN`은 괄호 안의 실행 환경에 전달한다. Manager API와 Indexer의 비밀번호는 플레이북이 Vault에서 읽는다. `--limit wazuh`는 대상을 기존 VM 한 대로 제한하고, `-K`는 해당 VM의 `sudo` 비밀번호를 요청한다. `-e`는 이번 실행의 변수 값을 지정한다. Indexer URL과 CA 경로는 조회가 실행되는 `wazuh` VM 기준이다.
+`VAULT_TOKEN`은 괄호 안의 실행 환경에 전달한다. Manager API와 Indexer의 비밀번호는 플레이북이 Vault에서 읽는다. `--limit secure`는 대상을 VM 한 대로 제한하고, `-K`는 해당 VM의 `sudo` 비밀번호를 요청한다. `-e`는 이번 실행의 변수 값을 지정한다. Indexer URL과 CA 경로는 조회가 실행되는 `secure` VM 기준이다.
 
 ### Vault 계정과 권한
 
@@ -133,7 +161,7 @@ Manager API와 Indexer 조회 계정은 환경별 Vault KV v2 경로에서 읽�
 
 ## 확인
 
-아래 명령은 `wazuh` VM에서 실행한다.
+아래 명령은 `secure` VM에서 실행한다.
 
 ```bash
 sudo systemctl is-active wazuh-manager wazuh-indexer wazuh-dashboard filebeat

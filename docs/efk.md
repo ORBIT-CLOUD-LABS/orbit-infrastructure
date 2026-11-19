@@ -1,21 +1,21 @@
 # efk 로그 저장소 (Elasticsearch, Kibana, 호스트 Fluent Bit)
 
 구현: [#21](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues/21). k3s 쪽 수집은 [orbit-gitops#46](https://github.com/ORBIT-CLOUD-LABS/orbit-gitops/issues/46).
-2026-11-05~06 `jyvnee`가 astra 개인 계정으로 efk·astra·lgtm·wazuh에 적용했다. 플레이북마다 재실행 `changed=0`을 확인했다. 2026-11-09 efk VM 재부팅 뒤 자동 시작과 방화벽 유지를 확인했다. 팀원 Mac의 Kibana 접속(Tailscale ACL 5601 허용 대기), astra 재부팅 뒤 `ORBIT-TS-EFK` 유지, 첫 주 저장 증가량은 아직 확인하지 않았다([적용 기록](#적용-기록)).
+2026-11-05~06 `jyvnee`가 astra 개인 계정으로 efk·astra·lgtm·wazuh에 적용했다. 플레이북마다 재실행 `changed=0`을 확인했다. 2026-11-09 efk VM 재부팅 뒤 자동 시작과 방화벽 유지를 확인했다. 재설계에서 `efk` VM을 없애고 `log` VM에 새로 설치했다(orbit-infrastructure#60, 기존 데이터는 옮기지 않음). 팀원 Mac의 Kibana 접속(Tailscale ACL 5601 허용 대기), astra 재부팅 뒤 `ORBIT-TS-EFK` 유지, 첫 주 저장 증가량은 아직 확인하지 않았다([적용 기록](#적용-기록)).
 이 문서에는 이름과 절차만 기록한다. 비밀번호, 토큰, Kibana 암호화 키 값은 Git·Issue·PR·문서·채팅 어디에도 남기지 않는다. 값은 Vault에만 있다.
 
 ## 구성
 
 | 항목 | 값 |
 | --- | --- |
-| 위치 | `efk` VM `10.0.0.205` (astra 안, 4 vCPU, 20GB, 디스크 100GB). 클러스터 장애를 조사할 수 있도록 k3s 밖에 둠 |
+| 위치 | `log` VM `10.10.30.1` (관측 구역, luna 안, 4 vCPU, 14GB, 디스크 90GB). 클러스터 장애를 조사할 수 있도록 k3s 밖에 둠. role 이름은 `efk` 그대로 |
 | 버전 | Elasticsearch·Kibana 9.5.6, 호스트 Fluent Bit 5.1.5. 모두 apt hold로 고정 |
-| Elasticsearch | 단일 노드 `orbit-efk`, 힙 4g. HTTPS `9200`은 `127.0.0.1`과 `10.0.0.205`, 노드 간 `9300`은 `127.0.0.1`만 |
-| Kibana | `https://kibana.orbit-labs.space` (astra nginx 경유, 내부 전용). 직접 주소 `https://10.0.0.205:5601`는 사용하지 않음(관리자만). Elasticsearch에는 `127.0.0.1`로 `kibana_system` 계정으로 접속 |
+| Elasticsearch | 단일 노드 `orbit-efk`, 힙 4g. HTTPS `9200`은 `127.0.0.1`과 `10.10.30.1`, 노드 간 `9300`은 `127.0.0.1`만 |
+| Kibana | `https://kibana.orbit-labs.space` (astra nginx 경유, 내부 전용). 직접 주소 `https://10.10.30.1:5601`는 사용하지 않음(관리자만). Elasticsearch에는 `127.0.0.1`로 `kibana_system` 계정으로 접속 |
 | 데이터·로그 | `/var/lib/elasticsearch`, `/var/log/elasticsearch` (서버 로그 `orbit-efk_server.json`), `/var/log/kibana/kibana.log` |
-| TLS | 자체 CA `ORBIT EFK CA` (`/etc/elasticsearch/tls/efk-ca.crt`, 10년). Elasticsearch·Kibana 서버 인증서는 825일, SAN `efk`, `localhost`, `127.0.0.1`, `10.0.0.205`. SAN이 바뀌면 다시 발급 |
+| TLS | 자체 CA `ORBIT EFK CA` (`/etc/elasticsearch/tls/efk-ca.crt`, 10년). Elasticsearch·Kibana 서버 인증서는 825일, SAN `log`, `localhost`, `127.0.0.1`, `10.10.30.1`. SAN이 바뀌면 다시 발급 |
 | 비밀값 | Vault KV. 인프라 구역 `secret/orbit/infra/efk`, k3s 구역 `secret/orbit/k3s/fluent-bit` ([Vault 문서](vault.md#비밀값-경로와-권한)) |
-| 송신기 | k3s 노드 4대(DaemonSet, orbit-gitops#46), astra·VM 3대(호스트 Fluent Bit, 이 저장소) |
+| 송신기 | 물리 호스트 6대와 클러스터 밖 VM(호스트 Fluent Bit, 이 저장소). 클러스터 VM은 DaemonSet(orbit-gitops#46) |
 
 ## 플레이북
 
@@ -35,8 +35,8 @@ unset VAULT_TOKEN
 
 | 플레이북 | 대상 | 하는 일 |
 | --- | --- | --- |
-| `efk.yml` | efk, astra | efk 방화벽, Vault 비밀값, Elasticsearch·Kibana 설치·TLS·설정, 기본 계정, 수집·조회 역할과 계정, ILM·인덱스 템플릿, Kibana 데이터 뷰. astra의 tailnet → efk 통과 제한. 마지막에 상태·권한·템플릿·방화벽 확인 |
-| `fluent-bit.yml` | astra, efk, lgtm, wazuh | 호스트 Fluent Bit 설치·설정. 마지막에 상태와 호스트별 수신 확인 |
+| `efk.yml` | log, astra | log 방화벽, Vault 비밀값, Elasticsearch·Kibana 설치·TLS·설정, 기본 계정, 수집·조회 역할과 계정, ILM·인덱스 템플릿, Kibana 데이터 뷰. astra의 tailnet → log 통과 제한. 마지막에 상태·권한·템플릿·방화벽 확인 |
+| `fluent-bit.yml` | 물리 호스트 6대, 클러스터 밖 VM (`vm_hosts:vms:!k3s`) | 호스트 Fluent Bit 설치·설정. 마지막에 상태와 호스트별 수신 확인 |
 
 - 처음 실행할 때 Vault에 없는 비밀번호·키는 무작위 값(영문·숫자 40자)으로 만들어 Vault에 먼저 저장한 뒤 쓴다. 있는 값은 바꾸지 않는다. 미리보기에서는 저장하지 않으므로 계정 단계를 건너뛴다.
 - 설정·버전·인증서가 바뀌면 Elasticsearch와 Kibana가 재시작된다. 그동안 로그는 송신기 버퍼에 쌓였다가 다시 보내진다.
@@ -100,10 +100,10 @@ Kibana는 공개하지 않는다. 팀원은 Tailscale에 연결한 뒤 `https://
 | 관문 | 설정 | 관리 |
 | --- | --- | --- |
 | Tailscale ACL | 팀원 기기 → `10.0.0.201:443` 허용 (astra nginx). VM 직통 5601은 막힘 | Tailscale 관리 콘솔 (tailnet 관리자) |
-| astra mangle `ORBIT-TS-EFK` | tailnet → efk는 TCP 22·5601과 ping만 통과 | `efk.yml` |
-| efk `ORBIT-EFK` | 5601은 astra(`10.0.0.201`)에서만 | `efk.yml` |
+| astra mangle `ORBIT-TS-EFK` | tailnet → log는 TCP 22·5601과 ping만 통과 | `efk.yml` |
+| log `ORBIT-EFK` | 5601은 astra와 rp-core 두 대에서만 | `efk.yml` |
 
-인증서 경고: 브라우저가 보는 인증서는 astra nginx의 자체 서명 인증서라 처음에는 경고한다 ([내부 리버스 프록시](reverse-proxy.md)). 아래 efk CA는 관리자가 `https://10.0.0.205:5601`로 직접 접속할 때만 쓴다. CA는 공개 인증서라 어느 호스트에서 복사해도 된다. 신뢰는 시스템 전체가 아닌 로그인 키체인에만 넣는다.
+인증서 경고: 브라우저가 보는 인증서는 astra nginx의 자체 서명 인증서라 처음에는 경고한다 ([내부 리버스 프록시](reverse-proxy.md)). 아래 efk CA는 관리자가 `https://10.10.30.1:5601`로 직접 접속할 때만 쓴다. CA는 공개 인증서라 어느 호스트에서 복사해도 된다. 신뢰는 시스템 전체가 아닌 로그인 키체인에만 넣는다.
 
 ```bash
 # Mac에서
@@ -111,7 +111,7 @@ scp <계정>@10.0.0.201:/etc/fluent-bit/efk-ca.crt ~/Downloads/efk-ca.crt
 security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db ~/Downloads/efk-ca.crt
 ```
 
-CA를 신뢰하면 이 CA로 서명된 인증서는 모두 믿게 된다. CA 개인키는 efk의 `/etc/elasticsearch/tls`에만 있고 root만 읽는다. 신뢰를 지우려면 키체인 접근에서 `ORBIT EFK CA`를 삭제한다.
+CA를 신뢰하면 이 CA로 서명된 인증서는 모두 믿게 된다. CA 개인키는 log의 `/etc/elasticsearch/tls`에만 있고 root만 읽는다. 신뢰를 지우려면 키체인 접근에서 `ORBIT EFK CA`를 삭제한다.
 
 ## 인덱스와 보관
 
@@ -150,20 +150,22 @@ CA를 신뢰하면 이 CA로 서명된 인증서는 모두 믿게 된다. CA 개
 - 숫자 필드에 `-` 같은 값이 오면 문서는 저장되고 그 필드만 버려진다(`ignore_malformed`).
 - `host.name`처럼 점이 들어간 이름으로 보내면 Elasticsearch가 객체로 색인한다. `_source`에는 보낸 모양(`"host.name"`) 그대로 남는다.
 
-## 호스트 Fluent Bit (astra, VM 3대)
+## 호스트 Fluent Bit (물리 호스트, 클러스터 밖 VM)
 
 | 호스트 | journald | 파일 |
 | --- | --- | --- |
 | 공통 | `ssh.service`, `prometheus-node-exporter`, 식별자 `sshd`·`sudo`, 커널 warning(PRIORITY 4) 이상 | |
-| astra | `vault`, `tailscaled`, `libvirtd`, `virtlogd`, `smartmontools`, `systemd-networkd`, `orbit-net-revert`, 식별자 `wpa_supplicant`·`orbit-net` | `/var/log/libvirt/qemu/*.log` |
-| VM 3대 | cloud-init 유닛 4개 | |
-| efk | `elasticsearch`, `kibana` | `/var/log/elasticsearch/orbit-efk_server.json` (JSON을 풀어서) |
-| lgtm | `prometheus`, `prometheus-alertmanager`, `grafana-server` | |
+| 물리 호스트 6대 | `libvirtd`, `virtlogd`, `systemd-networkd`, `orbit-net-revert`, 식별자 `wpa_supplicant`·`orbit-net` | astra만 `/var/log/libvirt/qemu/*.log` |
+| astra | `tailscaled`, `smartmontools` | |
+| VM | cloud-init 유닛 4개 | |
+| vault | `vault` | |
+| log | `elasticsearch`, `kibana` | `/var/log/elasticsearch/orbit-efk_server.json` (JSON을 풀어서) |
+| metric | `prometheus`, `prometheus-alertmanager`, `grafana-server` | |
 
 - 처음 제외: Vault 감사 로그(Wazuh 연동 계획), astra의 PostgreSQL·Samba·Docker, `systemd-resolved`, 백업 작업. wazuh 스택 로그는 스택을 설치할 때 `roles/fluent_bit/defaults/main.yml`에 추가한다(lgtm은 #43에서 추가). astra에는 `orbit-gw-watch`가 없다(워커 노드에만 있어 k3s 쪽에서 수집).
 - journald 조건은 OR로 묶인다. 커널은 `_TRANSPORT=kernel`로 받고, PRIORITY 5~7은 버린다.
 - 보내는 필드는 `message`, `host.name`, `systemd.unit`, `syslog.identifier`, `syslog.priority`, `file.path`뿐이다. 나머지 journald 필드는 버린다.
-- 버퍼: `/var/lib/fluent-bit` (읽기 위치 DB와 파일 버퍼). 상한 512M, efk만 64M. 재시도는 제한 없음. 상한에 닿으면 오래된 청크부터 버린다. 처음 시작할 때 이전 journal은 읽지 않는다.
+- 버퍼: `/var/lib/fluent-bit` (읽기 위치 DB와 파일 버퍼). 상한 512M, log만 64M. 재시도는 제한 없음. 상한에 닿으면 오래된 청크부터 버린다. 처음 시작할 때 이전 journal은 읽지 않는다.
 - 비밀번호는 `/etc/default/fluent-bit`(root `0600`) 환경 변수로만 넣는다. 설정 파일 `/etc/fluent-bit/fluent-bit.conf`에는 값이 없다.
 - 상태: 각 호스트 안에서 `curl -s http://127.0.0.1:2020/api/v1/health` → `ok`. 오류는 `sudo journalctl -u fluent-bit -n 50 --no-pager`.
 
@@ -171,18 +173,18 @@ CA를 신뢰하면 이 CA로 서명된 인증서는 모두 믿게 된다. CA 개
 
 | 항목 | 값 |
 | --- | --- |
-| 주소 | `https://10.0.0.205:9200` |
+| 주소 | `https://10.10.30.1:9200` |
 | CA | efk-ca.crt (공개 인증서. astra `/etc/fluent-bit/efk-ca.crt`에서 복사해 ConfigMap 등으로 넣어도 됨) |
 | 계정 | `fluentbit_k8s`. 비밀번호는 Vault `secret/orbit/k3s/fluent-bit`의 `password` (ESO `remoteRef.key: orbit/k3s/fluent-bit`, `property: password`) |
 | 인덱스 | Pod 로그 `Logstash_Prefix orbit-k8s`, 노드 journald `Logstash_Prefix orbit-host`. `Logstash_Format On`, `Logstash_DateFormat %Y.%m.%d` |
-| 출발지 | efk 방화벽은 9200을 노드 LAN IP(`10.0.0.200`, `.202`~`.204`)에서만 받는다. Pod에서 나가는 패킷이 노드 IP로 SNAT돼야 한다 |
+| 출발지 | log 방화벽은 9200을 인벤토리 호스트 주소에서만 받는다(클러스터 VM 포함). Pod에서 나가는 패킷이 노드 IP로 SNAT돼야 한다 |
 
 Elasticsearch 출력에 아래 설정이 필요하다. 호스트 Fluent Bit(`roles/fluent_bit/templates/fluent-bit.conf.j2`)과 같다. classic 설정은 줄 맨 앞의 `#`만 주석으로 보므로, 값 뒤에 설명을 붙이지 않는다.
 
 ```
 tls                  On
 tls.verify           On
-# 인증서 IP SAN 10.0.0.205로 주소까지 확인 (5.1.5에서 확인)
+# 인증서 IP SAN 10.10.30.1로 주소까지 확인 (5.1.5에서 확인)
 tls.verify_hostname  On
 tls.ca_file          <efk-ca.crt 경로>
 Suppress_Type_Name   On
@@ -197,11 +199,11 @@ Retry_Limit          no_limits
 - `Replace_Dots`는 끈 채로 둔다(기본값). `kubernetes.labels`는 flattened라 키에 점이 있어도 된다.
 - `parsed.nginx.bytes`는 응답 본문 크기(`$body_bytes_sent`)로 고정한다. Grafana 담당자와 공유한다.
 
-## Grafana (lgtm)에 필요한 값
+## Grafana (metric)에 필요한 값
 
 | 항목 | 값 |
 | --- | --- |
-| 데이터 소스 | Elasticsearch, URL `https://10.0.0.205:9200` (efk 방화벽이 lgtm `10.0.0.206`에서 허용) |
+| 데이터 소스 | Elasticsearch, URL `https://10.10.30.1:9200` (log 방화벽이 metric `10.10.30.2`에서 허용) |
 | 계정 | `grafana_viewer`. 비밀번호는 Vault `secret/orbit/infra/efk`의 `grafana_viewer_password` |
 | TLS | CA efk-ca.crt로 검증 (`tlsAuthWithCACert`) |
 | 인덱스 | `orbit-k8s-*`, `orbit-host-*`, 시간 필드 `@timestamp` |
@@ -210,23 +212,23 @@ Retry_Limit          no_limits
 
 | 위치 | 규칙 | 이유 |
 | --- | --- | --- |
-| efk `ORBIT-EFK` (filter INPUT 맨 앞) | 9200: k3s 노드 4대, astra, lgtm, wazuh. 5601: astra. 둘 다 `lo` 허용. 나머지 DROP. 22 등 다른 포트는 건드리지 않음 | 송신기·Grafana만 9200, 사람은 astra 경유로만 5601 |
-| astra `ORBIT-TS-EFK` (mangle FORWARD 맨 앞) | `tailscale0` → `10.0.0.205`는 TCP 22·5601과 ICMP만, 나머지 DROP | 서브넷 라우터 SNAT 때문에 efk에서는 tailnet 접속과 astra가 같은 IP로 보여 구분할 수 없음 |
+| log `ORBIT-EFK` (filter INPUT 맨 앞) | 9200: 물리 호스트 6대와 VM 전체(fw 쌍은 관측 구역 주소 `.252`·`.253`). 5601: astra, rp-core 두 대. 둘 다 `lo` 허용. 나머지 DROP. 22 등 다른 포트는 건드리지 않음 | 송신기·Grafana만 9200, 사람은 rp-core 경유(이전 중에는 astra)로만 5601 |
+| astra `ORBIT-TS-EFK` (mangle FORWARD 맨 앞) | `tailscale0` → `10.10.30.1`는 TCP 22·5601과 ICMP만, 나머지 DROP | 서브넷 라우터 SNAT 때문에 log에서는 tailnet 접속과 astra가 같은 IP로 보여 구분할 수 없음 |
 
 - astra 규칙을 filter가 아닌 mangle에 둔 이유: Tailscale은 재시작할 때 filter FORWARD 맨 앞에 tailnet 통과를 허용하는 `ts-forward`를 다시 넣는다. mangle은 filter보다 먼저 보고, mangle에서 버린 패킷은 뒤의 허용과 관계없이 버려진다.
 - 두 규칙 모두 `iptables-restore`로 한 번에 바꾸고 `netfilter-persistent`로 저장한다(재부팅 뒤 유지). efk는 이때 쓰지 않던 `ufw`가 지워졌다(`iptables-persistent`와 함께 설치 불가).
-- 허용 출발지는 인벤토리에서 가져온다. k3s 노드를 추가하면 `efk.yml`을 다시 실행한다.
+- 허용 출발지는 인벤토리에서 가져온다(호스트마다 `obs_src_ip`. fw 쌍만 관측 구역 주소). 호스트를 추가하면 `efk.yml`을 다시 실행한다.
 
 확인:
 
 ```bash
-# efk에서
+# log에서
 sudo iptables -S INPUT | head -3; sudo iptables -S ORBIT-EFK
 # astra에서
 sudo iptables -t mangle -S FORWARD | head -3; sudo iptables -t mangle -S ORBIT-TS-EFK
 # 팀원 Mac에서 (Tailscale 켠 상태)
-nc -vz -G 5 10.0.0.205 5601   # 성공 (ACL 허용 후)
-nc -vz -G 5 10.0.0.205 9200   # 실패
+nc -vz -G 5 10.10.30.1 5601   # 성공 (ACL 허용 후)
+nc -vz -G 5 10.10.30.1 9200   # 실패
 ```
 
 ## 디스크와 용량
@@ -240,14 +242,14 @@ watermark는 기본값(85/90/95%)이다. 아래 인덱스 크기 조회는 [Vaul
 | 85% 이상 | Elasticsearch가 새 샤드 배치를 멈춘다. 90%부터 샤드를 옮기려 하고(단일 노드라 옮길 곳 없음), 95%에서 인덱스가 읽기 전용이 된다 |
 
 ```bash
-# efk에서: 디스크
+# log에서: 디스크
 df -h /var/lib/elasticsearch
 # astra에서: 인덱스별 크기 (관리자 계정. 화면에 비밀번호를 남기지 않음). 먼저 Vault 준비
 P=$(vault kv get -mount=secret -field=elastic_password orbit/infra/efk) && [ -n "$P" ] && echo ok
 printf 'user = "elastic:%s"\n' "$P" | curl -s -K - --cacert /etc/fluent-bit/efk-ca.crt \
-  'https://10.0.0.205:9200/_cat/indices/orbit-*?v&s=index&h=index,docs.count,store.size'
+  'https://10.10.30.1:9200/_cat/indices/orbit-*?v&s=index&h=index,docs.count,store.size'
 printf 'user = "elastic:%s"\n' "$P" | curl -s -K - --cacert /etc/fluent-bit/efk-ca.crt \
-  'https://10.0.0.205:9200/_cat/allocation?v'
+  'https://10.10.30.1:9200/_cat/allocation?v'
 unset P
 ```
 
@@ -258,8 +260,8 @@ unset P
 | 증상 | 확인 |
 | --- | --- |
 | Kibana에 새 로그가 안 보임 | 송신 호스트에서 `curl -s http://127.0.0.1:2020/api/v1/health`, `sudo journalctl -u fluent-bit -n 50 --no-pager`. 401이면 비밀번호(Vault 값과 다름), 403이면 권한, TLS 오류면 CA·인증서 SAN |
-| Elasticsearch가 멈춤 | efk에서 `sudo systemctl status elasticsearch`, `sudo journalctl -u elasticsearch -n 100 --no-pager`, `sudo tail -n 100 /var/log/elasticsearch/orbit-efk_server.json`. 이때 efk 자신의 로그는 Elasticsearch에 들어가지 못하므로 efk journal을 직접 본다. 다른 송신기는 버퍼(512M)까지 쌓았다가 복구되면 다시 보낸다 |
-| Kibana가 안 열림 | efk에서 `sudo systemctl status kibana`, `sudo tail -n 50 /var/log/kibana/kibana.log`. 팀원만 안 되면 Tailscale ACL과 astra `ORBIT-TS-EFK` |
+| Elasticsearch가 멈춤 | log에서 `sudo systemctl status elasticsearch`, `sudo journalctl -u elasticsearch -n 100 --no-pager`, `sudo tail -n 100 /var/log/elasticsearch/orbit-efk_server.json`. 이때 log 자신의 로그는 Elasticsearch에 들어가지 못하므로 log journal을 직접 본다. 다른 송신기는 버퍼(512M)까지 쌓았다가 복구되면 다시 보낸다 |
+| Kibana가 안 열림 | log에서 `sudo systemctl status kibana`, `sudo tail -n 50 /var/log/kibana/kibana.log`. 팀원만 안 되면 Tailscale ACL과 astra `ORBIT-TS-EFK` |
 | 디스크가 참 | [디스크와 용량](#디스크와-용량) |
 
 ## 사람 식별
@@ -298,8 +300,8 @@ Kibana에서 `syslog.identifier: sshd and message: "Accepted publickey"`로 찾�
 
 | 항목 | 조건 |
 | --- | --- |
-| 팀원 Mac에서 `https://10.0.0.205:5601` 접속, `kibana_viewer` 로그인, 데이터 뷰 조회 | tailnet 관리자가 ACL에 `10.0.0.205:5601` 추가 |
-| 팀원 Mac에서 `nc -vz -G 5 10.0.0.205 9200` 실패 | 지금도 가능 |
+| 팀원 Mac에서 `https://10.10.30.1:5601` 접속, `kibana_viewer` 로그인, 데이터 뷰 조회 | tailnet 관리자가 ACL에 `10.10.30.1:5601` 추가 |
+| 팀원 Mac에서 `nc -vz -G 5 10.10.30.1 9200` 실패 | 지금도 가능 |
 | astra 재부팅 뒤 Fluent Bit 자동 시작, `ORBIT-TS-EFK`가 Tailscale 규칙 뒤에도 유지 | astra를 재부팅할 일이 생길 때 |
 | 첫 주 인덱스별 크기와 하루 증가량, 7일 보관이 디스크 70% 안에 드는지 | 2026-11-13까지 매일 기록 |
 

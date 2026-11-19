@@ -37,11 +37,11 @@
   check_mode: false
   changed_when: false
 
-- name: astra에서 Vault 토큰 설정 여부 확인
+- name: Vault 토큰 설정 여부 확인
   ansible.builtin.assert:
     that:
       - lookup('ansible.builtin.env', 'VAULT_TOKEN') | length > 0
-    fail_msg: "astra에서 조회용 자격 증명을 읽을 수 있는 VAULT_TOKEN을 설정하세요."
+    fail_msg: "실행하는 곳(astra)에서 조회용 자격 증명을 읽을 수 있는 VAULT_TOKEN을 설정하세요."
 
 - name: Vault에서 Wazuh API 조회 계정 읽기
   block:
@@ -88,7 +88,7 @@
         follow_redirects: none
         use_netrc: false
       register: wazuh_agent_api_auth
-      delegate_to: wazuh
+      delegate_to: secure
       become: true
       check_mode: false
       no_log: true
@@ -102,7 +102,7 @@
   rescue:
     - name: Wazuh API 인증 실패 시 중단
       ansible.builtin.fail:
-        msg: "Wazuh 조회 JWT를 발급하지 못했습니다. wazuh VM의 SSH·sudo 권한, 로컬 API 인증서와 Vault에 저장된 조회 계정 자격 증명을 확인하세요."
+        msg: "Wazuh 조회 JWT를 발급하지 못했습니다. secure VM의 SSH·sudo 권한, 로컬 API 인증서와 Vault에 저장된 조회 계정 자격 증명을 확인하세요."
 
 - name: 설치 전에 Manager의 등록 목록 확인
   block:
@@ -119,7 +119,7 @@
         use_netrc: false
         return_content: true
       register: wazuh_agent_before
-      delegate_to: wazuh
+      delegate_to: secure
       become: true
       check_mode: false
       no_log: true
@@ -134,7 +134,7 @@
   rescue:
     - name: API 조회 실패 시 설치 중단
       ansible.builtin.fail:
-        msg: "{{ inventory_hostname }}의 Manager 등록을 조회하지 못했습니다. wazuh VM의 SSH·sudo 권한, 로컬 API 인증서 및 토큰 권한·만료를 확인하세요."
+        msg: "{{ inventory_hostname }}의 Manager 등록을 조회하지 못했습니다. secure VM의 SSH·sudo 권한, 로컬 API 인증서 및 토큰 권한·만료를 확인하세요."
 
 - name: 신규 대상은 이름이 비어 있고 기존 대상은 등록이 하나인지 확인
   ansible.builtin.assert:
@@ -198,7 +198,7 @@
         use_netrc: false
         return_content: true
       register: wazuh_agent_after
-      delegate_to: wazuh
+      delegate_to: secure
       become: true
       until: >-
         (wazuh_agent_after.json.error | default(-1)) == 0

@@ -26,10 +26,10 @@
     lgtm_fw_jump: >-
       -A INPUT -p tcp -m multiport --dports {{ lgtm_fw_allow | map(attribute='port') | map('int') | sort | join(',') }} -j {{ lgtm_fw_chain_name }}
   vars:
-    # (포트, 호스트) 쌍마다 "-s <lan_ip>/32 --dport <포트>" 허용 규칙 하나
+    # (포트, 호스트) 쌍마다 "-s <obs_src_ip>/32 --dport <포트>" 허용 규칙 하나
     lgtm_fw_pairs: "{{ lgtm_fw_allow | subelements('hosts') }}"   # noqa: jinja[invalid]
     lgtm_fw_accept: >-   # noqa: jinja[invalid]
-      {{ lgtm_fw_pairs | map('last') | map('extract', hostvars, 'lan_ip')
+      {{ lgtm_fw_pairs | map('last') | map('extract', hostvars, 'obs_src_ip')
          | zip(lgtm_fw_pairs | map('first') | map(attribute='port'))
          | map('join', '/32 -p tcp -m tcp --dport ')
          | map('regex_replace', '^', '-A ' ~ lgtm_fw_chain_name ~ ' -s ')

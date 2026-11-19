@@ -6,6 +6,7 @@ old_lan_net: 10.0.0.0/24    # 옛 내부망. 이전하는 동안 새 대역과 �
 outer_net: 10.10.10.0/24    # 바깥 구역 (astra 바깥 다리, io, 방화벽 바깥 VIP)
 obs_net: 10.10.30.0/24      # 관측 구역. 수집은 방화벽을 거치지 않고 직접 보냄 (같은 L2)
 fw_outer_vip: 10.10.10.254  # 방화벽 바깥 VIP. astra가 관리 구역 밖 대역으로 보낼 때의 다음 홉
+obs_src_ip: "{{ lan_ip }}"   # 관측 VM(log, metric, secure)에 보이는 출발지 주소. 관측 구역에 주소가 있는 fw만 다름 (group_vars/fw.yml)
 
 # 와이파이
 wifi_ssid: rapa_classroom-5
