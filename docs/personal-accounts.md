@@ -21,7 +21,7 @@
 
 ## 적용
 
-astra의 저장소 `ansible/`에서 실행한다. 기존 관리 세션을 유지하고 한 호스트씩 진행한다. 현재 명단(UID·GID 2001~2005)은 8대 모두에 적용되어 있다.
+astra의 저장소 `ansible/`에서 실행한다. 기존 관리 세션을 유지하고 한 호스트씩 진행한다. 현재 명단(UID·GID 2001~2005)은 물리 호스트 6대와 VM 24대 모두에 적용되어 있다.
 
 ```bash
 # 조회 검사와 허용·거부 대상 표시. 실제 계정·파일·비밀번호·SSH reload는 실행하지 않음
@@ -128,7 +128,7 @@ Ansible은 astra에서 각자 개인 계정으로 실행한다. 공용 `orbit`�
 | 저장소 | 각자 astra 개인 홈에 받는다 (`~/orbit-infrastructure`). 브랜치 상태가 서로 영향을 주지 않는다 |
 | 다른 호스트 접속 | 개인 계정과 그 계정의 Vault SSH 인증서. astra에서 `scripts/orbit-ssh-cert.sh`로 받는다 (8시간) |
 | astra 자신 | 로컬로 실행한다. 인벤토리가 실행한 컴퓨터 이름(`astra`)을 보고 정한다 |
-| sudo | `-K`에 자기 sudo 비밀번호. 한 번만 받으므로 8대 비밀번호를 같게 맞춘다 |
+| sudo | `-K`에 자기 sudo 비밀번호. 한 번만 받으므로 모든 호스트(물리 6대, VM 24대)의 비밀번호를 같게 맞춘다 |
 | 호스트 키 | astra의 `/etc/ssh/ssh_known_hosts`(`base` 플레이북이 각 장비 facts로 만듦)를 쓴다. 개인 계정마다 확인할 필요가 없다 |
 | Vault 토큰 | 인증서를 받을 때 쓴 GitHub 로그인 토큰(`~/.orbit/vault-token`)을 `VAULT_TOKEN`으로 넘긴다. Vault 관리 작업만 root token |
 

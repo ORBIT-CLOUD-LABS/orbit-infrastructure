@@ -42,15 +42,14 @@
   ansible.builtin.set_fact:
     fwd_chain: "{{ 'DOCKER-USER' if docker_user.rc == 0 else 'FORWARD' }}"
 
-# 안쪽 장치와 대역의 짝. 옛 내부망은 br0에서만 (옛 대역 정리 때 old_lan_net과 함께 없어짐)
+# 안쪽 장치와 대역의 짝
 # 바깥 브리지로는 fw 쌍이 바깥 VIP로 SNAT한 구역 통신과 io가 나감
 - name: NAT 대상
   ansible.builtin.set_fact:
-    gw_nets: "{{ [lan_net] + ([old_lan_net] if old_lan_net is defined else []) }}"
+    gw_nets: "{{ [lan_net] }}"
     gw_inner_devs: "{{ [lan_dev] + ([outer_bridge] if outer_bridge is defined else []) }}"
     gw_pass: >-
       {{ [{'dev': lan_dev, 'net': lan_net}]
-         + ([{'dev': lan_dev, 'net': old_lan_net}] if old_lan_net is defined else [])
          + ([{'dev': outer_bridge, 'net': lan_net}] if outer_bridge is defined else []) }}
 
 - name: NAT (안에서 나가는 패킷의 출발지를 astra 와이파이 주소로)

@@ -24,9 +24,6 @@ network:
       dhcp4: false
       addresses:
         - {{ lan_ip }}/{{ lan_prefix }}
-{% if old_lan_ip is defined %}
-        - {{ old_lan_ip }}/{{ old_lan_net.split('/')[1] }}   # 옛 내부망. 옛 대역 정리 때 제거
-{% endif %}
       nameservers:
         addresses: [{{ dns | join(', ') }}]
       routes:

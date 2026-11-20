@@ -47,8 +47,7 @@
         marker: "# {mark} ORBIT (Ansible managed, roles/base)"
         block: |
           {% for h in groups['all'] %}
-          {% set names = [h, hostvars[h].lan_ip] + ([hostvars[h].old_lan_ip] if hostvars[h].old_lan_ip is defined else []) %}
-          {{ names | join(',') }} ssh-ed25519 {{ hostvars[h].ansible_ssh_host_key_ed25519_public }}
+          {{ h }},{{ hostvars[h].lan_ip }} ssh-ed25519 {{ hostvars[h].ansible_ssh_host_key_ed25519_public }}
           {% endfor %}
       when: base_hostkey_missing | length == 0
 
