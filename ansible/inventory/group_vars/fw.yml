@@ -2,8 +2,3 @@
 lan_gw: 10.10.10.200
 # fw는 관측 구역에도 주소(.252·.253)가 있어 관측 VM에는 그 주소로 보임
 obs_src_ip: "{{ zone_ips | select('match', '10\\.10\\.30\\.') | first }}"
-
-# AWS Site-to-Site VPN (strongSwan). vault.yml에 터널 외부 IP 또는 PSK를 채운 뒤 fw_vpn_enabled: true 로 전환 (docs/fw.md)
-fw_vpn_enabled: false
-fw_vpn_tunnel1_ip: "{{ vault_aws_vpn_tunnel1_ip | default('') }}"
-fw_vpn_tunnel2_ip: "{{ vault_aws_vpn_tunnel2_ip | default('') }}"

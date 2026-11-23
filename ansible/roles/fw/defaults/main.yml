@@ -44,21 +44,12 @@ fw_tailscale_udp_sports: [41641]
 # 관측 VM이 fw에서 수집하는 것 (metric → node-exporter)
 fw_metric_scrape_port: 9100
 
-# AWS (Site-to-Site VPN). 터널을 지나는 것만 허용하며 IPsec+NAT-T 오버헤드 단편화 방지를 위해 TCP MSS를 줄임
+# AWS (Site-to-Site VPN, 터널은 나중에). 터널을 지나는 것만, 클러스터 구역에서 RDS·S3 엔드포인트로만
 fw_aws_net: 10.20.0.0/16
 fw_aws_tcp_ports: [3306, 443]
-fw_vpn_mss: 1360
 
-# strongSwan (swanctl): VIP를 가진 쪽에서만 돌게 keepalived 알림 스크립트가 켜고 끔
-# astra의 group_vars/fw.yml 및 vault.yml에 터널 IP·PSK를 넣은 뒤 fw_vpn_enabled: true로 전환
+# strongSwan: 설치만. VIP를 가진 쪽에서만 돌게 keepalived 알림 스크립트가 켜고 끔
 fw_strongswan_service: strongswan
-fw_vpn_enabled: false
-fw_vpn_local_net: "{{ lan_net }}"
-fw_vpn_tunnel1_ip: ""
-fw_vpn_tunnel2_ip: ""
-fw_vpn_ike_proposal: aes256-sha256-modp2048
-fw_vpn_esp_proposal: aes256-sha256-modp2048
-fw_vpn_dpd_delay: 10s
 
 # ---- 아래는 인벤토리에서 계산 (고치지 않음) ----
 fw_peer: "{{ groups['fw'] | difference([inventory_hostname]) | first }}"

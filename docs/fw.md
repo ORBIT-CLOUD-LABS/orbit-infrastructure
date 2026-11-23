@@ -41,11 +41,9 @@
 | 모든 구역 | 인터넷 | tcp 53·80·443, udp 53·123, ping | DNS, NTP, 패키지, 이미지 |
 | 관리 구역 | 인터넷 | udp 3478, udp 출발 41641 | 물리 호스트의 Tailscale 직접 연결 |
 | 클러스터 구역 | AWS `10.20.0.0/16` (VPN 터널만) | tcp 3306·443 | RDS, S3 엔드포인트 |
-| Vault `10.10.0.1` | AWS `10.20.0.0/16` (VPN 터널만) | tcp 443 | Vault 스냅샷 백업 (사설 S3 엔드포인트) |
 
 - 같은 구역 안의 통신은 fw를 지나지 않는다.
 - 터널이 없는 동안 AWS 대역으로 가는 것은 모두 버린다(`rt ipsec missing`).
-- IPsec ESP + NAT-T(UDP `4500`) 캡슐화 오버헤드로 줄어드는 경로 MTU 때문에 대용량 S3 업로드·다운로드가 멈추지 않도록 `to_aws` 체인에서 TCP SYN의 MSS를 `1360`(`fw_vpn_mss`)으로 맞춘다.
 - 버리는 패킷은 분당 10개까지 커널 로그에 `orbit-fw drop:`으로 남는다 (`sudo journalctl -k -g orbit-fw`).
 
 주소 변환:
@@ -67,24 +65,10 @@ ICMP redirect는 보내지 않는다(`send_redirects=0`). 모든 구역이 안�
 - 상태가 바뀌면 `/usr/local/sbin/orbit-fw-notify.sh`가 conntrackd 동기화를 전환하고(conntrackd 예제 `primary-backup.sh`와 같은 순서) strongSwan을 켜거나 끈다. 기록: `sudo journalctl -t orbit-fw`
 - conntrackd는 FTFW 방식으로 관리 구역 주소끼리 UDP 3780으로 연결 상태를 맞춘다. VIP를 넘겨받은 쪽이 기존 연결을 이어 받는다.
 
-## AWS VPN (strongSwan, #75)
+## AWS VPN (strongSwan)
 
-- `charon-systemd`와 `strongswan-swanctl`(`strongswan.service`)을 설치하고 부팅 시 자동 시작은 꺼 둔다. VIP를 가진 쪽(`MASTER`)에서만 `/usr/local/sbin/orbit-fw-notify.sh`가 서비스를 시작하고 `swanctl --load-all` 및 주 터널(`aws-tunnel-1-child`) 연결을 개시한다. `BACKUP`·`FAULT`·`STOP`이 되면 즉시 중지한다.
-- 강의실 외부 포트로는 들어오는 연결을 받지 않으므로 `fw` 쪽에서 먼저 연결하며, astra NAT 뒤에서 NAT-T(`encap = yes`, UDP `4500`)로 동작한다.
-- 설정 파일(`/etc/swanctl/conf.d/orbit-aws.conf`)과 사전 공유 키(`/etc/swanctl/conf.d/orbit-aws-secrets.conf`)는 모두 `root:root 0600`으로 배치하며, 비밀키 작업은 `no_log: true`로 플레이북 출력에서 숨긴다.
-- 활성화 절차(`astra`):
-  1. `aws/terraform` 출력값(`vpn_tunnel1_address`, `vpn_tunnel2_address`, `vpn_tunnel1_preshared_key`, `vpn_tunnel2_preshared_key`)을 `ansible/inventory/group_vars/all/vault.yml`(`ansible-vault`)의 `vault_aws_vpn_tunnel1_ip`, `vault_aws_vpn_tunnel2_ip`, `vault_aws_vpn_tunnel1_psk`, `vault_aws_vpn_tunnel2_psk`에 넣는다(터널 외부 공인 IP도 공개 저장소에 남기지 않기 위해 `vault.yml`에서 읽음).
-  2. `ansible/inventory/group_vars/fw.yml`의 `fw_vpn_enabled`를 `true`로 바꾼 뒤 `fw.yml`을 실행한다.
-- 터널 및 절체 확인:
-
-```bash
-ssh fw-1 'sudo swanctl --list-sas'                 # INSTALLED, 10.10.0.0/16 === 10.20.0.0/16 확인
-ssh fw-1 'sudo ip xfrm policy'                     # IPsec 정책 적재 확인
-# 절체 시험: fw-1의 keepalived를 멈추면 fw-2가 MASTER가 되며 strongSwan을 켜고 터널을 이어받음
-ssh fw-1 'sudo systemctl stop keepalived'
-ssh fw-2 'sudo swanctl --list-sas'
-ssh fw-1 'sudo systemctl start keepalived'
-```
+- `charon-systemd`(swanctl, `strongswan.service`)를 설치만 하고 부팅할 때 켜지지 않게 둔다. VIP를 가진 쪽에서만 알림 스크립트가 켠다.
+- 터널 설정(`/etc/swanctl/conf.d/`), 사전 공유 키, 연결 확인은 AWS 쪽 VPN 연결과 customer gateway를 만든 뒤 따로 한다. 터널은 fw 쪽에서 먼저 연결한다(강의실 외부 포트로는 들어오는 연결을 받지 않음). NAT 뒤라 NAT-T(UDP 4500)로 동작한다.
 
 ## 적용
 

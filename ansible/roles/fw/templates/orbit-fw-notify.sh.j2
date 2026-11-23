@@ -13,10 +13,6 @@ case "$state" in
     $CT -R || logger -t orbit-fw "conntrackd -R 실패"
     $CT -B || logger -t orbit-fw "conntrackd -B 실패"   # 상대에게 전체를 보냄
     systemctl start {{ fw_strongswan_service }}
-    if [ -f /etc/swanctl/conf.d/orbit-aws.conf ] && [ -x /usr/sbin/swanctl ]; then
-      /usr/sbin/swanctl --load-all || logger -t orbit-fw "swanctl --load-all 실패"
-      /usr/sbin/swanctl --initiate --child aws-tunnel-1-child --timeout 5 || logger -t orbit-fw "aws-tunnel-1 초기 협상 대기"
-    fi
     ;;
   BACKUP)
     systemctl stop {{ fw_strongswan_service }}
