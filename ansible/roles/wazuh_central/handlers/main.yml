@@ -1,0 +1,6 @@
+---
+- name: Wazuh Dashboard 재시작
+  ansible.builtin.systemd_service:
+    name: wazuh-dashboard
+    state: restarted
+  when: not ansible_check_mode

@@ -26,3 +26,5 @@ wazuh_central_manager_admin_secret_path: '{{ hvault_kv_infra_prefix }}/wazuh-man
 wazuh_central_dashboard_admin_secret_path: '{{ hvault_kv_infra_prefix }}/wazuh-dashboard-admin'
 wazuh_central_resume_bootstrap: false
 wazuh_central_repair_accounts: false
+
+wazuh_central_dashboard_session_ttl_ms: null
