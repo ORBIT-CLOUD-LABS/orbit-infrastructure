@@ -95,6 +95,34 @@ terraform -chdir=aws/terraform output -raw vpn_tunnel1_address
 terraform -chdir=aws/terraform output -raw vpn_tunnel1_preshared_key
 ```
 
+### 관리자 SSM 포트 포워딩 접속 (#74)
+
+퍼블릭 IP나 SSH(`22`) 인바운드를 열지 않고, `admin-jump` 인스턴스와 `SSM` 인터페이스 엔드포인트 3종(`ssm`, `ssmmessages`, `ec2messages`)을 거쳐 로컬 `127.0.0.1:13306`을 사설 RDS(`3306`)로 연결한다.
+
+사전 준비:
+- AWS CLI v2 및 AWS Session Manager Plugin(`session-manager-plugin`)
+- 관리자 IAM 계정에 `OrbitAdminSsmPortForwardPolicy`(`AWS-StartPortForwardingSessionToRemoteHost` 문서만 허용, 일반 셸 세션 제외) 연결
+
+실행:
+
+```bash
+# macOS / Linux
+scripts/orbit-rds-ssm.sh --check          # 인증 및 admin-jump Online 상태만 점검
+scripts/orbit-rds-ssm.sh                  # 127.0.0.1:13306 포트 포워딩 시작
+```
+
+```powershell
+# Windows (저장소 최상위 PowerShell)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\orbit-rds-ssm.ps1 -CheckOnly
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\orbit-rds-ssm.ps1
+```
+
+별도 터미널에서 TLS 강제 옵션으로 접속한다(평문 연결은 `require_secure_transport = 1`에 의해 거부됨):
+
+```bash
+mysql -h 127.0.0.1 -P 13306 -u vehicle_app -p --ssl-mode=REQUIRED vehicle
+```
+
 ## 버킷 1 — `orbit-firmware-origin-backup` (#10, #72)
 
 Phase 2 펌웨어 원본(Origin) 저장소다. `orbit-server`가 VPN 및 S3 인터페이스 엔드포인트 경로로 펌웨어 바이너리를 업로드(`PutObject`)하고, 지역별 Nginx Edge(`seoul`, `daejeon`, `busan`)가 `secure_link` 서명·만료를 검증한 뒤 캐시 MISS 시 사설 S3 엔드포인트(`aws:SourceVpce`)로 원본을 가져간다(`GetObject`).
