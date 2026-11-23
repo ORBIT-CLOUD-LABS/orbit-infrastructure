@@ -1,0 +1,35 @@
+# 이 파일을 복사해 terraform.tfvars 로 만든 뒤 실제 값을 채워 실행합니다.
+# (주의: terraform.tfvars 는 .gitignore 에 의해 Git에 커밋되지 않습니다.)
+
+aws_profile = "default"
+aws_region  = "ap-northeast-2"
+
+# 1. 기존 계정 재사용 vs 새 계정 신규 생성 스위치
+# - 지금 기존 계정에서 시작할 때: use_existing_s3_iam = true (기존 #10/#11 버킷·IAM 그대로 연결!)
+# - 내일 새 크레딧 계정으로 옮길 때: use_existing_s3_iam = false + 새 버킷 이름 + origin_iam_user_name = "svc-origin"
+use_existing_s3_iam        = true
+firmware_bucket_name       = "orbit-firmware-origin-backup"
+vault_snapshot_bucket_name = "orbit-vault-snapshot-backup"
+origin_iam_user_name       = "orbit-origin-backup"
+vault_backup_iam_user_name = "orbit-vault-backup"
+
+# 기존 계정에 이미 켜진 보안 서비스 충돌 시 false
+enable_security_baseline = false
+
+# 2. 네트워크 & Site-to-Site VPN (목표 구성도: 10.20.0.0/16, 2a=10.20.2.0/24, 2c=10.20.4.0/24)
+vpc_cidr            = "10.20.0.0/16"
+subnet_2a_cidr      = "10.20.2.0/24"
+subnet_2c_cidr      = "10.20.4.0/24"
+onprem_cidr         = "10.10.0.0/16"
+onprem_rds_cidrs    = ["10.10.41.0/24", "10.10.42.0/24"]
+customer_gateway_ip = "CHANGE_ME_ONPREM_PUBLIC_IP"
+
+# 3. RDS 접속 정보 (사설 전용 · TLS 강제)
+db_instance_class = "db.t3.micro"
+db_name           = "vehicle"
+db_username       = "vehicle_app"
+db_password       = "CHANGE_ME_STRONG_PASSWORD"
+
+# 4. 예산 및 VPN 터널 알람 수신 이메일
+budget_limit_usd   = "200"
+budget_alert_email = ""

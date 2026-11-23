@@ -9,9 +9,9 @@
       "Condition": { "StringLike": { "s3:prefix": ["firmware", "firmware/", "firmware/*"] } }
     },
     {
-      "Sid": "ReadWriteFirmwareObjects",
+      "Sid": "ReadWriteDeleteFirmwareObjects",
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
       "Resource": "arn:aws:s3:::orbit-firmware-origin-backup/firmware/*"
     },
     {
