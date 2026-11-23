@@ -98,9 +98,13 @@ tar -tzf "$SNAP" >/dev/null 2>&1 || die "스냅샷 tar 목록 확인 실패. 업
 
 log "스냅샷 검사 통과 (${SIZE}B)"
 
-# 5. S3 업로드
+# 5. S3 업로드 (AWS_ENDPOINT_URL이 설정되어 있으면 사설 S3 인터페이스 엔드포인트 경유)
 KEY="$PREFIX$(basename -- "$SNAP")"
-aws s3api put-object \
+S3_ENDPOINT_ARGS=()
+if [[ -n "${AWS_ENDPOINT_URL:-}" ]]; then
+  S3_ENDPOINT_ARGS=(--endpoint-url "$AWS_ENDPOINT_URL")
+fi
+aws "${S3_ENDPOINT_ARGS[@]}" s3api put-object \
   --bucket "$BUCKET" \
   --key "$KEY" \
   --body "$SNAP" \
@@ -109,7 +113,7 @@ aws s3api put-object \
 log "uploaded s3://$BUCKET/$KEY (${SIZE}B)"
 
 # 6. 업로드 객체 크기 확인
-REMOTE=$(aws s3api head-object --bucket "$BUCKET" --key "$KEY" \
+REMOTE=$(aws "${S3_ENDPOINT_ARGS[@]}" s3api head-object --bucket "$BUCKET" --key "$KEY" \
            --query ContentLength --output text) || die "업로드 후 head-object 실패"
 [[ "$REMOTE" == "$SIZE" ]] || die "크기 불일치 (로컬 ${SIZE}B / S3 ${REMOTE}B)"
 

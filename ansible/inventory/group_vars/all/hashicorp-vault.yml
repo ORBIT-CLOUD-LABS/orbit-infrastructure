@@ -56,10 +56,12 @@ hvault_breakglass_passwords:
   breakglass1: "{{ vault_breakglass1_password | default('') }}"
   breakglass2: "{{ vault_breakglass2_password | default('') }}"
 
-# Raft 스냅샷 백업 (#11). 버킷·IAM은 콘솔 생성. docs/aws.md 참조
+# Raft 스냅샷 백업 (#11, #76). 버킷·IAM·사설 엔드포인트는 docs/aws.md 참조
 hvault_snapshot_bucket: orbit-vault-snapshot-backup
 hvault_snapshot_prefix: "vault/"             # IAM 정책과 수명 주기 규칙이 이 접두사에만 걸려 있다
 hvault_snapshot_region: ap-northeast-2
+# VPN 개통 뒤 사설 S3 인터페이스 엔드포인트(예: https://bucket.vpce-xxx.s3.ap-northeast-2.vpce.amazonaws.com)로 보낼 때 지정. 비우면 기본 S3 엔드포인트 사용
+hvault_snapshot_endpoint_url: ""
 hvault_snapshot_policy: vault-snapshot       # sys/storage/raft/snapshot read만
 hvault_snapshot_role: vault-snapshot         # AppRole 이름. 127.0.0.1/32로 묶음
 hvault_snapshot_token_ttl: 10m               # 스냅샷 한 번 받고 끝나는 토큰. 길 필요가 없다
