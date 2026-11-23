@@ -93,8 +93,11 @@ umask 077
 ORBIT_SECRET_FILE=$(mktemp)
 python3 - "$ORBIT_SECRET_FILE" <<'PY'
 import getpass, json, sys
-values = {key: getpass.getpass(key + ': ')
-          for key in ('DB_PASSWORD', 'ENROLLMENT_KEY', 'ADMIN_TOKEN')}
+# orbit-server application.yml 바인딩 기준 키 목록 (docs/aws.md 참조)
+plain_keys = ('DB_URL', 'DB_USERNAME', 'ORIGIN_REGION', 'ORIGIN_BUCKET', 'ORIGIN_ENDPOINT', 'CDN_URL_SIGNING_KEY_ID')
+secret_keys = ('DB_PASSWORD', 'ORIGIN_ACCESS_KEY', 'ORIGIN_SECRET_KEY', 'ENROLLMENT_KEY', 'ADMIN_TOKEN', 'CDN_URL_SIGNING_SECRET')
+values = {k: input(k + ': ').strip() for k in plain_keys}
+values.update({k: getpass.getpass(k + ': ') for k in secret_keys})
 with open(sys.argv[1], 'w') as output:
     json.dump(values, output)
 PY
