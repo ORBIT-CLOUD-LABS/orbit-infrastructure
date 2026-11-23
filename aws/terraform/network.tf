@@ -161,6 +161,11 @@ resource "aws_vpc_endpoint" "s3_interface" {
   security_group_ids  = [aws_security_group.s3_vpce[0].id]
   private_dns_enabled = true
 
+  # Gateway 엔드포인트 없이 S3 Interface 엔드포인트 단독으로 Private DNS를 켜기 위한 설정
+  dns_options {
+    private_dns_only_for_inbound_resolver_endpoint = false
+  }
+
   # 엔드포인트 정책: 우리 프로젝트의 버킷 2개만 통과 허용
   policy = jsonencode({
     Version = "2012-10-17"
@@ -298,7 +303,7 @@ resource "aws_instance" "admin_jump" {
   instance_type               = "t4g.nano"
   subnet_id                   = aws_subnet.private_2a.id
   vpc_security_group_ids      = [aws_security_group.admin_jump[0].id]
-  iam_instance_profile        = aws_iam_role.admin_jump[0] != null ? aws_iam_instance_profile.admin_jump[0].name : null
+  iam_instance_profile        = aws_iam_instance_profile.admin_jump[0].name
   associate_public_ip_address = false
 
   # IMDSv2 강제 (구성도 명시 사항)

@@ -192,13 +192,15 @@ output "admin_jump_instance_id" {
 }
 
 output "vpn_tunnel1_address" {
-  description = "strongSwan 설정용 AWS VPN 터널 1 외부 IP"
+  description = "strongSwan 설정용 AWS VPN 터널 1 외부 IP (민감값)"
   value       = var.enable_vpn ? aws_vpn_connection.onprem[0].tunnel1_address : null
+  sensitive   = true
 }
 
 output "vpn_tunnel2_address" {
-  description = "strongSwan 설정용 AWS VPN 터널 2 외부 IP"
+  description = "strongSwan 설정용 AWS VPN 터널 2 외부 IP (민감값)"
   value       = var.enable_vpn ? aws_vpn_connection.onprem[0].tunnel2_address : null
+  sensitive   = true
 }
 
 output "vpn_tunnel1_preshared_key" {
