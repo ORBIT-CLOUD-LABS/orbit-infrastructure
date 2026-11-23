@@ -1,0 +1,36 @@
+# 크레딧 계정 신규 구축용 예시 파일 (복사하여 terraform.tfvars 로 사용 — Git 커밋 금지)
+aws_region  = "ap-northeast-2"
+aws_profile = "orbit-credit"
+environment = "prod"
+owner       = "sungahbak"
+
+# 강의실 방화벽 바깥 공인 IP 및 온프레미스 대역 (재설계 10.10.0.0/16)
+customer_gateway_ip = "203.0.113.10"
+onprem_cidr         = "10.10.0.0/16"
+onprem_rds_cidrs    = ["10.10.41.0/24", "10.10.42.0/24"]
+
+# 사설 엔드포인트 및 관리자 SSM 점프 호스트
+enable_vpn        = true
+enable_s3_vpce    = true
+enable_admin_jump = true
+
+# 사설 RDS (vehicle)
+db_instance_class = "db.t3.micro"
+db_name           = "vehicle"
+db_username       = "vehicle_app"
+db_password       = "CHANGE_ME_STRONG_PASSWORD"
+db_multi_az       = false
+
+# 크레딧 계정 신규 생성 모드: 새 버킷 2개(스냅샷 Object Lock Governance 30일 포함)와 서비스 IAM 계정을 처음부터 생성
+use_existing_s3_iam        = false
+enable_vault_object_lock   = true
+firmware_bucket_name       = "orbit-firmware-origin-prod"
+vault_snapshot_bucket_name = "orbit-vault-snapshot-prod"
+origin_iam_user_name       = "svc-origin"
+vault_backup_iam_user_name = "svc-vault-backup"
+
+# 보안·감사 기본선 및 예산 알람
+enable_security_baseline = true
+cloudtrail_bucket_name   = ""
+budget_limit_usd         = "200"
+budget_alert_email       = ""
