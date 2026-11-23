@@ -1,0 +1,7 @@
+# S3 원격 state 백엔드 설정 예시 (providers.tf 의 backend "s3" 주석 해제 후 사용)
+# 사용: terraform -chdir=aws/terraform init -backend-config=backend.hcl -migrate-state
+bucket       = "<TFSTATE_BUCKET_NAME>"
+key          = "orbit/aws/terraform.tfstate"
+region       = "ap-northeast-2"
+encrypt      = true
+use_lockfile = true
