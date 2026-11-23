@@ -128,7 +128,11 @@ table inet orbit_fw {
 
 	chain to_aws {
 		rt ipsec missing drop
+		# IPsec ESP + NAT-T(UDP 4500) 오버헤드로 줄어드는 경로 MTU에 맞춰 대용량 S3 전송 단편화 방지
+		tcp flags syn / syn,rst tcp option maxseg size set {{ fw_vpn_mss }}
 		ip saddr @cluster_nets tcp dport { {{ fw_aws_tcp_ports | join(', ') }} } accept
+		# vault VM의 스냅샷 백업이 사설 S3 인터페이스 엔드포인트(443)로 나갈 수 있게 허용
+		ip saddr {{ fw_vault_ip }} tcp dport 443 accept
 		drop
 	}
 

@@ -20,3 +20,12 @@
     name: keepalived
     state: restarted
   when: not ansible_check_mode
+
+# VIP를 가진 MASTER 노드에서 strongswan이 이미 떠 있을 때만 새 swanctl 설정을 반영
+- name: reload swanctl
+  ansible.builtin.shell: |
+    if systemctl is-active --quiet {{ fw_strongswan_service }}; then
+      /usr/sbin/swanctl --load-all
+    fi
+  changed_when: true
+  when: not ansible_check_mode
