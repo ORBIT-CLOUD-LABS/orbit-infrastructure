@@ -237,3 +237,23 @@ Phase 2 펌웨어 원본(Origin) 저장소다. `orbit-server`가 VPN 및 S3 인�
 - **`orbit-vault-backup` 액세스 키 및 스냅샷 사설 경로**: `ansible-vault`로 암호화해 `vault` VM의 `/etc/vault.d/snapshot-aws.env`(`root:root`, `0600`)에 배치한다. VPN 개통 뒤 `inventory/group_vars/all/hashicorp-vault.yml`의 `hvault_snapshot_endpoint_url`에 위 `https://bucket.<vpce>...` 주소를 지정하면 스냅샷 업로드·복원도 사설 엔드포인트를 거친다.
 - **경로 점검**: 터널 개통 후 OTA 클러스터 노드에서 `scripts/orbit-aws-path-check.sh --rds-host <rds-host> --vpce-dns <bucket.vpce-...>`로 사설 도달성과 공인 경로 `403` 차단을 함께 확인한다.
 - 코드, ConfigMap, 공개 저장소에는 평문 키와 실제 공인 IP를 저장하지 않는다.
+
+## 크레딧 계정 전환 및 기존 계정 정리 (#77)
+
+선행 연동(`#74`~`#76`) 확인이 끝난 뒤 신규 크레딧 계정으로 전환할 때는 `aws/terraform/terraform.tfvars.credit.example` 및 `backend.hcl.example`을 기준으로 아래 순서대로 진행한다.
+
+1. **원격 state 버킷 준비 및 초기화**: 신규 계정에 암호화·버전 관리·퍼블릭 액세스 차단이 켜진 state 전용 S3 버킷을 만든 뒤, `providers.tf`의 `backend "s3"` 주석을 해제하고 `terraform -chdir=aws/terraform init -backend-config=backend.hcl`을 실행한다.
+2. **신규 계정 인프라 일괄 생성 (`use_existing_s3_iam = false`)**: `terraform.tfvars.credit.example`을 복사해 `use_existing_s3_iam = false`, `enable_vault_object_lock = true`로 `terraform apply`를 실행한다(Vault 스냅샷 버킷 생성 시점에 `Object Lock` Governance 30일이 함께 켜진다).
+3. **신규 계정 보안 설정 자동 점검 (`cutover` 모드)**:
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\orbit-aws-cutover-check.ps1 -Mode cutover -Profile orbit-credit -FirmwareBucket <신규-펌웨어-버킷> -VaultBucket <신규-스냅샷-버킷> -ExpectObjectLock
+   ```
+4. **온프레미스 연동 값 교체**:
+   - 신규 계정의 서비스 IAM 사용자(`svc-origin`, `svc-vault-backup`) 액세스 키를 발급받아 각각 Vault `secret/orbit/k3s/orbit-server`와 `ansible-vault`(`vault.yml`)에 반영한다.
+   - 새 VPN 터널 주소·사전 공유 키를 `vault.yml`에 반영하고 `fw.yml`을 재실행해 터널을 전환한다.
+5. **기존 계정 정리 및 잔여 과금 리소스 `0` 확인 (`cleanup` 모드)**:
+   - 기존 계정의 로컬 작업본에서 `terraform destroy`로 시간당 과금 리소스(VPN 연결, 인터페이스 엔드포인트 4개, 사설 RDS, `admin-jump` EC2)를 제거한다.
+   - 아래 명령으로 잔여 과금 리소스가 모두 `0`인지 확인한다.
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\orbit-aws-cutover-check.ps1 -Mode cleanup -Profile <기존-계정-프로파일>
+   ```
