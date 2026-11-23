@@ -144,6 +144,31 @@
         central_indexer_reader: "{{ central_secret_value }}"
       no_log: true
 
+- name: Dashboard 세션 유지 시간 설정
+  when: wazuh_central_dashboard_session_ttl_ms is not none
+  block:
+    - name: Dashboard 세션 유지 시간 값 검증
+      ansible.builtin.assert:
+        that:
+          - wazuh_central_dashboard_session_ttl_ms | string is match('^[1-9][0-9]*$')
+        fail_msg: Dashboard 세션 유지 시간은 밀리초 단위의 양의 정수여야 합니다.
+
+    - name: Dashboard 쿠키와 세션 TTL 반영
+      ansible.builtin.lineinfile:
+        path: /etc/wazuh-dashboard/opensearch_dashboards.yml
+        regexp: '^\s*{{ item | regex_escape }}\s*:'
+        line: '{{ item }}: {{ wazuh_central_dashboard_session_ttl_ms }}'
+      loop:
+        - opensearch_security.cookie.ttl
+        - opensearch_security.session.ttl
+      diff: false
+      when: not ansible_check_mode or not wazuh_central_empty | bool
+      notify: Wazuh Dashboard 재시작
+
+    - name: Dashboard 상태 확인 전에 변경 반영
+      ansible.builtin.meta: flush_handlers
+      when: not ansible_check_mode
+
 - name: 설치된 구성요소와 서비스 상태 검증
   when: not ansible_check_mode
   block:
@@ -175,7 +200,12 @@
         follow_redirects: none
         status_code: [200, 302]
         use_proxy: false
-    
+        timeout: 5
+      register: wazuh_dashboard_https_result
+      until: wazuh_dashboard_https_result.status | default(-1) in [200, 302]
+      retries: 12
+      delay: 5
+
     - name: Vault의 Dashboard 관리자 자격 증명으로 Indexer 인증 확인
       ansible.builtin.uri:
         url: "{{ wazuh_central_indexer_url | regex_replace('/+$', '') }}/_plugins/_security/authinfo"

@@ -69,6 +69,12 @@ Tailscale에 연결한 Mac에서 `https://wazuh-ui.orbit-labs.space/`를 열면 
 
 Vault PKI를 이용해 `wazuh.orbit-labs.space`가 SAN에 포함된 서버 인증서를 발급하는 방안을 검토한다. 발급 경로와 브라우저의 CA 신뢰 절차를 확정한 뒤 Dashboard에 인증서를 적용하고, Chrome에서 경고 없이 접속하고 로그인할 수 있는지 검증한다. [Wazuh Dashboard 인증서 설정](https://documentation.wazuh.com/current/user-manual/wazuh-dashboard/configuring-third-party-certs/index.html)
 
+### 로그인 세션 (#82)
+
+`secure`의 Dashboard 쿠키와 세션 TTL을 15분에서 1시간(`3600000` ms)으로 늘렸다. 운영 값은 `ansible/inventory/host_vars/secure.yml`의 `wazuh_central_dashboard_session_ttl_ms`에 둔다. `opensearch_security.session.keepalive`는 `true`이며, 인증된 요청이 들어오면 세션 만료 시각이 갱신될 수 있다.
+
+astra에서 Vault 인증을 준비한 뒤 저장소 `ansible/`에서 `ansible-playbook playbooks/wazuh-central.yml --limit secure`를 실행한다. TTL이 바뀌면 Dashboard를 재시작한다.
+
 ## Ansible 자동화
 
 ### 플레이북
@@ -205,3 +211,11 @@ Vault 연동 후 기존 `wazuh` VM의 일반 실행 결과는 `ok=15 changed=0 u
 | 2026-11-15 | 기존 `wazuh` VM | SSH 인증서 준비 후 플레이북 일반 실행 | 성공. `ok=23 changed=0 unreachable=0 failed=0 skipped=12` |
 | — | 신규 VM | 최초 설치 및 계정 초기화 | 미검증 |
 | — | 기존 VM | 누락된 계정·권한 보완 및 관리자 인증 | 미검증 |
+
+### Dashboard 세션 검증 (#82)
+
+| 날짜 | 대상 | 확인 항목 | 결과 |
+| --- | --- | --- | --- |
+| 2026-11-23 | `secure` | Dashboard 설정 파일 | `cookie.ttl`·`session.ttl` 모두 `3600000`, `session.keepalive`는 `true` |
+| 2026-11-23 | `secure` | 같은 값으로 플레이북 재실행 | `changed=0`, `failed=0`. Dashboard 로컬 HTTPS 응답 확인 |
+| — | 공용 접속 경로 | 브라우저 세션 유지 및 만료 | 미검증 |
