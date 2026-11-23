@@ -1,0 +1,64 @@
+# {{ ansible_managed }}
+# AWS Site-to-Site VPN 터널 설정 (IKEv2, NAT-T UDP 4500, 정적 경로 10.10.0.0/16 <-> 10.20.0.0/16)
+# VIP를 가진 쪽(MASTER)에서만 strongswan이 실행되며, fw가 먼저 연결을 개시함 (docs/fw.md)
+connections {
+    aws-tunnel-1 {
+        version = 2
+        mobike = no
+        encap = yes
+        dpd_delay = {{ fw_vpn_dpd_delay }}
+        rekey_time = 27000s
+        proposals = {{ fw_vpn_ike_proposal }}
+        local_addrs = {{ outer_ip }}
+        remote_addrs = {{ fw_vpn_tunnel1_ip }}
+
+        local {
+            auth = psk
+        }
+        remote {
+            auth = psk
+            id = {{ fw_vpn_tunnel1_ip }}
+        }
+        children {
+            aws-tunnel-1-child {
+                local_ts = {{ fw_vpn_local_net }}
+                remote_ts = {{ fw_aws_net }}
+                esp_proposals = {{ fw_vpn_esp_proposal }}
+                rekey_time = 3300s
+                dpd_action = restart
+                start_action = trap|start
+            }
+        }
+    }
+{% if fw_vpn_tunnel2_ip | length > 0 %}
+    # 예비 터널 (trap으로 두어 주 터널 장애나 AWS 측 재협상 시 전환)
+    aws-tunnel-2 {
+        version = 2
+        mobike = no
+        encap = yes
+        dpd_delay = {{ fw_vpn_dpd_delay }}
+        rekey_time = 27000s
+        proposals = {{ fw_vpn_ike_proposal }}
+        local_addrs = {{ outer_ip }}
+        remote_addrs = {{ fw_vpn_tunnel2_ip }}
+
+        local {
+            auth = psk
+        }
+        remote {
+            auth = psk
+            id = {{ fw_vpn_tunnel2_ip }}
+        }
+        children {
+            aws-tunnel-2-child {
+                local_ts = {{ fw_vpn_local_net }}
+                remote_ts = {{ fw_aws_net }}
+                esp_proposals = {{ fw_vpn_esp_proposal }}
+                rekey_time = 3300s
+                dpd_action = trap
+                start_action = trap
+            }
+        }
+    }
+{% endif %}
+}

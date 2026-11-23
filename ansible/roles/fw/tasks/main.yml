@@ -16,9 +16,19 @@
     fail_msg: "{{ inventory_hostname }}: {{ fw_inner_if }}, {{ fw_outer_if }}가 있어야 함. ip -br link 로 확인"
     quiet: true
 
+- name: VPN 활성화 시 터널 주소와 사전 공유 키가 있어야 함
+  ansible.builtin.assert:
+    that:
+      - fw_vpn_tunnel1_ip | length > 0
+      - (vault_aws_vpn_tunnel1_psk | default('')) | length > 0
+      - fw_vpn_tunnel2_ip | length == 0 or (vault_aws_vpn_tunnel2_psk | default('')) | length > 0
+    fail_msg: "fw_vpn_enabled=true일 때는 fw_vpn_tunnel1_ip와 vault_aws_vpn_tunnel1_psk(터널 2 사용 시 tunnel2 값 포함)가 있어야 함 (docs/fw.md)"
+    quiet: true
+  when: fw_vpn_enabled | bool
+
 - name: 패키지
   ansible.builtin.apt:
-    name: [nftables, keepalived, conntrackd, conntrack, charon-systemd]
+    name: [nftables, keepalived, conntrackd, conntrack, charon-systemd, strongswan-swanctl]
     state: present
     update_cache: true
     cache_valid_time: 3600
@@ -87,6 +97,36 @@
         mode: "0644"
         validate: keepalived -t -f %s
       notify: restart keepalived
+
+    - name: strongSwan AWS VPN 터널 설정 (swanctl)
+      ansible.builtin.template:
+        src: swanctl-aws.conf.j2
+        dest: /etc/swanctl/conf.d/orbit-aws.conf
+        owner: root
+        group: root
+        mode: "0600"
+      notify: reload swanctl
+      when: fw_vpn_enabled | bool
+
+    - name: strongSwan AWS VPN 사전 공유 키 (비밀값 출력 차단)
+      ansible.builtin.template:
+        src: swanctl-aws-secrets.conf.j2
+        dest: /etc/swanctl/conf.d/orbit-aws-secrets.conf
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      notify: reload swanctl
+      when: fw_vpn_enabled | bool
+
+    - name: VPN 비활성화 시 기존 swanctl 설정 제거
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/swanctl/conf.d/orbit-aws.conf
+        - /etc/swanctl/conf.d/orbit-aws-secrets.conf
+      when: not (fw_vpn_enabled | bool)
 
 # 순서: 규칙 → 연결 상태 동기화 → VIP. VIP가 붙기 전에 규칙과 동기화가 먼저 있어야 함
 - name: 규칙과 동기화 먼저 적용

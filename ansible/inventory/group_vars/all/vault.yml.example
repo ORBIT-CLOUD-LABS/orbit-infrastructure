@@ -18,3 +18,8 @@ vault_personal_accounts_password_hashes:
 # astra의 /etc/vault.d/snapshot-aws.env (root 0600)로만 내려간다. 평문은 여기에도 두지 않음
 vault_snapshot_aws_access_key_id: "AKIA..."
 vault_snapshot_aws_secret_access_key: "<시크릿 액세스 키>"
+# AWS Site-to-Site VPN 터널 주소·사전 공유 키 (aws/terraform output -raw vpn_tunnel1_* 로 조회). docs/fw.md 참조
+vault_aws_vpn_tunnel1_ip: "<터널 1 외부 IP>"
+vault_aws_vpn_tunnel2_ip: "<터널 2 외부 IP>"
+vault_aws_vpn_tunnel1_psk: "<터널 1 사전 공유 키>"
+vault_aws_vpn_tunnel2_psk: "<터널 2 사전 공유 키>"
