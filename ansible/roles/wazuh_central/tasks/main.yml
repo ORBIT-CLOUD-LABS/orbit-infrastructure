@@ -200,7 +200,12 @@
         follow_redirects: none
         status_code: [200, 302]
         use_proxy: false
-    
+        timeout: 5
+      register: wazuh_dashboard_https_result
+      until: wazuh_dashboard_https_result.status | default(-1) in [200, 302]
+      retries: 12
+      delay: 5
+
     - name: Vault의 Dashboard 관리자 자격 증명으로 Indexer 인증 확인
       ansible.builtin.uri:
         url: "{{ wazuh_central_indexer_url | regex_replace('/+$', '') }}/_plugins/_security/authinfo"
