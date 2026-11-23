@@ -225,8 +225,15 @@ Phase 2 펌웨어 원본(Origin) 저장소다. `orbit-server`가 VPN 및 S3 인�
 3. **Vault 스냅샷 (`orbit-vault-backup`)**: 백업 자격증명이 탈취되더라도 기존 백업본을 지울 수 없도록 `s3:DeleteObject`를 부여하지 않는다.
 4. **개인 IAM 계정 분리**: 서비스 전용 관리형 정책(`OrbitOriginBackupS3Policy`, `OrbitVaultSnapshotBackupS3Policy`)은 팀원 개인 계정에 연결하지 않고 각 서비스 전용 사용자 1개(`AttachmentCount = 1`)에만 단독 유지한다.
 
-### 자격증명 보관
+### 자격증명 보관 및 서버·Edge 사설 경로 연동 (#76)
 
-- `orbit-origin-backup` 액세스 키: Vault `secret/orbit/k3s/orbit-server`(ESO가 읽는 k3s 구역)에 `ORIGIN_S3_ACCESS_KEY`, `ORIGIN_S3_SECRET_KEY`로 저장하여 External Secrets Operator(ESO)가 `orbit-server-secret`으로 동기화한다([docs/vault.md](vault.md) 참조).
-- `orbit-vault-backup` 액세스 키: `ansible-vault`로 암호화해 `astra`의 `/etc/vault.d/snapshot-aws.env`(`root:root`, `0600`)에 배치한다.
+- **`orbit-server` Vault 경로 (`secret/orbit/k3s/orbit-server`)**: `orbit-server/src/main/resources/application.yml` 바인딩 이름에 맞춰 아래 키로 저장하며, ESO가 Kubernetes Secret으로 동기화한다([docs/vault.md](vault.md) 참조).
+  - DB 연결: `DB_URL`(`jdbc:mysql://<rds_endpoint>:3306/vehicle?sslMode=REQUIRED`), `DB_USERNAME`(`vehicle_app`), `DB_PASSWORD`
+  - S3 Origin 연결: `ORIGIN_REGION`(`ap-northeast-2`), `ORIGIN_BUCKET`(`orbit-firmware-origin-backup`), `ORIGIN_ACCESS_KEY`, `ORIGIN_SECRET_KEY`, `ORIGIN_ENDPOINT`
+  - 앱 인증·서명: `ENROLLMENT_KEY`, `ADMIN_TOKEN`, `CDN_URL_SIGNING_KEY_ID`, `CDN_URL_SIGNING_SECRET`
+- **사설 S3 인터페이스 엔드포인트(`orbit-s3-vpce`) 연결 방식**:
+  1. `ORIGIN_ENDPOINT`에 리전별 VPCE 버킷 DNS(`https://bucket.<vpce-id>-<suffix>.s3.ap-northeast-2.vpce.amazonaws.com`) 지정: 공용 DNS에서도 `10.20.2.x` 사설 IP로 바로 해석되며, `OriginStorageConfig.java`가 `forcePathStyle(true)`(`https://bucket.<vpce>.../orbit-firmware-origin-backup/firmware/...`)로 요청해 별도 내부 DNS 변경 없이 동작한다.
+  2. 클러스터 CoreDNS `hosts`에서 `orbit-firmware-origin-backup.s3.ap-northeast-2.amazonaws.com`을 `orbit-s3-vpce` 사설 IP로 매핑하는 방식: `ORIGIN_ENDPOINT`를 비워 기본 버킷 도메인(virtual-hosted style)을 그대로 쓰며, CDN Edge `nginx`에서도 `proxy_ssl_server_name on`으로 동일 도메인을 프록시할 수 있다.
+- **`orbit-vault-backup` 액세스 키 및 스냅샷 사설 경로**: `ansible-vault`로 암호화해 `vault` VM의 `/etc/vault.d/snapshot-aws.env`(`root:root`, `0600`)에 배치한다. VPN 개통 뒤 `inventory/group_vars/all/hashicorp-vault.yml`의 `hvault_snapshot_endpoint_url`에 위 `https://bucket.<vpce>...` 주소를 지정하면 스냅샷 업로드·복원도 사설 엔드포인트를 거친다.
+- **경로 점검**: 터널 개통 후 OTA 클러스터 노드에서 `scripts/orbit-aws-path-check.sh --rds-host <rds-host> --vpce-dns <bucket.vpce-...>`로 사설 도달성과 공인 경로 `403` 차단을 함께 확인한다.
 - 코드, ConfigMap, 공개 저장소에는 평문 키와 실제 공인 IP를 저장하지 않는다.

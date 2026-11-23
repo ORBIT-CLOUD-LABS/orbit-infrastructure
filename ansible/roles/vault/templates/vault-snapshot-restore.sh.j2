@@ -33,7 +33,16 @@ usage() {
 
 [[ $# -ge 1 ]] || usage
 
-s3() { set -a; . "{{ hvault_snapshot_aws_env }}"; set +a; aws "$@"; }
+s3() {
+  set -a
+  . "{{ hvault_snapshot_aws_env }}"
+  set +a
+  local ep_args=()
+  if [[ -n "${AWS_ENDPOINT_URL:-}" ]]; then
+    ep_args=(--endpoint-url "$AWS_ENDPOINT_URL")
+  fi
+  aws "${ep_args[@]}" "$@"
+}
 
 if [[ "$1" == "--list" ]]; then
   s3 s3api list-objects-v2 --bucket "$BUCKET" --prefix "$PREFIX" \
