@@ -45,6 +45,22 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cloudtrail" {
   }
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {
+  count  = var.enable_security_baseline && var.cloudtrail_bucket_name != "" ? 1 : 0
+  bucket = aws_s3_bucket.cloudtrail[0].id
+
+  rule {
+    id     = "cloudtrail-expire-90d"
+    status = "Enabled"
+    filter {
+      prefix = "AWSLogs/"
+    }
+    expiration {
+      days = 90
+    }
+  }
+}
+
 resource "aws_s3_bucket_policy" "cloudtrail" {
   count  = var.enable_security_baseline && var.cloudtrail_bucket_name != "" ? 1 : 0
   bucket = aws_s3_bucket.cloudtrail[0].id

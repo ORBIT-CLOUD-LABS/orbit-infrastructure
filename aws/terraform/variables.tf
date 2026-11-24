@@ -204,3 +204,30 @@ variable "budget_alert_email" {
   type        = string
   default     = ""
 }
+
+# ---------------------------------------------------------------------------
+# 팀원 역할별 IAM 그룹 (목표 구성도: orbit-admins MFA 강제, orbit-devs ReadOnly)
+# ---------------------------------------------------------------------------
+variable "enable_team_iam_groups" {
+  description = "팀원 역할별 IAM 그룹(orbit-admins, orbit-devs), MFA 강제 정책, 계정 비밀번호 정책 생성 여부"
+  type        = bool
+  default     = false
+}
+
+variable "create_iam_users" {
+  description = "Terraform으로 새로 생성할 팀원 개인 IAM 사용자 목록 (이미 콘솔에 생성된 계정은 제외하고 아래 그룹 멤버에만 기재)"
+  type        = list(string)
+  default     = []
+}
+
+variable "admin_group_members" {
+  description = "orbit-admins 그룹(AdministratorAccess + MFA 강제)에 편입할 IAM 사용자 목록"
+  type        = list(string)
+  default     = []
+}
+
+variable "dev_group_members" {
+  description = "orbit-devs 그룹(ReadOnlyAccess + MFA 강제)에 편입할 IAM 사용자 목록"
+  type        = list(string)
+  default     = []
+}

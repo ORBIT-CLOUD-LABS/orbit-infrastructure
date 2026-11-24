@@ -15,7 +15,7 @@ enable_s3_vpce    = true
 enable_admin_jump = true
 
 # 사설 RDS (vehicle)
-db_instance_class = "db.t3.micro"
+db_instance_class = "db.t4g.micro"
 db_name           = "vehicle"
 db_username       = "vehicle_app"
 db_password       = "CHANGE_ME_STRONG_PASSWORD"
@@ -29,8 +29,14 @@ vault_snapshot_bucket_name = "orbit-vault-snapshot-prod"
 origin_iam_user_name       = "svc-origin"
 vault_backup_iam_user_name = "svc-vault-backup"
 
+# 팀원 역할별 IAM 그룹 (목표 구성도: orbit-admins MFA 강제, orbit-devs ReadOnly)
+enable_team_iam_groups = true
+create_iam_users       = ["hyn128", "chuchuu22", "jyvnee", "xoruddl"]
+admin_group_members    = ["sungahbak", "hyn128"]
+dev_group_members      = ["chuchuu22", "jyvnee", "xoruddl"]
+
 # 보안·감사 기본선 및 예산 알람
 enable_security_baseline = true
-cloudtrail_bucket_name   = ""
-budget_limit_usd         = "200"
+cloudtrail_bucket_name   = "orbit-cloudtrail-logs-prod"
+budget_limit_usd         = "100"
 budget_alert_email       = ""
