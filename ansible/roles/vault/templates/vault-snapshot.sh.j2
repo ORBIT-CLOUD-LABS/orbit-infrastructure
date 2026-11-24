@@ -14,7 +14,10 @@ umask 077
 
 VAULT_ADDR="https://127.0.0.1:{{ hvault_port }}"
 VAULT_CACERT="{{ hvault_tls_dir }}/vault-ca.crt"
-export VAULT_ADDR VAULT_CACERT
+unset HOME
+AWS_CONFIG_FILE=/dev/null
+AWS_SHARED_CREDENTIALS_FILE=/dev/null
+export VAULT_ADDR VAULT_CACERT AWS_CONFIG_FILE AWS_SHARED_CREDENTIALS_FILE
 
 BUCKET="{{ hvault_snapshot_bucket }}"
 PREFIX="{{ hvault_snapshot_prefix }}"
@@ -64,7 +67,8 @@ metric() {
 [[ -n "${VAULT_SNAPSHOT_SECRET_ID:-}" ]] || die "VAULT_SNAPSHOT_SECRET_ID 없음"
 [[ -n "${AWS_ACCESS_KEY_ID:-}"        ]] || die "AWS_ACCESS_KEY_ID 없음 ({{ hvault_snapshot_aws_env }} 확인)"
 
-SEALED=$(vault status -format=json 2>/dev/null | jq -r '.sealed // "unknown"' || echo unknown)
+# jq의 `//` 연산자는 boolean false도 거짓으로 취급하므로 has("sealed")와 tostring으로 판별함
+SEALED=$(vault status -format=json 2>/dev/null | jq -r 'if type == "object" and has("sealed") then (.sealed | tostring) else "unknown" end' || echo unknown)
 [[ "$SEALED" == "false" ]] || die "Vault가 sealed 또는 응답 없음 (sealed=$SEALED). unseal 후 다시 실행"
 
 mkdir -p -- "$WORK_DIR"
