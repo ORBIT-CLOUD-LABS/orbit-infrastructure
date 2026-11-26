@@ -347,3 +347,138 @@ resource "aws_iam_policy" "admin_ssm_port_forward" {
     ]
   })
 }
+
+# ---------------------------------------------------------------------------
+# [팀원 사람 계정 분리] orbit-admins (MFA 강제 관리자) · orbit-devs (ReadOnly)
+# ---------------------------------------------------------------------------
+resource "aws_iam_account_password_policy" "strict" {
+  count = var.enable_team_iam_groups ? 1 : 0
+
+  minimum_password_length        = 14
+  require_lowercase_characters   = true
+  require_uppercase_characters   = true
+  require_numbers                = true
+  require_symbols                = true
+  allow_users_to_change_password = true
+  password_reuse_prevention      = 5
+}
+
+resource "aws_iam_policy" "force_mfa" {
+  count       = var.enable_team_iam_groups ? 1 : 0
+  name        = "OrbitForceMfaPolicy"
+  description = "MFA 미인증 상태에서 본인 MFA 등록 및 비밀번호 변경 외 모든 AWS 작업 거부"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "AllowViewAccountInfo"
+        Effect   = "Allow"
+        Action   = ["iam:GetAccountPasswordPolicy", "iam:ListVirtualMFADevices"]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowManageOwnPasswordAndMfa"
+        Effect = "Allow"
+        Action = [
+          "iam:ChangePassword",
+          "iam:GetUser",
+          "iam:CreateVirtualMFADevice",
+          "iam:EnableMFADevice",
+          "iam:GetMFADevice",
+          "iam:ListMFADevices",
+          "iam:ResyncMFADevice"
+        ]
+        Resource = [
+          "arn:aws:iam::*:user/$${aws:username}",
+          "arn:aws:iam::*:mfa/*"
+        ]
+      },
+      {
+        Sid    = "DenyAllExceptListedIfNoMfa"
+        Effect = "Deny"
+        NotAction = [
+          "iam:CreateVirtualMFADevice",
+          "iam:EnableMFADevice",
+          "iam:GetUser",
+          "iam:GetMFADevice",
+          "iam:ListMFADevices",
+          "iam:ListVirtualMFADevices",
+          "iam:ResyncMFADevice",
+          "sts:GetSessionToken",
+          "iam:ChangePassword",
+          "iam:GetAccountPasswordPolicy"
+        ]
+        Resource = "*"
+        Condition = {
+          BoolIfExists = {
+            "aws:MultiFactorAuthPresent" = "false"
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_group" "admins" {
+  count = var.enable_team_iam_groups ? 1 : 0
+  name  = "orbit-admins"
+}
+
+resource "aws_iam_group_policy_attachment" "admins_admin" {
+  count      = var.enable_team_iam_groups ? 1 : 0
+  group      = aws_iam_group.admins[0].name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+resource "aws_iam_group_policy_attachment" "admins_mfa" {
+  count      = var.enable_team_iam_groups ? 1 : 0
+  group      = aws_iam_group.admins[0].name
+  policy_arn = aws_iam_policy.force_mfa[0].arn
+}
+
+resource "aws_iam_group_policy_attachment" "admins_ssm" {
+  count      = var.enable_team_iam_groups && var.enable_admin_jump ? 1 : 0
+  group      = aws_iam_group.admins[0].name
+  policy_arn = aws_iam_policy.admin_ssm_port_forward[0].arn
+}
+
+resource "aws_iam_group" "devs" {
+  count = var.enable_team_iam_groups ? 1 : 0
+  name  = "orbit-devs"
+}
+
+resource "aws_iam_group_policy_attachment" "devs_readonly" {
+  count      = var.enable_team_iam_groups ? 1 : 0
+  group      = aws_iam_group.devs[0].name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+resource "aws_iam_group_policy_attachment" "devs_mfa" {
+  count      = var.enable_team_iam_groups ? 1 : 0
+  group      = aws_iam_group.devs[0].name
+  policy_arn = aws_iam_policy.force_mfa[0].arn
+}
+
+locals {
+  team_iam_users = var.enable_team_iam_groups ? toset(concat(var.admin_group_members, var.dev_group_members)) : toset([])
+}
+
+# 콘솔에서 미리 생성된 사용자도 terraform import 'aws_iam_user.team["<이름>"]' <이름> 으로 편입해 전원 Terraform으로 관리
+resource "aws_iam_user" "team" {
+  for_each = local.team_iam_users
+  name     = each.value
+  tags     = { Component = "iam-team" }
+}
+
+resource "aws_iam_user_group_membership" "admins" {
+  for_each = var.enable_team_iam_groups ? toset(var.admin_group_members) : toset([])
+  user     = aws_iam_user.team[each.value].name
+  groups   = [aws_iam_group.admins[0].name]
+}
+
+resource "aws_iam_user_group_membership" "devs" {
+  for_each = var.enable_team_iam_groups ? toset(var.dev_group_members) : toset([])
+  user     = aws_iam_user.team[each.value].name
+  groups   = [aws_iam_group.devs[0].name]
+}

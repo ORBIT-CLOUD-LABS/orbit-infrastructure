@@ -15,7 +15,7 @@ Phase 2 AWS 저장소(S3, RDS) 및 사설 네트워크 구성을 기록한다.
 | root 액세스 키 | 없음 (발급하지 않음) |
 | GuardDuty | 활성화 (`aws_guardduty_detector`) |
 | IAM Access Analyzer | 계정 단위 활성화 (`orbit-account-analyzer`) |
-| CloudTrail | 선택 변수(`cloudtrail_bucket_name`) 지정 시 전 리전·로그 무결성 검증 활성화 |
+| CloudTrail | 전 리전·글로벌 이벤트·로그 무결성 검증 활성화 (`orbit-account-trail`, S3 90일 수명 주기) |
 | 알람 및 예산 | VPN `TunnelState` CloudWatch 알람, 선택 변수(`budget_alert_email`) 지정 시 월간 `AWS Budgets` 알람 |
 
 ## 구성 정의 파일 (`aws/`)
@@ -210,13 +210,16 @@ Phase 2 펌웨어 원본(Origin) 저장소다. `orbit-server`가 VPN 및 S3 인�
 
 ## IAM
 
-### 전용 사용자 및 정책
+### 전용 사용자·그룹 및 정책
 
-| 사용자 | 연결 정책 | 용도 |
-|---|---|---|
-| `orbit-origin-backup` | `OrbitOriginBackupS3Policy` 및 인라인 `OrbitOriginFirmwarePolicy` | `orbit-server`의 펌웨어 Origin 업로드·조회·실패 롤백 삭제 |
-| `orbit-vault-backup` | `OrbitVaultSnapshotBackupS3Policy` | `astra`의 Vault 스냅샷 업로드·복구 조회 |
-| 관리자 계정 (필요 시 연결) | `OrbitAdminSsmPortForwardPolicy` | `admin-jump` 대상 포트 포워딩 세션(`AWS-StartPortForwardingSessionToRemoteHost`)만 허용 |
+| 구분 | 이름 | 연결 정책 | 용도 |
+|---|---|---|---|
+| 서비스 사용자 | `svc-origin` (구 `orbit-origin-backup`) | `OrbitOriginFirmwarePolicy` | `orbit-server`의 펌웨어 Origin 업로드·조회·실패 롤백 삭제 |
+| 서비스 사용자 | `svc-vault-backup` (구 `orbit-vault-backup`) | `OrbitVaultSnapshotBackupPolicy` | `vault` VM의 Raft 스냅샷 업로드·복구 조회 |
+| 팀 관리자 그룹 | `orbit-admins` | `AdministratorAccess`, `OrbitForceMfaPolicy`, `OrbitAdminSsmPortForwardPolicy` | 팀 관리자 (`dohyun`, `jihyun`, `jiwoo`, `sunga`, `taekyung`) — MFA 인증 시에만 권한 발효 |
+| 팀 개발자 그룹 | `orbit-devs` | `ReadOnlyAccess`, `OrbitForceMfaPolicy` | 조회 전용 분리 시 사용 (`dev_group_members`) — 루트 계정 미공유, MFA 강제 |
+
+- 팀원 개인 IAM 사용자도 콘솔 방치 계정이 남지 않도록 `aws_iam_user.team`(`admin_group_members` ∪ `dev_group_members`)으로 전원 선언해 관리한다. 크레딧 계정 CloudShell에서는 `bash scripts/orbit-aws-credit-sync.sh` 한 줄로 원격 state 연결, `use_existing_s3_iam = false` 설정 복원, 기존 5명 `terraform import` 편입 및 태그 동기화를 자동 수행한다(콘솔 비밀번호·MFA 기기에는 영향 없음).
 
 ### 최소 권한 및 삭제 권한 원칙
 

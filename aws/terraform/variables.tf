@@ -204,3 +204,30 @@ variable "budget_alert_email" {
   type        = string
   default     = ""
 }
+
+# ---------------------------------------------------------------------------
+# 팀원 역할별 IAM 그룹 (목표 구성도: orbit-admins MFA 강제, orbit-devs ReadOnly)
+# 기존 콘솔 생성 계정도 terraform import 로 편입하여 전원 Terraform으로 일원화 관리
+# ---------------------------------------------------------------------------
+variable "enable_team_iam_groups" {
+  description = "팀원 역할별 IAM 그룹(orbit-admins, orbit-devs), 팀원 IAM 사용자, MFA 강제 정책, 계정 비밀번호 정책 관리 여부"
+  type        = bool
+  default     = false
+}
+
+variable "admin_group_members" {
+  description = "orbit-admins 그룹(AdministratorAccess + MFA 강제)에 편입하고 Terraform으로 관리할 팀원 IAM 사용자 목록"
+  type        = list(string)
+  default     = []
+}
+
+variable "dev_group_members" {
+  description = "orbit-devs 그룹(ReadOnlyAccess + MFA 강제)에 편입하고 Terraform으로 관리할 팀원 IAM 사용자 목록"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(setintersection(toset(var.admin_group_members), toset(var.dev_group_members))) == 0
+    error_message = "동일한 IAM 사용자를 admin_group_members와 dev_group_members에 중복 지정할 수 없습니다."
+  }
+}
