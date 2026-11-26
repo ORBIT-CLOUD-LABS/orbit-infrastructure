@@ -216,8 +216,10 @@ Phase 2 펌웨어 원본(Origin) 저장소다. `orbit-server`가 VPN 및 S3 인�
 |---|---|---|---|
 | 서비스 사용자 | `svc-origin` (구 `orbit-origin-backup`) | `OrbitOriginFirmwarePolicy` | `orbit-server`의 펌웨어 Origin 업로드·조회·실패 롤백 삭제 |
 | 서비스 사용자 | `svc-vault-backup` (구 `orbit-vault-backup`) | `OrbitVaultSnapshotBackupPolicy` | `vault` VM의 Raft 스냅샷 업로드·복구 조회 |
-| 팀 관리자 그룹 | `orbit-admins` | `AdministratorAccess`, `OrbitForceMfaPolicy`, `OrbitAdminSsmPortForwardPolicy` | 인프라 관리자 (`sungahbak`, `hyn128`) — MFA 인증 시에만 권한 발효 |
-| 팀 개발자 그룹 | `orbit-devs` | `ReadOnlyAccess`, `OrbitForceMfaPolicy` | 팀원 조회 전용 (`chuchuu22`, `jyvnee`, `xoruddl`) — 루트 계정 미공유, MFA 강제 |
+| 팀 관리자 그룹 | `orbit-admins` | `AdministratorAccess`, `OrbitForceMfaPolicy`, `OrbitAdminSsmPortForwardPolicy` | 팀 관리자 (`dohyun`, `jihyun`, `jiwoo`, `sunga`, `taekyung`) — MFA 인증 시에만 권한 발효 |
+| 팀 개발자 그룹 | `orbit-devs` | `ReadOnlyAccess`, `OrbitForceMfaPolicy` | 조회 전용 분리 시 사용 (`dev_group_members`) — 루트 계정 미공유, MFA 강제 |
+
+- 팀원 개인 IAM 사용자도 콘솔 방치 계정이 남지 않도록 `aws_iam_user.team`(`admin_group_members` ∪ `dev_group_members`)으로 전원 선언해 관리한다. 콘솔에서 먼저 생성된 계정은 `terraform import 'aws_iam_user.team["<사용자명>"]' <사용자명>`으로 state에 편입한다(콘솔 비밀번호·MFA 기기에는 영향 없음).
 
 ### 최소 권한 및 삭제 권한 원칙
 

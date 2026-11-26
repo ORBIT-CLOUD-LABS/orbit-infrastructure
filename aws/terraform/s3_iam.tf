@@ -460,24 +460,25 @@ resource "aws_iam_group_policy_attachment" "devs_mfa" {
   policy_arn = aws_iam_policy.force_mfa[0].arn
 }
 
+locals {
+  team_iam_users = var.enable_team_iam_groups ? toset(concat(var.admin_group_members, var.dev_group_members)) : toset([])
+}
+
+# 콘솔에서 미리 생성된 사용자도 terraform import 'aws_iam_user.team["<이름>"]' <이름> 으로 편입해 전원 Terraform으로 관리
 resource "aws_iam_user" "team" {
-  for_each = var.enable_team_iam_groups ? toset(var.create_iam_users) : toset([])
+  for_each = local.team_iam_users
   name     = each.value
   tags     = { Component = "iam-team" }
 }
 
 resource "aws_iam_user_group_membership" "admins" {
   for_each = var.enable_team_iam_groups ? toset(var.admin_group_members) : toset([])
-  user     = each.value
+  user     = aws_iam_user.team[each.value].name
   groups   = [aws_iam_group.admins[0].name]
-
-  depends_on = [aws_iam_user.team]
 }
 
 resource "aws_iam_user_group_membership" "devs" {
   for_each = var.enable_team_iam_groups ? toset(var.dev_group_members) : toset([])
-  user     = each.value
+  user     = aws_iam_user.team[each.value].name
   groups   = [aws_iam_group.devs[0].name]
-
-  depends_on = [aws_iam_user.team]
 }

@@ -29,11 +29,10 @@ vault_snapshot_bucket_name = "orbit-vault-snapshot-prod"
 origin_iam_user_name       = "svc-origin"
 vault_backup_iam_user_name = "svc-vault-backup"
 
-# 팀원 역할별 IAM 그룹 (목표 구성도: orbit-admins MFA 강제, orbit-devs ReadOnly)
+# 팀원 역할별 IAM 그룹 및 사용자 전원 Terraform 관리 (기존 콘솔 생성 계정은 terraform import 로 편입)
 enable_team_iam_groups = true
-create_iam_users       = ["hyn128", "chuchuu22", "jyvnee", "xoruddl"]
-admin_group_members    = ["sungahbak", "hyn128"]
-dev_group_members      = ["chuchuu22", "jyvnee", "xoruddl"]
+admin_group_members    = ["dohyun", "jihyun", "jiwoo", "sunga", "taekyung"]
+dev_group_members      = []
 
 # 보안·감사 기본선 및 예산 알람
 enable_security_baseline = true
