@@ -1,6 +1,6 @@
 # {{ ansible_managed }}
 # Vault 서버 (vault VM). 초기화와 unseal은 수동
-ui            = false
+ui            = true
 disable_mlock = true     # Raft는 mlock을 끄도록 권장 (메모리 맵 파일을 씀)
 api_addr      = "{{ hvault_addr }}"
 cluster_addr  = "https://{{ hvault_cluster_addr }}"
