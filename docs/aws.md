@@ -219,7 +219,7 @@ Phase 2 펌웨어 원본(Origin) 저장소다. `orbit-server`가 VPN 및 S3 인�
 | 팀 관리자 그룹 | `orbit-admins` | `AdministratorAccess`, `OrbitForceMfaPolicy`, `OrbitAdminSsmPortForwardPolicy` | 팀 관리자 (`dohyun`, `jihyun`, `jiwoo`, `sunga`, `taekyung`) — MFA 인증 시에만 권한 발효 |
 | 팀 개발자 그룹 | `orbit-devs` | `ReadOnlyAccess`, `OrbitForceMfaPolicy` | 조회 전용 분리 시 사용 (`dev_group_members`) — 루트 계정 미공유, MFA 강제 |
 
-- 팀원 개인 IAM 사용자도 콘솔 방치 계정이 남지 않도록 `aws_iam_user.team`(`admin_group_members` ∪ `dev_group_members`)으로 전원 선언해 관리한다. 콘솔에서 먼저 생성된 계정은 `terraform import 'aws_iam_user.team["<사용자명>"]' <사용자명>`으로 state에 편입한다(콘솔 비밀번호·MFA 기기에는 영향 없음).
+- 팀원 개인 IAM 사용자도 콘솔 방치 계정이 남지 않도록 `aws_iam_user.team`(`admin_group_members` ∪ `dev_group_members`)으로 전원 선언해 관리한다. 크레딧 계정 CloudShell에서는 `bash scripts/orbit-aws-credit-sync.sh` 한 줄로 원격 state 연결, `use_existing_s3_iam = false` 설정 복원, 기존 5명 `terraform import` 편입 및 태그 동기화를 자동 수행한다(콘솔 비밀번호·MFA 기기에는 영향 없음).
 
 ### 최소 권한 및 삭제 권한 원칙
 
