@@ -16,6 +16,7 @@ VM 이전: [#58](https://github.com/ORBIT-CLOUD-LABS/orbit-infrastructure/issues
 | TLS | 내부 CA `/opt/vault/tls/vault-ca.crt` (2036년 만료, astra에서 옮겨 온 같은 CA), 서버 인증서 `vault.crt` (SAN `vault`, `vault.orbit-labs.space`, `localhost`, `127.0.0.1`, `10.10.0.1`) |
 | 저장소 | 단일 노드 Raft `/opt/vault/data`, `node_id`는 `astra` (`hvault_node_id`. 옮기기 전 노드 이름 그대로). 8201은 `127.0.0.1`에만 염 |
 | 방화벽 | 8200은 `lo`, `enp1s0`(VM NIC)에서만 받음 (INPUT 맨 앞 `ORBIT-VAULT` 체인). 구역 사이 허용은 fw가 맡음 |
+| 웹 UI | `https://vault.orbit-labs.space:8200/ui` (`ui = true`). API와 같은 리스너·인증서. 브라우저가 내부 CA를 신뢰해야 경고가 없음 ([CA 등록](#브라우저에-내부-ca-등록)) |
 | unseal | Shamir 5개 중 2개. 팀원 5명이 하나씩 보관. 같은 정족수로 임시 root를 만들 수 있음 (`generate-root`) |
 | 감사 로그 | `/var/log/vault/audit.log` (`0600 vault`). 매일 회전, 14개 보관 |
 | SSH CA | 엔진 `ssh-client-signer`, 역할 `orbit`, 정책 `ssh-orbit`. CA 키 ed25519 |
@@ -346,6 +347,23 @@ vault operator unseal               # 키를 인자로 쓰지 않음 (history에
 - 보관자 2명이 서로 다른 키로 한 번씩 실행한다. 각자 Tailscale로 해도 된다.
 - 진행 상황은 메모리에만 있다. 처음부터 다시: `vault operator unseal -reset`
 - 끝나면 `ansible-playbook playbooks/vault.yml -K --ask-vault-pass`에서 `unsealed. 정상`을 확인한다.
+
+### 웹 UI로 unseal
+
+Tailscale에 연결하고, 브라우저에 [내부 CA를 등록](#브라우저에-내부-ca-등록)한 뒤 한다.
+
+1. 브라우저에서 `https://vault.orbit-labs.space:8200/ui`를 연다. sealed면 Unseal 화면이 나온다.
+2. 보관자 2명이 각자 자기 키를 넣는다. 다른 PC에서 해도 진행 상황이 이어진다.
+3. 로그인 화면이 나오면 unsealed다. 위의 플레이북으로 `unsealed. 정상`을 확인한다.
+
+### 브라우저에 내부 CA 등록
+
+CA 인증서는 [수동으로 인증서 받기](#macos-linux) 2번과 같은 방법으로 `~/.orbit/vault-ca.crt`(Windows `$HOME\.orbit\vault-ca.crt`)에 둔다. 한 번만 하면 된다.
+
+- macOS (Safari, Chrome): `security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db ~/.orbit/vault-ca.crt` (로그인 암호를 물음). 브라우저를 다시 연다.
+- Windows (Edge, Chrome): `Import-Certificate -FilePath "$HOME\.orbit\vault-ca.crt" -CertStoreLocation Cert:\CurrentUser\Root` (확인 창에서 예). 브라우저를 다시 연다.
+- 확인: 주소창 자물쇠의 인증서 정보에 발급자가 내부 CA로 나오고 경고가 없다.
+- 이 CA는 등록한 PC에서 모든 사이트 인증서를 서명할 수 있게 된다. CA 개인키는 vault VM 밖으로 꺼내지 않는다.
 
 ## 권한 회수
 
